@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
+                x:Class="FlowerWms.Tsd.Views.AboutPage"
+                NavigationPage.HasNavigationBar="False"
+                Title="">
+    
+    <StackLayout Padding="24" VerticalOptions="Center">
+        <Frame WidthRequest="80" 
+               HeightRequest="80" 
+               CornerRadius="40" 
+               BackgroundColor="{StaticResource PrimaryColor}"
+               HorizontalOptions="Center">
+            <Label Text="📦" FontSize="40" HorizontalOptions="Center" VerticalOptions="Center" />
+        </Frame>
+        
+        <Label Text="ALPHA WMS" 
+               FontSize="24" 
+               FontAttributes="Bold" 
+               HorizontalTextAlignment="Center" 
+               Margin="0,16,0,0" />
+        
+        <Label Text="v1.0.0 (build 1)" 
+               FontSize="18" 
+               TextColor="Gray" 
+               HorizontalTextAlignment="Center" />
+        
+        <Label Text="Full Offline Mode" 
+               FontSize="16" 
+               TextColor="Blue" 
+               HorizontalTextAlignment="Center" />
+        
+        <BoxView HeightRequest="1" Color="LightGray" Margin="0,16,0,16" />
+        
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="40" />
+            </Grid.RowDefinitions>
+            
+            <Label Grid.Column="0" Text="📅 Дата сборки" TextColor="Gray" />
+            <Label Grid.Column="1" Text="2026-07-16" HorizontalTextAlignment="End" />
+        </Grid>
+        
+        <BoxView HeightRequest="1" Color="LightGray" Margin="0,16,0,16" />
+        
+        <Label Text="© 2026 Alpha Flowers" 
+               FontSize="14" 
+               TextColor="Gray" 
+               HorizontalTextAlignment="Center" />
+        
+        <Label Text="Все права защищены" 
+               FontSize="12" 
+               TextColor="Gray" 
+               HorizontalTextAlignment="Center" />
+    </StackLayout>
+</views:BasePage>

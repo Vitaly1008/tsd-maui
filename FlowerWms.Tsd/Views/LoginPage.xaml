@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
+                xmlns:viewmodel="clr-namespace:FlowerWms.Tsd.ViewModels"
+                x:Class="FlowerWms.Tsd.Views.LoginPage"
+                NavigationPage.HasNavigationBar="False"
+                x:DataType="viewmodel:LoginViewModel"
+                BackgroundColor="#2E7D32"
+                Shell.NavBarIsVisible="False"
+                Title="">
+    
+    <views:BasePage.BindingContext>
+        <viewmodel:LoginViewModel />
+    </views:BasePage.BindingContext>
+
+    <Grid Padding="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Статус сервера + кнопка поиска -->
+        <Grid Grid.Row="0" 
+              ColumnDefinitions="*, Auto"
+              Margin="0,5,0,0">
+            
+            <Frame Grid.Column="0"
+                   BackgroundColor="{Binding ServerStatusColor}"
+                   CornerRadius="8"
+                   Padding="12,6"
+                   HorizontalOptions="Fill">
+                <HorizontalStackLayout Spacing="8">
+                    <Label Text="{Binding ServerStatusIcon}" FontSize="16" />
+                    <Label Text="{Binding ServerStatusText}" 
+                           TextColor="White" 
+                           FontSize="13"
+                           FontAttributes="Bold" />
+                </HorizontalStackLayout>
+            </Frame>
+
+            <Button Grid.Column="1"
+                    Text="{Binding SearchButtonText}"
+                    Command="{Binding FindServerCommand}"
+                    IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBooleanConverter}}"
+                    BackgroundColor="White"
+                    TextColor="{StaticResource PrimaryColor}"
+                    CornerRadius="8"
+                    WidthRequest="100"
+                    HeightRequest="38"
+                    FontSize="12"
+                    FontAttributes="Bold"
+                    Margin="8,0,0,0"
+                    Padding="8,0" />
+        </Grid>
+
+        <!-- Заголовок -->
+        <VerticalStackLayout Grid.Row="1" 
+                             Spacing="6" 
+                             HorizontalOptions="Center"
+                             Margin="0,16,0,0">
+            <Label Text="ALPHA WMS" 
+                   FontSize="28" 
+                   FontAttributes="Bold" 
+                   TextColor="White" 
+                   HorizontalTextAlignment="Center" />
+            <Label Text="Терминал сбора данных" 
+                   FontSize="14" 
+                   TextColor="#E0E0E0" 
+                   HorizontalTextAlignment="Center" />
+            <Label Text="{Binding ServerAddress, StringFormat='🌐 {0}'}" 
+                   FontSize="11" 
+                   TextColor="#CCCCCC" 
+                   HorizontalTextAlignment="Center"
+                   Opacity="0.7" />
+        </VerticalStackLayout>
+
+        <!-- Карточка с формой -->
+        <Frame Grid.Row="2" 
+               Padding="16" 
+               CornerRadius="16" 
+               BackgroundColor="White"
+               Margin="0,16,0,0"
+               VerticalOptions="Center">
+            <Grid RowSpacing="14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Ошибка -->
+                <Label Grid.Row="0"
+                       Text="{Binding ErrorMessage}"
+                       TextColor="{StaticResource DangerColor}"
+                       IsVisible="{Binding ErrorMessage, Converter={StaticResource StringNotEmptyConverter}}"
+                       FontSize="13" />
+
+                <!-- Имя пользователя -->
+                <Grid Grid.Row="1" ColumnDefinitions="40, *">
+                    <Label Grid.Column="0" Text="👤" FontSize="18" HorizontalOptions="Center" VerticalOptions="Center" />
+                    <Entry Grid.Column="1" 
+                           Placeholder="Имя пользователя" 
+                           Text="{Binding Username}" 
+                           FontSize="15"
+                           BackgroundColor="White"
+                           HeightRequest="44" />
+                </Grid>
+
+                <!-- Пароль -->
+                <Grid Grid.Row="2" ColumnDefinitions="40, *">
+                    <Label Grid.Column="0" Text="🔒" FontSize="18" HorizontalOptions="Center" VerticalOptions="Center" />
+                    <Entry Grid.Column="1" 
+                           x:Name="PasswordEntry"
+                           Placeholder="Пароль" 
+                           Text="{Binding Password}" 
+                           IsPassword="True" 
+                           FontSize="15"
+                           BackgroundColor="White"
+                           HeightRequest="44" />
+                </Grid>
+
+                <!-- Кнопка входа -->
+                <Button Grid.Row="3" 
+                        Text="Войти" 
+                        Style="{StaticResource PrimaryButton}"
+                        Command="{Binding LoginCommand}"
+                        IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBooleanConverter}}"
+                        HeightRequest="48" />
+            </Grid>
+        </Frame>
+
+        <!-- Индикатор загрузки -->
+        <ActivityIndicator Grid.Row="2" 
+                           IsRunning="{Binding IsLoading}" 
+                           Color="White" 
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+
+        <!-- Футер -->
+        <Label Grid.Row="3"
+               Text="Тестовый доступ: admin / admin123"
+               FontSize="11"
+               TextColor="#CCCCCC"
+               HorizontalTextAlignment="Center"
+               Margin="0,10,0,10" />
+    </Grid>
+</views:BasePage>

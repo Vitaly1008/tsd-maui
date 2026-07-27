@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
+                xmlns:viewmodel="clr-namespace:FlowerWms.Tsd.ViewModels"
+                x:Class="FlowerWms.Tsd.Views.HomePage"
+                NavigationPage.HasNavigationBar="False"
+                x:DataType="viewmodel:HomeViewModel"
+                Title="">
+    
+    <views:HomePage.BindingContext>
+        <viewmodel:HomeViewModel />
+    </views:HomePage.BindingContext>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Верхняя панель -->
+        <Grid Grid.Row="0" 
+              Padding="16,12"
+              BackgroundColor="{StaticResource PrimaryColor}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                <Label Text="ALPHA WMS" 
+                       TextColor="White" 
+                       FontSize="18"
+                       FontAttributes="Bold" />
+                <Label Text="{Binding ServerAddress, StringFormat='🌐 {0}'}" 
+                       TextColor="White" 
+                       FontSize="10"
+                       Opacity="0.7" />
+            </VerticalStackLayout>
+
+            <HorizontalStackLayout Grid.Column="1" Spacing="8">
+                <!-- Бейдж с количеством -->
+                <Frame IsVisible="{Binding PendingCount, Converter={StaticResource GreaterThanZeroConverter}}"
+                       BackgroundColor="{StaticResource WarningColor}"
+                       CornerRadius="10"
+                       Padding="6,1">
+                    <HorizontalStackLayout Spacing="3">
+                        <Label Text="🔄" TextColor="White" FontSize="10" />
+                        <Label Text="{Binding PendingCount}" 
+                               TextColor="White" 
+                               FontSize="9"
+                               FontAttributes="Bold" />
+                    </HorizontalStackLayout>
+                </Frame>
+
+                <!-- Статус подключения -->
+                <Label Text="{Binding IsOnline, Converter={StaticResource ConnectionIconConverter}}" 
+                       FontSize="18" />
+            </HorizontalStackLayout>
+        </Grid>
+
+        <!-- Основной контент -->
+        <ScrollView Grid.Row="1" Padding="12">
+            <VerticalStackLayout Spacing="12">
+                
+                <Label Text="📦 Выберите операцию" 
+                       FontSize="20"
+                       FontAttributes="Bold" 
+                       HorizontalTextAlignment="Center" 
+                       Margin="0, 4, 0, 8" />
+
+                <!-- Приемка -->
+                <Frame CornerRadius="10"
+                       Padding="0" 
+                       HasShadow="True"
+                       BackgroundColor="White">
+                    <Frame.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding NavigateToReceivingCommand}" />
+                    </Frame.GestureRecognizers>
+                    <Grid ColumnDefinitions="44, *, 32"
+                          Padding="12"
+                          HeightRequest="60">
+                        <Label Grid.Column="0" 
+                               Text="📥" 
+                               FontSize="24"
+                               HorizontalOptions="Center" 
+                               VerticalOptions="Center" />
+                        <VerticalStackLayout Grid.Column="1" Padding="6,0,0,0" VerticalOptions="Center">
+                            <Label Text="Приемка" FontSize="16" FontAttributes="Bold" />
+                            <Label Text="Прием товара" FontSize="12" TextColor="Gray" />
+                        </VerticalStackLayout>
+                        <Label Grid.Column="2" Text="›" FontSize="20" TextColor="Gray" HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Grid>
+                </Frame>
+
+                <!-- Отгрузка -->
+                <Frame CornerRadius="10"
+                       Padding="0" 
+                       HasShadow="True"
+                       BackgroundColor="White">
+                    <Frame.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding NavigateToShippingCommand}" />
+                    </Frame.GestureRecognizers>
+                    <Grid ColumnDefinitions="44, *, 32"
+                          Padding="12"
+                          HeightRequest="60">
+                        <Label Grid.Column="0" 
+                               Text="📤" 
+                               FontSize="24"
+                               HorizontalOptions="Center" 
+                               VerticalOptions="Center" />
+                        <VerticalStackLayout Grid.Column="1" Padding="6,0,0,0" VerticalOptions="Center">
+                            <Label Text="Отгрузка" FontSize="16" FontAttributes="Bold" />
+                            <Label Text="Отгрузка товара" FontSize="12" TextColor="Gray" />
+                        </VerticalStackLayout>
+                        <Label Grid.Column="2" Text="›" FontSize="20" TextColor="Gray" HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Grid>
+                </Frame>
+
+                <!-- Инвентаризация -->
+                <Frame CornerRadius="10"
+                       Padding="0" 
+                       HasShadow="True"
+                       BackgroundColor="White">
+                    <Frame.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding NavigateToInventoryCommand}" />
+                    </Frame.GestureRecognizers>
+                    <Grid ColumnDefinitions="44, *, 32"
+                          Padding="12"
+                          HeightRequest="60">
+                        <Label Grid.Column="0" 
+                               Text="📊" 
+                               FontSize="24"
+                               HorizontalOptions="Center" 
+                               VerticalOptions="Center" />
+                        <VerticalStackLayout Grid.Column="1" Padding="6,0,0,0" VerticalOptions="Center">
+                            <Label Text="Инвентаризация" FontSize="16" FontAttributes="Bold" />
+                            <Label Text="Пересчет остатков" FontSize="12" TextColor="Gray" />
+                        </VerticalStackLayout>
+                        <Label Grid.Column="2" Text="›" FontSize="20" TextColor="Gray" HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Grid>
+                </Frame>
+
+                <!-- Кнопки снизу -->
+                <Grid ColumnDefinitions="*, *, *" ColumnSpacing="8" Margin="0, 4, 0, 0">
+                    <Button Text="📋 Транзакции"
+                            Command="{Binding NavigateToPendingCommand}"
+                            Style="{StaticResource SecondaryButton}"
+                            HeightRequest="40"
+                            FontSize="12" />
+
+                    <Button Text="🔄 Синхронизация"
+                            Command="{Binding SyncCommand}"
+                            IsEnabled="{Binding IsSyncing, Converter={StaticResource InverseBooleanConverter}}"
+                            Style="{StaticResource PrimaryButton}"
+                            HeightRequest="40"
+                            FontSize="12" />
+                            
+                    <Button Text="{Binding IsSearching, Converter={StaticResource SearchButtonTextConverter}}"
+                            Command="{Binding FindServerCommand}"
+                            IsEnabled="{Binding IsSearching, Converter={StaticResource InverseBooleanConverter}}"
+                            Style="{StaticResource SecondaryButton}"
+                            HeightRequest="40"
+                            FontSize="12" />
+                </Grid>
+
+                <Button Text="🚪 Выход"
+                        Command="{Binding LogoutCommand}"
+                        BackgroundColor="Transparent"
+                        TextColor="{StaticResource DangerColor}"
+                        FontSize="12"
+                        Margin="0, 4, 0, 0" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+</views:BasePage>

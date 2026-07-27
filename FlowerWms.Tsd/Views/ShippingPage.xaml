@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
+                xmlns:viewmodel="clr-namespace:FlowerWms.Tsd.ViewModels"
+                x:Class="FlowerWms.Tsd.Views.ShippingPage"
+                NavigationPage.HasNavigationBar="False"
+                x:DataType="viewmodel:ShippingViewModel"
+                Title="">
+    
+    <Grid RowDefinitions="Auto, *">
+
+        <!-- Верхняя панель -->
+        <Grid Grid.Row="0" 
+              Padding="12" 
+              BackgroundColor="{StaticResource PrimaryColor}"
+              ColumnDefinitions="Auto, *, Auto">
+            
+            <Label Grid.Column="0" 
+                   Text="‹" 
+                   FontSize="30" 
+                   TextColor="White"
+                   HorizontalOptions="Center"
+                   VerticalOptions="Center">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Command="{Binding CancelOperationCommand}" />
+                </Label.GestureRecognizers>
+            </Label>
+
+            <Label Grid.Column="1" 
+                   Text="📤 Отгрузка" 
+                   TextColor="White" 
+                   FontSize="18" 
+                   FontAttributes="Bold"
+                   VerticalOptions="Center"
+                   Margin="12,0,0,0" />
+
+            <Frame Grid.Column="2" 
+                   BackgroundColor="White"
+                   CornerRadius="12"
+                   Padding="8,2"
+                   VerticalOptions="Center">
+                <Label Text="{Binding ScannedBoxes.Count}" 
+                       TextColor="{StaticResource PrimaryColor}" 
+                       FontSize="14" 
+                       FontAttributes="Bold" />
+            </Frame>
+        </Grid>
+
+        <!-- Основной контент -->
+        <ScrollView Grid.Row="1" Padding="16">
+            <VerticalStackLayout Spacing="16">
+
+                <!-- Информационное поле -->
+                <Frame Padding="16" 
+                       CornerRadius="12" 
+                       BackgroundColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusBackgroundConverter}}"
+                       BorderColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusBorderConverter}}">
+                    <Grid ColumnDefinitions="36, *">
+                        <Label Grid.Column="0" 
+                               Text="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusIconConverter}}" 
+                               FontSize="24"
+                               HorizontalOptions="Center"
+                               VerticalOptions="Center" />
+                        <VerticalStackLayout Grid.Column="1" Padding="8,0,0,0" Spacing="4">
+                            <Label Text="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusTextConverter}}" 
+                                   FontSize="16" 
+                                   FontAttributes="Bold" 
+                                   TextColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusColorConverter}}" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </Frame>
+
+                <!-- Информация о сессии -->
+                <Frame Padding="16" CornerRadius="12" HasShadow="True" BackgroundColor="White">
+                    <Grid ColumnDefinitions="*, 1, *" Padding="0">
+                        <VerticalStackLayout Grid.Column="0" Spacing="4" HorizontalOptions="Center">
+                            <Label Text="Коробок" TextColor="Gray" FontSize="12" />
+                            <Label Text="{Binding ScannedBoxes.Count}" 
+                                   FontSize="24" 
+                                   FontAttributes="Bold" 
+                                   HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+
+                        <BoxView Grid.Column="1" 
+                                 Color="LightGray" 
+                                 WidthRequest="1" 
+                                 HeightRequest="40" 
+                                 VerticalOptions="Center" />
+
+                        <VerticalStackLayout Grid.Column="2" Spacing="4" HorizontalOptions="Center" Padding="16,0,0,0">
+                            <Label Text="Заказ" TextColor="Gray" FontSize="12" />
+                            <Label Text="{Binding OrderNumber, TargetNullValue='Нет'}" 
+                                   FontSize="16" 
+                                   FontAttributes="Bold" 
+                                   TextColor="{Binding OrderNumber, Converter={StaticResource IsNotNullConverter}, TargetNullValue='Gray'}"
+                                   HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </Frame>
+
+                <!-- Кнопки действий -->
+                <Grid ColumnDefinitions="*, *" ColumnSpacing="12">
+                    <Button Grid.Column="0" 
+                            Text="📋 Ввести заказ" 
+                            Command="{Binding ScanOrderCommand}"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button Grid.Column="1" 
+                            Text="✅ Отгрузить" 
+                            Command="{Binding ConfirmOperationCommand}"
+                            IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
+                            Style="{StaticResource PrimaryButton}" />
+                </Grid>
+
+                <!-- Кнопка списка и отмена -->
+                <Grid ColumnDefinitions="*, *" ColumnSpacing="12">
+                    <Button Grid.Column="0" 
+                            Text="📋 Список" 
+                            Command="{Binding ShowBoxesListCommand}"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button Grid.Column="1" 
+                            Text="❌ Отмена" 
+                            Command="{Binding CancelOperationCommand}"
+                            Style="{StaticResource DangerButton}" />
+                </Grid>
+
+                <!-- Индикатор загрузки -->
+                <ActivityIndicator IsRunning="{Binding IsLoading}" 
+                                   Color="{StaticResource PrimaryColor}" 
+                                   HorizontalOptions="Center" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+</views:BasePage>
