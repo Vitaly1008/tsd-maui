@@ -75,6 +75,11 @@
                    TextColor="#CCCCCC" 
                    HorizontalTextAlignment="Center"
                    Opacity="0.7" />
+            <Label Text="{Binding DeviceIp, StringFormat='📡 IP: {0}'}" 
+                   FontSize="10" 
+                   TextColor="#AAAAAA" 
+                   HorizontalTextAlignment="Center"
+                   Opacity="0.6" />
         </VerticalStackLayout>
 
         <!-- Карточка с формой -->

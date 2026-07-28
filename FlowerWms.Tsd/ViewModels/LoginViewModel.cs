@@ -10,7 +10,6 @@ public partial class LoginViewModel : ObservableObject
 {
     private readonly AuthService _authService;
     private readonly ServerDiscoveryService _discoveryService;
-    private readonly LoggerService _logger;
 
     [ObservableProperty]
     private string _username = string.Empty;
@@ -39,30 +38,26 @@ public partial class LoginViewModel : ObservableObject
     [ObservableProperty]
     private string _searchButtonText = "🔍 Поиск сервера";
 
+    [ObservableProperty]
+    private string _deviceIp = string.Empty;
+
     public event EventHandler<LoginResponse>? LoginSuccess;
 
     public LoginViewModel()
     {
-        _logger = new LoggerService();
         _authService = new AuthService();
         _discoveryService = new ServerDiscoveryService();
         
         ServerAddress = Constants.ApiBaseUrl;
+        DeviceIp = _discoveryService.GetLocalIpAddress() ?? "не определен";
         
-        // Проверяем сервер при создании
         _ = CheckServerAsync();
     }
 
-    /// <summary>
-    /// Проверка сервера (без поиска)
-    /// </summary>
     public async Task CheckServerAsync()
     {
-        _logger.Info($"🔍 Проверка сервера: {Constants.ApiBaseUrl}");
-        
         try
         {
-            // Используем обычный Ping, не PingServerWithInfo
             var isAvailable = await _discoveryService.PingServer(Constants.ApiBaseUrl);
             
             MainThread.BeginInvokeOnMainThread(() =>
@@ -81,9 +76,8 @@ public partial class LoginViewModel : ObservableObject
                 }
             });
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.Error($"❌ Ошибка проверки сервера: {ex.Message}");
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 ServerStatusText = "Ошибка проверки";
@@ -96,8 +90,6 @@ public partial class LoginViewModel : ObservableObject
     [RelayCommand]
     private async Task FindServer()
     {
-        _logger.Info("🔍 ===== РУЧНОЙ ПОИСК СЕРВЕРА =====");
-        
         IsLoading = true;
         SearchButtonText = "⏳ Поиск...";
         ErrorMessage = string.Empty;
@@ -107,7 +99,7 @@ public partial class LoginViewModel : ObservableObject
 
         try
         {
-            var serverAddress = await _discoveryService.DiscoverServer();
+            var serverAddress = await _discoveryService.GetServerAddress();
             
             if (!string.IsNullOrEmpty(serverAddress))
             {
@@ -136,15 +128,14 @@ public partial class LoginViewModel : ObservableObject
                     "Проверьте:\n" +
                     "• Подключение к Wi-Fi\n" +
                     "• Что сервер запущен\n" +
-                    "• Что устройства в одной сети (маска 255.255.255.0)",
+                    "• Что устройства в одной сети\n" +
+                    $"IP устройства: {DeviceIp}",
                     "OK"
                 );
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка поиска сервера: {ex.Message}");
-            
             ServerStatusText = "Ошибка поиска";
             ServerStatusIcon = "⚠️";
             ServerStatusColor = Colors.Red;
@@ -159,15 +150,12 @@ public partial class LoginViewModel : ObservableObject
         {
             IsLoading = false;
             SearchButtonText = "🔍 Поиск сервера";
-            _logger.Info("🔍 ===== КОНЕЦ ПОИСКА СЕРВЕРА =====");
         }
     }
 
     [RelayCommand]
     private async Task Login()
     {
-        _logger.Info("🔑 Попытка входа...");
-        
         if (string.IsNullOrEmpty(Username) || string.IsNullOrEmpty(Password))
         {
             ErrorMessage = "Введите имя пользователя и пароль";
@@ -179,7 +167,6 @@ public partial class LoginViewModel : ObservableObject
 
         try
         {
-            // Проверяем сервер перед входом
             var serverAvailable = await _discoveryService.PingServer(Constants.ApiBaseUrl);
             if (!serverAvailable)
             {
@@ -193,7 +180,6 @@ public partial class LoginViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка входа: {ex.Message}");
             ErrorMessage = ex.Message;
         }
         finally

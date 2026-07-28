@@ -33,7 +33,7 @@ public partial class LoginPage : BasePage
                 };
             }
             
-            // ✅ Проверяем сервер при загрузке (без поиска)
+            // ✅ Проверяем сервер при загрузке
             if (_viewModel != null)
             {
                 await _viewModel.CheckServerAsync();
