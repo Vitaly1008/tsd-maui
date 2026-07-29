@@ -11,7 +11,6 @@ public partial class OperationViewModel : ObservableObject
 {
     private readonly ApiService _apiService;
     private readonly OfflineService _offlineService;
-    private readonly LoggerService _logger;
     private string _operationType = string.Empty;
 
     [ObservableProperty]
@@ -42,7 +41,6 @@ public partial class OperationViewModel : ObservableObject
         _operationType = operationType;
         _apiService = new ApiService();
         _offlineService = new OfflineService();
-        _logger = new LoggerService();
     }
 
     public async Task Initialize()
@@ -51,15 +49,10 @@ public partial class OperationViewModel : ObservableObject
         try
         {
             var result = await _apiService.StartOperation(_operationType, Constants.DeviceId);
-            if (result.ContainsKey("sessionId"))
-            {
-                _logger.Success($"✅ Операция {_operationType} запущена");
-            }
         }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
-            _logger.Error($"❌ Ошибка запуска операции: {ex.Message}");
         }
         finally
         {
@@ -99,8 +92,6 @@ public partial class OperationViewModel : ObservableObject
                     ScannedBoxes.Add(box);
                     LastScannedBarcode = barcode;
                 });
-                
-                _logger.Success($"✅ Коробка #{box.BoxNumber} отсканирована");
             }
             else if (result.ContainsKey("offline") && (bool)result["offline"])
             {
@@ -111,7 +102,6 @@ public partial class OperationViewModel : ObservableObject
                     ScannedBoxes.Add(box);
                     LastScannedBarcode = barcode;
                 });
-                _logger.Success("✅ Коробка добавлена локально (офлайн)");
             }
             else
             {
@@ -129,7 +119,6 @@ public partial class OperationViewModel : ObservableObject
                 ScannedBoxes.Add(box);
                 LastScannedBarcode = barcode;
             });
-            _logger.Success("✅ Коробка добавлена локально (офлайн)");
         }
         finally
         {
@@ -160,8 +149,6 @@ public partial class OperationViewModel : ObservableObject
                 Status = box.Status
             };
         }
-        
-        _logger.Info($"📍 Локация изменена на {locationCode}");
     }
 
     [RelayCommand]
@@ -224,11 +211,6 @@ public partial class OperationViewModel : ObservableObject
                     );
                 }
                 await _offlineService.MarkAsSynced(transactionId);
-                _logger.Success($"✅ Синхронизация успешна: {boxes.Count} коробок");
-            }
-            else
-            {
-                _logger.Warning("🌐 Нет интернета, транзакция сохранена в офлайн");
             }
 
             MainThread.BeginInvokeOnMainThread(() =>
@@ -245,7 +227,6 @@ public partial class OperationViewModel : ObservableObject
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
-            _logger.Error($"❌ confirmOperation ошибка: {ex.Message}");
         }
         finally
         {
@@ -266,7 +247,6 @@ public partial class OperationViewModel : ObservableObject
         });
         
         OperationCancelled?.Invoke(this, EventArgs.Empty);
-        _logger.Info("❌ Операция отменена");
 
         // Добавляем задержку для очистки
         await Task.CompletedTask;

@@ -8,14 +8,12 @@ public class AuthService
 {
     private readonly ApiService _api;
     private readonly SecureStorageService _secureStorage;
-    private readonly LoggerService _logger;
     private readonly ServerDiscoveryService _discoveryService;
 
     public AuthService()
     {
         _api = new ApiService();
         _secureStorage = new SecureStorageService();
-        _logger = new LoggerService();
         _discoveryService = new ServerDiscoveryService();
     }
 
@@ -27,15 +25,12 @@ public class AuthService
             var isAvailable = await _discoveryService.PingServer(Constants.ApiBaseUrl);
             
             if (!isAvailable)
-            {
-                _logger.Warning("⚠️ Сервер не доступен. Попытка поиска...");
-                
+            {   
                 // Пытаемся найти сервер
                 var newServer = await _discoveryService.GetServerAddress();
                 if (!string.IsNullOrEmpty(newServer))
                 {
                     Constants.ApiBaseUrl = newServer;
-                    _logger.Success($"✅ Сервер найден: {newServer}");
                 }
                 else
                 {
@@ -75,8 +70,6 @@ public class AuthService
                     loginResponse.Username,
                     loginResponse.Role
                 }));
-                
-                _logger.Success($"✅ Пользователь {loginResponse.Username} вошел в систему");
                 return loginResponse;
             }
 
@@ -84,7 +77,6 @@ public class AuthService
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка входа: {ex.Message}");
             throw;
         }
     }
@@ -101,17 +93,13 @@ public class AuthService
             
             if (response.IsSuccessStatusCode)
             {
-                _logger.Success("✅ Токен валидный");
                 return true;
             }
 
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                _logger.Warning("⚠️ Токен невалидный (401)");
                 return false;
             }
-
-            _logger.Warning($"🌐 Не удалось проверить токен: {response.StatusCode}");
             return true;
         }
         catch
@@ -129,6 +117,5 @@ public class AuthService
     public async Task Logout()
     {
         await _secureStorage.Clear();
-        _logger.Info("🔑 Пользователь вышел из системы");
     }
 }

@@ -5,7 +5,6 @@ namespace FlowerWms.Tsd.Services;
 
 public class NetworkService : IDisposable
 {
-    private readonly LoggerService _logger;
     private readonly ServerDiscoveryService _discoveryService;
     private readonly SyncService _syncService;
     private bool _isOnline;
@@ -16,7 +15,6 @@ public class NetworkService : IDisposable
 
     public NetworkService()
     {
-        _logger = new LoggerService();
         _discoveryService = new ServerDiscoveryService();
         _syncService = new SyncService();
         
@@ -30,9 +28,7 @@ public class NetworkService : IDisposable
     public bool IsOnline => _isOnline;
 
     private async void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
-    {
-        _logger.Info($"🌐 Изменение сети: {(e.IsAvailable ? "Подключено" : "Отключено")}");
-        
+    {   
         if (e.IsAvailable)
         {
             // Сеть появилась - проверяем сервер
@@ -43,7 +39,6 @@ public class NetworkService : IDisposable
             // Сеть пропала - переходим в офлайн
             _isOnline = false;
             NetworkStatusChanged?.Invoke(this, false);
-            _logger.Warning("🌐 Переход в офлайн-режим");
         }
     }
 
@@ -60,7 +55,6 @@ public class NetworkService : IDisposable
         {
             // Проверяем текущий адрес
             var currentAddress = Constants.ApiBaseUrl;
-            _logger.Info($"🔍 Проверка текущего адреса: {currentAddress}");
             
             var isAvailable = await _discoveryService.PingServer(currentAddress);
             
@@ -68,20 +62,17 @@ public class NetworkService : IDisposable
             {
                 _isOnline = true;
                 NetworkStatusChanged?.Invoke(this, true);
-                _logger.Success($"✅ Сервер доступен: {currentAddress}");
                 
                 // Если есть офлайн-транзакции - синхронизируем
                 var pendingCount = await _syncService.GetPendingCount();
                 if (pendingCount > 0)
                 {
-                    _logger.Info($"🔄 Начинаем синхронизацию ({pendingCount} транзакций)");
                     await _syncService.SyncManual();
                 }
                 return;
             }
 
             // Если текущий адрес не работает - ищем новый
-            _logger.Warning($"⚠️ Сервер {currentAddress} не доступен. Поиск нового...");
             
             var newAddress = await _discoveryService.DiscoverServer();
             
@@ -91,13 +82,11 @@ public class NetworkService : IDisposable
                 Constants.ApiBaseUrl = newAddress;
                 NetworkStatusChanged?.Invoke(this, true);
                 ServerFound?.Invoke(this, newAddress);
-                _logger.Success($"✅ Новый сервер найден: {newAddress}");
                 
                 // Синхронизируем данные
                 var pendingCount = await _syncService.GetPendingCount();
                 if (pendingCount > 0)
                 {
-                    _logger.Info($"🔄 Синхронизация после смены адреса ({pendingCount} транзакций)");
                     await _syncService.SyncManual();
                 }
             }
@@ -105,12 +94,10 @@ public class NetworkService : IDisposable
             {
                 _isOnline = false;
                 NetworkStatusChanged?.Invoke(this, false);
-                _logger.Warning("🌐 Сервер не найден. Офлайн-режим.");
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка проверки сети: {ex.Message}");
             _isOnline = false;
             NetworkStatusChanged?.Invoke(this, false);
         }
@@ -125,7 +112,6 @@ public class NetworkService : IDisposable
     /// </summary>
     public async Task ForceCheckAsync()
     {
-        _logger.Info("🔄 Принудительная проверка сети");
         await CheckNetworkAsync();
     }
 

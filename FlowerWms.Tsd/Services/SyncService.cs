@@ -8,7 +8,6 @@ public class SyncService
 {
     private readonly OfflineService _offlineService;
     private readonly ApiService _apiService;
-    private readonly LoggerService _logger;
     private bool _isSyncing;
 
     public event EventHandler<SyncStatus>? StatusChanged;
@@ -18,13 +17,10 @@ public class SyncService
     {
         _offlineService = new OfflineService();
         _apiService = new ApiService();
-        _logger = new LoggerService();
     }
 
     public async Task Init()
-    {
-        _logger.Info("🔄 Инициализация SyncService");
-        
+    {   
         await CheckConnectivity();
 
         var pendingCount = await _offlineService.GetPendingCount();
@@ -57,16 +53,13 @@ public class SyncService
             
             if (response.IsSuccessStatusCode)
             {
-                _logger.Success("🌐 Интернет доступен");
                 return true;
             }
             
-            _logger.Warning($"🌐 Сервер ответил с кодом: {response.StatusCode}");
             return false;
         }
         catch (Exception ex)
         {
-            _logger.Warning($"🌐 Проверка интернета: недоступен ({ex.Message})");
             return false;
         }
     }
@@ -75,28 +68,23 @@ public class SyncService
     {
         if (_isSyncing)
         {
-            _logger.Warning("🔄 Синхронизация уже выполняется");
             return;
         }
 
         var hasInternet = await CheckInternetManual();
         if (!hasInternet)
         {
-            _logger.Warning("🌐 Нет интернета, синхронизация отложена");
             return;
         }
 
         var pendingCount = await _offlineService.GetPendingCount();
         if (pendingCount == 0)
         {
-            _logger.Info("✅ Нет транзакций для синхронизации");
             return;
         }
 
         _isSyncing = true;
         StatusChanged?.Invoke(this, SyncStatus.Syncing);
-
-        _logger.Info($"🔄 Начало синхронизации ({pendingCount} транзакций)");
 
         try
         {
@@ -114,8 +102,6 @@ public class SyncService
                     var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(tx.payload) 
                                   ?? new Dictionary<string, object>();
 
-                    _logger.Info($"  📤 Синхронизация: {transactionId}");
-
                     var boxesJson = payload.ContainsKey("boxes") 
                         ? JsonSerializer.Serialize(payload["boxes"]) 
                         : "[]";
@@ -124,7 +110,6 @@ public class SyncService
 
                     if (boxes.Count == 0)
                     {
-                        _logger.Warning($"⚠️ Нет коробок в транзакции!");
                         await _offlineService.MarkAsError(transactionId, "Нет коробок для синхронизации");
                         errorCount++;
                         continue;
@@ -134,7 +119,6 @@ public class SyncService
                     foreach (var boxData in boxes)
                     {
                         var box = Box.FromJson(boxData);
-                        _logger.Info($"  📤 Отправка коробки: {box.Barcode}");
 
                         var locationCode = payload.ContainsKey("locationCode") 
                             ? payload["locationCode"]?.ToString() ?? "UNKNOWN" 
@@ -156,9 +140,6 @@ public class SyncService
                                 ["operationType"] = operationType
                             }
                         );
-
-                        _logger.Info($"  📥 Результат: {result["success"]}");
-
                         if (!(bool)result["success"])
                         {
                             allSuccess = false;
@@ -170,33 +151,26 @@ public class SyncService
                     {
                         await _offlineService.MarkAsSynced(transactionId);
                         successCount++;
-                        _logger.Success($"  ✅ {transactionId} синхронизирована");
                     }
                     else
                     {
                         await _offlineService.MarkAsError(transactionId, "Ошибка синхронизации коробок");
                         errorCount++;
-                        _logger.Error($"  ❌ {transactionId}: ошибка синхронизации");
                     }
                 }
                 catch (Exception ex)
                 {
                     await _offlineService.MarkAsError(tx.transaction_id, ex.Message);
                     errorCount++;
-                    _logger.Error($"  ❌ {tx.transaction_id}: {ex.Message}");
                 }
 
                 var remaining = await _offlineService.GetPendingCount();
                 PendingCountChanged?.Invoke(this, remaining);
             }
-
-            _logger.Success($"✅ Синхронизация завершена: {successCount} успешно, {errorCount} ошибок");
             await _offlineService.CleanOldSynced();
         }
         catch (Exception ex)
-        {
-            _logger.Error($"❌ Ошибка синхронизации: {ex.Message}");
-        }
+        {/* Do nothing*/        }
         finally
         {
             _isSyncing = false;
@@ -209,7 +183,6 @@ public class SyncService
 
     public async Task SyncManual()
     {
-        _logger.Info("🔄 Ручная синхронизация");
         await SyncAll();
     }
 

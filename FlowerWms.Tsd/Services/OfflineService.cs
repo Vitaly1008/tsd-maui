@@ -6,12 +6,10 @@ namespace FlowerWms.Tsd.Services;
 public class OfflineService
 {
     private readonly DatabaseHelper _dbHelper;
-    private readonly LoggerService _logger;
 
     public OfflineService()
     {
         _dbHelper = new DatabaseHelper();
-        _logger = new LoggerService();
     }
 
     public async Task<string> SaveTransaction(
@@ -38,13 +36,10 @@ public class OfflineService
             };
 
             await db.InsertAsync(transaction);
-
-            _logger.Info($"💾 Транзакция сохранена: {transactionId}");
             return transactionId;
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка сохранения транзакции: {ex.Message}");
             throw;
         }
     }
@@ -60,7 +55,6 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка получения транзакций: {ex.Message}");
             return new List<OfflineTransaction>();
         }
     }
@@ -90,11 +84,10 @@ public class OfflineService
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 transactionId
             );
-            _logger.Info($"✅ Транзакция синхронизирована: {transactionId}");
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка отметки синхронизации: {ex.Message}");
+            /* Do nothing*/
         }
     }
 
@@ -108,11 +101,10 @@ public class OfflineService
                 error,
                 transactionId
             );
-            _logger.Warning($"⚠️ Транзакция с ошибкой: {transactionId} - {error}");
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка отметки ошибки: {ex.Message}");
+            /* Do nothing*/
         }
     }
 
@@ -125,11 +117,9 @@ public class OfflineService
                 "DELETE FROM offline_transactions WHERE transaction_id = ?",
                 transactionId
             );
-            _logger.Info($"🗑️ Транзакция удалена: {transactionId}");
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка удаления транзакции: {ex.Message}");
             throw;
         }
     }
@@ -148,7 +138,7 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка очистки транзакций: {ex.Message}");
+            /* Do nothing*/
         }
     }
 }

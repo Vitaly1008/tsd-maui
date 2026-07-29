@@ -10,7 +10,6 @@ public class ApiService
     private HttpClient _httpClient;
     private readonly SecureStorageService _secureStorage;
     private readonly OfflineService _offlineService;
-    private readonly LoggerService _logger;
     private bool _isOffline;
 
     public ApiService()
@@ -18,7 +17,6 @@ public class ApiService
         _httpClient = new HttpClient();
         _secureStorage = new SecureStorageService();
         _offlineService = new OfflineService();
-        _logger = new LoggerService();
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
     }
 
@@ -28,7 +26,6 @@ public class ApiService
     public void UpdateBaseUrl(string newBaseUrl)
     {
         Constants.ApiBaseUrl = newBaseUrl;
-        _logger.Info($"🌐 Обновлен адрес API: {newBaseUrl}");
     }
 
     private async Task<HttpClient> GetHttpClient()
@@ -96,12 +93,9 @@ public class ApiService
         catch (Exception ex)
         {
             _isOffline = true;
-            _logger.Warning($"🌐 Офлайн-режим: {ex.Message}");
 
             if (!string.IsNullOrEmpty(operationType) && !string.IsNullOrEmpty(barcode))
-            {
-                _logger.Info($"💾 Сохранение в офлайн: {operationType}");
-                
+            {   
                 await _offlineService.SaveTransaction(
                     operationType: operationType,
                     barcode: barcode,
@@ -131,9 +125,7 @@ public class ApiService
     // ============================================================
 
     public async Task<Dictionary<string, object>> StartOperation(string operationType, string deviceId, string? context = null)
-    {
-        _logger.Info($"📤 Запрос startOperation: {operationType}, deviceId: {deviceId}");
-        
+    {   
         var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
             HttpMethod.Post,
             Constants.ApiEndpoints.StartOperation,
@@ -190,8 +182,6 @@ public class ApiService
         string barcode,
         Dictionary<string, object> payload)
     {
-        _logger.Info($"📤 Синхронизация: {operationType}, {barcode}");
-
         try
         {
             var client = await GetHttpClient();
@@ -213,7 +203,6 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                _logger.Success($"✅ Синхронизировано: {barcode}");
                 return new Dictionary<string, object>
                 {
                     ["success"] = true,
@@ -229,7 +218,6 @@ public class ApiService
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка синхронизации: {ex.Message}");
             return new Dictionary<string, object>
             {
                 ["success"] = false,

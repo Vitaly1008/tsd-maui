@@ -16,7 +16,6 @@ public enum InventoryMode
 public partial class InventoryViewModel : ObservableObject
 {
     private readonly ApiService _apiService;
-    private readonly LoggerService _logger;
     private Box? _selectedBox;
 
     [ObservableProperty]
@@ -55,7 +54,6 @@ public partial class InventoryViewModel : ObservableObject
     public InventoryViewModel()
     {
         _apiService = new ApiService();
-        _logger = new LoggerService();
     }
 
     public async Task Initialize()
@@ -100,8 +98,6 @@ public partial class InventoryViewModel : ObservableObject
                     CurrentValue = "Сканируйте новую локацию";
                     ActionButtonText = "✅ Подтвердить перемещение";
                 }
-                
-                _logger.Success($"✅ Коробка #{_selectedBox.BoxNumber} выбрана");
             }
             else if (result.ContainsKey("offline") && (bool)result["offline"])
             {
@@ -111,7 +107,6 @@ public partial class InventoryViewModel : ObservableObject
                 SelectedBoxNumber = $"#{box.BoxNumber} (офлайн)";
                 NewQuantity = box.Quantity;
                 CurrentValue = box.Quantity.ToString();
-                _logger.Success("✅ Коробка создана локально (офлайн)");
             }
         }
         catch (Exception ex)
@@ -122,7 +117,6 @@ public partial class InventoryViewModel : ObservableObject
             SelectedBoxNumber = $"#{box.BoxNumber} (офлайн)";
             NewQuantity = box.Quantity;
             CurrentValue = box.Quantity.ToString();
-            _logger.Success("✅ Коробка создана локально (офлайн)");
         }
         finally
         {
@@ -143,8 +137,6 @@ public partial class InventoryViewModel : ObservableObject
         ActionButtonText = mode == InventoryMode.Inventory 
             ? "✅ Подтвердить количество" 
             : "✅ Подтвердить перемещение";
-        
-        _logger.Info($"🔄 Смена режима: {(mode == InventoryMode.Inventory ? "Инвентаризация" : "Перемещение")}");
     }
 
     [RelayCommand]
@@ -152,13 +144,11 @@ public partial class InventoryViewModel : ObservableObject
     {
         if (CurrentMode != InventoryMode.Move)
         {
-            _logger.Warning("⚠️ Сканирование локации доступно только в режиме 'Перемещение'");
             return;
         }
 
         TargetLocation = locationCode;
         CurrentValue = locationCode;
-        _logger.Info($"📍 Целевая локация: {locationCode}");
     }
 
     [RelayCommand]
@@ -199,8 +189,6 @@ public partial class InventoryViewModel : ObservableObject
                     $"Коробка #{_selectedBox.BoxNumber} обновлена: {NewQuantity} шт.",
                     "OK"
                 );
-                
-                _logger.Success($"✅ Инвентаризация: коробка #{_selectedBox.BoxNumber}, количество: {NewQuantity}");
             }
             else
             {
@@ -223,8 +211,6 @@ public partial class InventoryViewModel : ObservableObject
                     $"Коробка #{_selectedBox.BoxNumber} перемещена в {TargetLocation}",
                     "OK"
                 );
-                
-                _logger.Success($"✅ Перемещение: коробка #{_selectedBox.BoxNumber} → {TargetLocation}");
             }
 
             // Сбрасываем состояние
@@ -237,7 +223,6 @@ public partial class InventoryViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            _logger.Error($"❌ Ошибка: {ex.Message}");
             await Application.Current?.MainPage?.DisplayAlert("Ошибка", ex.Message, "OK");
         }
         finally
@@ -257,7 +242,6 @@ public partial class InventoryViewModel : ObservableObject
         LastScannedBarcode = null;
         
         OperationCancelled?.Invoke(this, EventArgs.Empty);
-        _logger.Info("❌ Операция отменена");
     }
 
     private Box CreateLocalBox(string barcode)

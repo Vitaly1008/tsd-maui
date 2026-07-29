@@ -26,7 +26,6 @@ public static class MauiProgram
         builder.Services.AddSingleton<AuthService>();
         builder.Services.AddSingleton<OfflineService>();
         builder.Services.AddSingleton<SyncService>();
-        builder.Services.AddSingleton<LoggerService>();
         builder.Services.AddSingleton<SecureStorageService>();
         builder.Services.AddSingleton<NetworkService>(); // ✅ Добавляем NetworkService
         builder.Services.AddSingleton<ServerDiscoveryService>();
