@@ -30,7 +30,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<NetworkService>();
         builder.Services.AddSingleton<ServerDiscoveryService>();
         
-        // ✅ РЕГИСТРИРУЕМ IBarcodeService
+        // ✅ Регистрируем IBarcodeService
         builder.Services.AddTransient<IBarcodeService, BarcodeService>();
 
         return builder.Build();

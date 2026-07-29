@@ -10,7 +10,8 @@ public class SyncService
     private readonly ApiService _apiService;
     private bool _isSyncing;
 
-    public event EventHandler<SyncStatus>? StatusChanged;
+    // ✅ Используем FlowerWms.Tsd.Models.SyncStatus
+    public event EventHandler<FlowerWms.Tsd.Models.SyncStatus>? StatusChanged;
     public event EventHandler<int>? PendingCountChanged;
 
     public SyncService()
@@ -25,14 +26,12 @@ public class SyncService
 
         var pendingCount = await _offlineService.GetPendingCount();
         PendingCountChanged?.Invoke(this, pendingCount);
-
-        await SyncAll();
     }
 
     public async Task CheckConnectivity()
     {
         var hasInternet = await CheckInternetManual();
-        StatusChanged?.Invoke(this, hasInternet ? SyncStatus.Online : SyncStatus.Offline);
+        StatusChanged?.Invoke(this, hasInternet ? FlowerWms.Tsd.Models.SyncStatus.Online : FlowerWms.Tsd.Models.SyncStatus.Offline);
     }
 
     public async Task<bool> CheckInternetManual()
@@ -48,18 +47,13 @@ public class SyncService
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             client.Timeout = TimeSpan.FromSeconds(3);
             
-            // Используем новый Ping эндпоинт
             var response = await client.GetAsync($"{Constants.ApiBaseUrl}{Constants.ApiEndpoints.Ping}");
             
-            if (response.IsSuccessStatusCode)
-            {
-                return true;
-            }
-            
-            return false;
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"⚠️ CheckInternetManual: {ex.Message}");
             return false;
         }
     }
@@ -74,6 +68,7 @@ public class SyncService
         var hasInternet = await CheckInternetManual();
         if (!hasInternet)
         {
+            StatusChanged?.Invoke(this, FlowerWms.Tsd.Models.SyncStatus.Offline);
             return;
         }
 
@@ -84,7 +79,7 @@ public class SyncService
         }
 
         _isSyncing = true;
-        StatusChanged?.Invoke(this, SyncStatus.Syncing);
+        StatusChanged?.Invoke(this, FlowerWms.Tsd.Models.SyncStatus.Syncing);
 
         try
         {
@@ -170,11 +165,13 @@ public class SyncService
             await _offlineService.CleanOldSynced();
         }
         catch (Exception ex)
-        {/* Do nothing*/        }
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ SyncAll error: {ex.Message}");
+        }
         finally
         {
             _isSyncing = false;
-            StatusChanged?.Invoke(this, SyncStatus.Online);
+            StatusChanged?.Invoke(this, FlowerWms.Tsd.Models.SyncStatus.Online);
 
             var remaining = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, remaining);
@@ -199,19 +196,9 @@ public class SyncService
 
     public bool IsSyncing => _isSyncing;
 
-    /// <summary>
-    /// Проверка наличия неподтвержденных транзакций
-    /// </summary>
     public async Task<bool> HasPendingTransactions()
     {
         var count = await GetPendingCount();
         return count > 0;
     }
-}
-
-public enum SyncStatus
-{
-    Online,
-    Offline,
-    Syncing
 }

@@ -10,15 +10,32 @@ public static class AndroidContext
 
 public class BarcodeService : IBarcodeService
 {
-    private BarcodeBroadcastReceiver? _receiver;
+    private UrovoScannerService? _scannerService;
     private bool _isListening;
-    private readonly object _lock = new(); // ✅ Добавляем для потокобезопасности
+    private readonly object _lock = new();
 
     public event Action<string>? OnBarcodeScanned;
 
     public BarcodeService()
     {
-        // Инициализация при создании
+        // Инициализация будет при первом запуске
+    }
+
+    private void EnsureScannerService()
+    {
+        if (_scannerService != null) return;
+
+        var context = AndroidContext.Current;
+        if (context == null)
+        {
+            System.Diagnostics.Debug.WriteLine("❌ Контекст Android недоступен");
+            return;
+        }
+
+        _scannerService = new UrovoScannerService(context, (barcode) =>
+        {
+            OnBarcodeScanned?.Invoke(barcode);
+        });
     }
 
     public void StartListening()
@@ -30,32 +47,17 @@ public class BarcodeService : IBarcodeService
 
         try
         {
-            var context = AndroidContext.Current;
-            if (context == null)
-            {
-                System.Diagnostics.Debug.WriteLine("❌ Контекст Android недоступен");
-                return;
-            }
+            EnsureScannerService();
+            if (_scannerService == null) return;
 
-            _receiver = new BarcodeBroadcastReceiver((barcode) =>
-            {
-                OnBarcodeScanned?.Invoke(barcode);
-            });
-
-            var filter = new IntentFilter();
-            filter.AddAction("com.symbol.datawedge.api.ACTION_BARCODE");
-            filter.AddAction("com.urovo.scanner.ACTION_BARCODE_RESULT");
-            filter.AddAction("com.urovo.scanner.ACTION_SCAN_RESULT");
-            filter.AddAction("com.android.scanner.ACTION_SCAN");
-
-            context.RegisterReceiver(_receiver, filter);
+            _scannerService.StartListening();
             
             lock (_lock)
             {
                 _isListening = true;
             }
 
-            System.Diagnostics.Debug.WriteLine("✅ Сканер запущен");
+            System.Diagnostics.Debug.WriteLine("✅ Сканер запущен (Urovo RT40)");
         }
         catch (Exception ex)
         {
@@ -67,18 +69,12 @@ public class BarcodeService : IBarcodeService
     {
         lock (_lock)
         {
-            if (!_isListening || _receiver == null) return;
+            if (!_isListening || _scannerService == null) return;
         }
 
         try
         {
-            var context = AndroidContext.Current;
-            if (context != null)
-            {
-                context.UnregisterReceiver(_receiver);
-            }
-            _receiver.Dispose();
-            _receiver = null;
+            _scannerService.StopListening();
             
             lock (_lock)
             {
@@ -107,6 +103,8 @@ public class BarcodeService : IBarcodeService
     public void Dispose()
     {
         StopListening();
+        _scannerService?.Dispose();
+        _scannerService = null;
         GC.SuppressFinalize(this);
     }
 }

@@ -19,3 +19,21 @@ public class ConnectionIconConverter : IValueConverter
         return false;
     }
 }
+
+// ✅ НОВЫЙ КОНВЕРТЕР ДЛЯ СТАТУСА СИНХРОНИЗАЦИИ
+public class SyncStatusIconConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is bool isSyncing && isSyncing)
+        {
+            return "🔄";
+        }
+        return "📶";
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        return false;
+    }
+}

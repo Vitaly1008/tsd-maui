@@ -39,16 +39,16 @@ public static class StatusBarHelper
                 windowManager.DefaultDisplay.GetMetrics(displayMetrics);
                 
                 // На некоторых устройствах статус-бар имеет фиксированную высоту
-                _cachedHeight = (int)(25 * displayMetrics.Density); // 25dp
+                _cachedHeight = (int)(25 * displayMetrics.Density);
                 return _cachedHeight.Value;
             }
 
-            _cachedHeight = 30; // Значение по умолчанию
+            _cachedHeight = 30;
             return _cachedHeight.Value;
         }
         catch
         {
-            _cachedHeight = 30; // Значение по умолчанию
+            _cachedHeight = 30;
             return _cachedHeight.Value;
         }
     }

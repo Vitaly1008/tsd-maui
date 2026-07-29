@@ -60,12 +60,88 @@ public partial class OperationViewModel : ObservableObject
         }
     }
 
+    // ============================================================
+    // ПРОВЕРКА ДУБЛИКАТОВ В ОФЛАЙН-КЭШЕ
+    // ============================================================
+
+    private async Task<bool> IsBoxNumberExistsInCache(int boxNumber)
+    {
+        try
+        {
+            var dbHelper = new DatabaseHelper();
+            var db = dbHelper.Database;
+            var result = await db.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM boxes_cache WHERE box_number = ?",
+                boxNumber
+            );
+            return result > 0;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка проверки дубликата: {ex.Message}");
+            return false;
+        }
+    }
+
+    // ============================================================
+    // СОЗДАНИЕ ЛОКАЛЬНОЙ КОРОБКИ (ОФЛАЙН)
+    // ============================================================
+
+    private async Task<Box> CreateLocalBox(string barcode)
+    {
+        var parts = barcode.Split('-');
+        
+        var ean13 = parts.Length > 0 ? parts[0] : "0000000000000";
+        var quantity = parts.Length > 1 && int.TryParse(parts[1], out var q) ? q : 100;
+        var grade = parts.Length > 2 && !string.IsNullOrEmpty(parts[2]) ? parts[2] : "Premium";
+        var boxNumber = parts.Length > 3 && int.TryParse(parts[3], out var n) ? n : 0;
+
+        if (boxNumber == 0)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(barcode, @"-(\d+)$");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var n2))
+                boxNumber = n2;
+            else
+                boxNumber = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 10000);
+        }
+
+        // ✅ Проверка на дубликат в кэше (офлайн-режим)
+        var existsInCache = await IsBoxNumberExistsInCache(boxNumber);
+        if (existsInCache)
+        {
+            throw new Exception($"❌ Коробка №{boxNumber} уже существует на складе!");
+        }
+
+        // ✅ Проверка на дубликат в текущей сессии
+        if (ScannedBoxes.Any(b => b.BoxNumber == boxNumber))
+        {
+            throw new Exception($"❌ Коробка №{boxNumber} уже отсканирована в этой сессии!");
+        }
+
+        return new Box
+        {
+            Id = $"local_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+            Barcode = barcode,
+            BoxNumber = boxNumber,
+            ProductName = $"Локальная коробка #{boxNumber}",
+            ProductEan13 = ean13,
+            Quantity = quantity,
+            Grade = grade,
+            LocationCode = CurrentLocation,
+            Status = "Active"
+        };
+    }
+
+    // ============================================================
+    // СКАНИРОВАНИЕ КОРОБКИ
+    // ============================================================
+
     [RelayCommand]
     public async Task ScanBox(string barcode)
     {
         if (string.IsNullOrEmpty(barcode)) return;
 
-        // Проверка на дубликат
+        // Проверка на дубликат в сессии
         if (ScannedBoxes.Any(b => b.Barcode == barcode))
         {
             ErrorMessage = "❌ Коробка уже отсканирована";
@@ -83,8 +159,6 @@ public partial class OperationViewModel : ObservableObject
             {
                 var boxData = result["data"] as Dictionary<string, object> ?? new();
                 var box = Box.FromJson(boxData);
-                
-                // Обновляем локацию
                 box.LocationCode = CurrentLocation;
                 
                 MainThread.BeginInvokeOnMainThread(() =>
@@ -95,8 +169,8 @@ public partial class OperationViewModel : ObservableObject
             }
             else if (result.ContainsKey("offline") && (bool)result["offline"])
             {
-                // Офлайн-режим — создаем локальную коробку
-                var box = CreateLocalBox(barcode);
+                // Офлайн-режим — создаем локальную коробку с проверкой
+                var box = await CreateLocalBox(barcode);
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
                     ScannedBoxes.Add(box);
@@ -112,13 +186,20 @@ public partial class OperationViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            // Офлайн-режим
-            var box = CreateLocalBox(barcode);
-            MainThread.BeginInvokeOnMainThread(() =>
+            // Офлайн-режим с проверкой дубликатов
+            try
             {
-                ScannedBoxes.Add(box);
-                LastScannedBarcode = barcode;
-            });
+                var box = await CreateLocalBox(barcode);
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    ScannedBoxes.Add(box);
+                    LastScannedBarcode = barcode;
+                });
+            }
+            catch (Exception innerEx)
+            {
+                ErrorMessage = innerEx.Message;
+            }
         }
         finally
         {
@@ -126,12 +207,15 @@ public partial class OperationViewModel : ObservableObject
         }
     }
 
+    // ============================================================
+    // СКАНИРОВАНИЕ ЛОКАЦИИ
+    // ============================================================
+
     [RelayCommand]
     public void ScanLocation(string locationCode)
     {
         CurrentLocation = locationCode;
         
-        // Обновляем локацию у всех коробок
         for (int i = 0; i < ScannedBoxes.Count; i++)
         {
             var box = ScannedBoxes[i];
@@ -151,6 +235,26 @@ public partial class OperationViewModel : ObservableObject
         }
     }
 
+    // ============================================================
+    // УДАЛИТЬ КОРОБКУ
+    // ============================================================
+
+    [RelayCommand]
+    public void RemoveBox(int index)
+    {
+        if (index >= 0 && index < ScannedBoxes.Count)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                ScannedBoxes.RemoveAt(index);
+            });
+        }
+    }
+
+    // ============================================================
+    // ПОДТВЕРДИТЬ ОПЕРАЦИЮ (СИНХРОНИЗАЦИЯ ТОЛЬКО ПРИ НАЖАТИИ)
+    // ============================================================
+
     [RelayCommand]
     public async Task ConfirmOperation(string? comment = null)
     {
@@ -167,7 +271,7 @@ public partial class OperationViewModel : ObservableObject
         {
             var boxes = ScannedBoxes.ToList();
             
-            // Сохраняем транзакцию
+            // 1. Сохраняем транзакцию (всегда)
             var transactionId = await _offlineService.SaveTransaction(
                 operationType: _operationType,
                 barcode: string.Join(",", boxes.Select(b => b.Barcode)),
@@ -184,35 +288,84 @@ public partial class OperationViewModel : ObservableObject
                 deviceId: Constants.DeviceId
             );
 
-            // Проверяем интернет
+            // 2. Пытаемся синхронизировать (только если есть интернет)
             var syncService = new SyncService();
             var hasInternet = await syncService.CheckInternetManual();
 
             if (hasInternet)
             {
-                // Синхронизация
+                bool allSuccess = true;
+                string lastError = "";
+
                 foreach (var box in boxes)
                 {
-                    await _apiService.SyncOfflineTransaction(
-                        transactionId: transactionId,
-                        operationType: _operationType,
-                        barcode: box.Barcode,
-                        payload: new Dictionary<string, object>
+                    try
+                    {
+                        var result = await _apiService.SyncOfflineTransaction(
+                            transactionId: transactionId,
+                            operationType: _operationType,
+                            barcode: box.Barcode,
+                            payload: new Dictionary<string, object>
+                            {
+                                ["boxId"] = box.Id,
+                                ["boxNumber"] = box.BoxNumber,
+                                ["productName"] = box.ProductName,
+                                ["productEan13"] = box.ProductEan13,
+                                ["quantity"] = box.Quantity,
+                                ["locationCode"] = CurrentLocation,
+                                ["grade"] = box.Grade,
+                                ["operationType"] = _operationType
+                            }
+                        );
+                        
+                        if (!(bool)result["success"])
                         {
-                            ["boxId"] = box.Id,
-                            ["boxNumber"] = box.BoxNumber,
-                            ["productName"] = box.ProductName,
-                            ["productEan13"] = box.ProductEan13,
-                            ["quantity"] = box.Quantity,
-                            ["locationCode"] = CurrentLocation,
-                            ["grade"] = box.Grade,
-                            ["operationType"] = _operationType
+                            allSuccess = false;
+                            lastError = result.ContainsKey("message") 
+                                ? result["message"]?.ToString() ?? "Неизвестная ошибка"
+                                : "Неизвестная ошибка";
+                            break;
                         }
+                    }
+                    catch (Exception ex)
+                    {
+                        allSuccess = false;
+                        lastError = ex.Message;
+                        break;
+                    }
+                }
+
+                if (allSuccess)
+                {
+                    await _offlineService.MarkAsSynced(transactionId);
+                    
+                    await Application.Current?.MainPage?.DisplayAlert(
+                        "✅ Успешно",
+                        $"Синхронизировано {boxes.Count} коробок",
+                        "OK"
                     );
                 }
-                await _offlineService.MarkAsSynced(transactionId);
+                else
+                {
+                    await _offlineService.MarkAsError(transactionId, lastError);
+                    
+                    await Application.Current?.MainPage?.DisplayAlert(
+                        "⚠️ Внимание",
+                        $"Операция сохранена офлайн. Будет синхронизирована позже.\nОшибка: {lastError}",
+                        "OK"
+                    );
+                }
+            }
+            else
+            {
+                await Application.Current?.MainPage?.DisplayAlert(
+                    "📴 Офлайн-режим",
+                    $"Операция сохранена. Будет синхронизирована при подключении к сети.",
+                    "OK"
+                );
             }
 
+            // 3. Очищаем состояние (всегда)
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 ScannedBoxes.Clear();
@@ -227,12 +380,22 @@ public partial class OperationViewModel : ObservableObject
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
+            
+            await Application.Current?.MainPage?.DisplayAlert(
+                "❌ Ошибка",
+                ex.Message,
+                "OK"
+            );
         }
         finally
         {
             IsLoading = false;
         }
     }
+
+    // ============================================================
+    // ОТМЕНИТЬ ОПЕРАЦИЮ
+    // ============================================================
 
     [RelayCommand]
     public async Task CancelOperation()
@@ -247,59 +410,7 @@ public partial class OperationViewModel : ObservableObject
         });
         
         OperationCancelled?.Invoke(this, EventArgs.Empty);
-
-        // Добавляем задержку для очистки
         await Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    public void RemoveBox(int index)
-    {
-        if (index >= 0 && index < ScannedBoxes.Count)
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                ScannedBoxes.RemoveAt(index);
-            });
-        }
-    }
-
-    private Box CreateLocalBox(string barcode)
-    {
-        var parts = barcode.Split('-');
-        
-        var ean13 = parts.Length > 0 ? parts[0] : "0000000000000";
-        var quantity = parts.Length > 1 && int.TryParse(parts[1], out var q) ? q : 100;
-        var grade = parts.Length > 2 && !string.IsNullOrEmpty(parts[2]) ? parts[2] : "Premium";
-        var boxNumber = parts.Length > 3 && int.TryParse(parts[3], out var n) ? n : 0;
-
-        if (boxNumber == 0)
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(barcode, @"-(\d+)$");
-            if (match.Success && int.TryParse(match.Groups[1].Value, out var n2))
-                boxNumber = n2;
-            else
-                boxNumber = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 10000);
-        }
-
-        // Проверка на дубликат в сессии
-        if (ScannedBoxes.Any(b => b.BoxNumber == boxNumber))
-        {
-            throw new Exception($"❌ Коробка №{boxNumber} уже отсканирована в этой сессии!");
-        }
-
-        return new Box
-        {
-            Id = $"local_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
-            Barcode = barcode,
-            BoxNumber = boxNumber,
-            ProductName = $"Локальная коробка #{boxNumber}",
-            ProductEan13 = ean13,
-            Quantity = quantity,
-            Grade = grade,
-            LocationCode = CurrentLocation,
-            Status = "Active"
-        };
     }
 
     [RelayCommand]

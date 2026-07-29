@@ -45,7 +45,6 @@ public partial class HomeViewModel : ObservableObject
         
         ServerAddress = Constants.ApiBaseUrl;
 
-        // Подписываемся на события сети
         _networkService.NetworkStatusChanged += OnNetworkStatusChanged;
         _networkService.ServerFound += OnServerFound;
 
@@ -53,15 +52,16 @@ public partial class HomeViewModel : ObservableObject
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                IsOnline = status == SyncStatus.Online;
+                // ✅ Используем FlowerWms.Tsd.Models.SyncStatus
+                IsOnline = status == FlowerWms.Tsd.Models.SyncStatus.Online;
                 ConnectionStatus = status switch
                 {
-                    SyncStatus.Online => "Онлайн",
-                    SyncStatus.Offline => "Офлайн",
-                    SyncStatus.Syncing => "Синхронизация...",
+                    FlowerWms.Tsd.Models.SyncStatus.Online => "Онлайн",
+                    FlowerWms.Tsd.Models.SyncStatus.Offline => "Офлайн",
+                    FlowerWms.Tsd.Models.SyncStatus.Syncing => "Синхронизация...",
                     _ => "Неизвестно"
                 };
-                IsSyncing = status == SyncStatus.Syncing;
+                IsSyncing = status == FlowerWms.Tsd.Models.SyncStatus.Syncing;
             });
         };
 
@@ -83,7 +83,6 @@ public partial class HomeViewModel : ObservableObject
             
             if (isOnline)
             {
-                // Если появилась сеть - обновляем адрес
                 ServerAddress = Constants.ApiBaseUrl;
             }
         });
@@ -103,10 +102,8 @@ public partial class HomeViewModel : ObservableObject
     {
         try
         {
-            // Запускаем проверку сети
             await _networkService.CheckNetworkAsync();
             
-            await _syncService.Init();
             IsOnline = await _syncService.CheckInternetManual();
             PendingCount = await _syncService.GetPendingCount();
             ServerAddress = Constants.ApiBaseUrl;
