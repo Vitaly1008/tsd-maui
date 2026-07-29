@@ -12,22 +12,26 @@ public class BarcodeService : IBarcodeService
 {
     private BarcodeBroadcastReceiver? _receiver;
     private bool _isListening;
+    private readonly object _lock = new(); // ✅ Добавляем для потокобезопасности
 
     public event Action<string>? OnBarcodeScanned;
 
-    public BarcodeService() // ✅ Добавлен конструктор
+    public BarcodeService()
     {
         // Инициализация при создании
     }
 
     public void StartListening()
     {
-        if (_isListening) return;
+        lock (_lock)
+        {
+            if (_isListening) return;
+        }
 
         try
         {
             var context = AndroidContext.Current;
-            if (context == null) 
+            if (context == null)
             {
                 System.Diagnostics.Debug.WriteLine("❌ Контекст Android недоступен");
                 return;
@@ -45,8 +49,12 @@ public class BarcodeService : IBarcodeService
             filter.AddAction("com.android.scanner.ACTION_SCAN");
 
             context.RegisterReceiver(_receiver, filter);
-            _isListening = true;
             
+            lock (_lock)
+            {
+                _isListening = true;
+            }
+
             System.Diagnostics.Debug.WriteLine("✅ Сканер запущен");
         }
         catch (Exception ex)
@@ -57,7 +65,10 @@ public class BarcodeService : IBarcodeService
 
     public void StopListening()
     {
-        if (!_isListening || _receiver == null) return;
+        lock (_lock)
+        {
+            if (!_isListening || _receiver == null) return;
+        }
 
         try
         {
@@ -68,8 +79,12 @@ public class BarcodeService : IBarcodeService
             }
             _receiver.Dispose();
             _receiver = null;
-            _isListening = false;
             
+            lock (_lock)
+            {
+                _isListening = false;
+            }
+
             System.Diagnostics.Debug.WriteLine("✅ Сканер остановлен");
         }
         catch (Exception ex)
@@ -78,7 +93,16 @@ public class BarcodeService : IBarcodeService
         }
     }
 
-    public bool IsListening => _isListening;
+    public bool IsListening
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _isListening;
+            }
+        }
+    }
 
     public void Dispose()
     {

@@ -27,10 +27,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<OfflineService>();
         builder.Services.AddSingleton<SyncService>();
         builder.Services.AddSingleton<SecureStorageService>();
-        builder.Services.AddSingleton<NetworkService>(); // ✅ Добавляем NetworkService
+        builder.Services.AddSingleton<NetworkService>();
         builder.Services.AddSingleton<ServerDiscoveryService>();
         
-        builder.Services.AddTransient<IBarcodeService, Platforms.Android.BarcodeService>();
+        // ✅ РЕГИСТРИРУЕМ IBarcodeService
+        builder.Services.AddTransient<IBarcodeService, BarcodeService>();
 
         return builder.Build();
     }

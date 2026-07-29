@@ -7,7 +7,6 @@ using System.Diagnostics.CodeAnalysis;
 namespace FlowerWms.Tsd.Platforms.Android;
 
 [Preserve(AllMembers = true)]
-[Obsolete]
 public class BarcodeBroadcastReceiver : BroadcastReceiver
 {
     private readonly Action<string>? _onBarcodeScanned;

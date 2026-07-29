@@ -5,7 +5,6 @@
                 xmlns:viewmodel="clr-namespace:FlowerWms.Tsd.ViewModels"
                 x:Class="FlowerWms.Tsd.Views.ReceivingPage"
                 NavigationPage.HasNavigationBar="False"
-                x:DataType="viewmodel:ReceivingViewModel"
                 Title="">
     
     <Grid RowDefinitions="Auto, *">
