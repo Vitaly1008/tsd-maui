@@ -10,9 +10,9 @@
                 Shell.NavBarIsVisible="False"
                 Title="">
     
-    <views:BasePage.BindingContext>
+    <views:LoginPage.BindingContext>
         <viewmodel:LoginViewModel />
-    </views:BasePage.BindingContext>
+    </views:LoginPage.BindingContext>
 
     <Grid Padding="20">
         <Grid.RowDefinitions>
@@ -61,20 +61,27 @@
                              Spacing="6" 
                              HorizontalOptions="Center"
                              Margin="0,16,0,0">
-            <Label Text="ALPHA WMS" 
+            
+            <!-- ✅ Заголовок меняется при поиске -->
+            <Label Text="{Binding TitleText}" 
                    FontSize="28" 
                    FontAttributes="Bold" 
                    TextColor="White" 
                    HorizontalTextAlignment="Center" />
-            <Label Text="Терминал сбора данных" 
+            
+            <!-- ✅ Подзаголовок меняется при поиске -->
+            <Label Text="{Binding SubtitleText}" 
                    FontSize="14" 
                    TextColor="#E0E0E0" 
                    HorizontalTextAlignment="Center" />
-            <Label Text="{Binding ServerAddress, StringFormat='🌐 {0}'}" 
+            
+            <!-- ✅ Адрес сервера или диапазон сканирования -->
+            <Label Text="{Binding ServerAddressDisplay}" 
                    FontSize="11" 
                    TextColor="#CCCCCC" 
                    HorizontalTextAlignment="Center"
                    Opacity="0.7" />
+            
             <Label Text="{Binding DeviceIp, StringFormat='📡 IP: {0}'}" 
                    FontSize="10" 
                    TextColor="#AAAAAA" 
@@ -133,7 +140,7 @@
                         Text="Войти" 
                         Style="{StaticResource PrimaryButton}"
                         Command="{Binding LoginCommand}"
-                        IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBooleanConverter}}"
+                        IsEnabled="{Binding IsLoginEnabled}"
                         HeightRequest="48" />
             </Grid>
         </Frame>

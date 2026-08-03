@@ -276,5 +276,10 @@ public partial class InventoryViewModel : ObservableObject
         };
     }
 
+    // ✅ Добавьте метод для обновления подсказок
+    private void UpdateScanStatus(string barcode)
+    {
+        LastScannedBarcode = barcode;
+    }
     public bool IsActionEnabled => _selectedBox != null && (CurrentMode != InventoryMode.Move || !string.IsNullOrEmpty(TargetLocation));
 }

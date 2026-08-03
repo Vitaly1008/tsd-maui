@@ -16,16 +16,24 @@
               BackgroundColor="{StaticResource PrimaryColor}"
               ColumnDefinitions="Auto, *, Auto">
             
-            <Label Grid.Column="0" 
-                   Text="‹" 
-                   FontSize="30" 
-                   TextColor="White"
+            <!-- ✅ Увеличенная кнопка "Назад" -->
+            <Frame Grid.Column="0"
+                   BackgroundColor="Transparent"
+                   Padding="4"
+                   CornerRadius="8"
+                   WidthRequest="44"
+                   HeightRequest="44"
                    HorizontalOptions="Center"
                    VerticalOptions="Center">
-                <Label.GestureRecognizers>
+                <Frame.GestureRecognizers>
                     <TapGestureRecognizer Command="{Binding CancelOperationCommand}" />
-                </Label.GestureRecognizers>
-            </Label>
+                </Frame.GestureRecognizers>
+                <Label Text="‹" 
+                       FontSize="32" 
+                       TextColor="White"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center" />
+            </Frame>
 
             <Label Grid.Column="1" 
                    Text="📊 Инвентаризация" 
@@ -33,8 +41,9 @@
                    FontSize="18" 
                    FontAttributes="Bold"
                    VerticalOptions="Center"
-                   Margin="12,0,0,0" />
+                   Margin="8,0,0,0" />
 
+            <!-- ✅ Унифицированная иконка статуса -->
             <Label Grid.Column="2" 
                    Text="{Binding IsOnline, Converter={StaticResource ConnectionIconConverter}}" 
                    FontSize="20"
@@ -45,7 +54,7 @@
         <ScrollView Grid.Row="1" Padding="16">
             <VerticalStackLayout Spacing="16">
 
-                <!-- Информационное поле -->
+                <!-- ✅ Информационное поле -->
                 <Frame Padding="16" 
                        CornerRadius="12" 
                        BackgroundColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusBackgroundConverter}}"
@@ -61,6 +70,10 @@
                                    FontSize="16" 
                                    FontAttributes="Bold" 
                                    TextColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusColorConverter}}" />
+                            <Label Text="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusSubtitleConverter}}" 
+                                   FontSize="12" 
+                                   TextColor="Gray" 
+                                   IsVisible="{Binding LastScannedBarcode, Converter={StaticResource IsNotNullConverter}}" />
                         </VerticalStackLayout>
                     </Grid>
                 </Frame>
