@@ -34,6 +34,9 @@ public class GreaterThanZeroConverter : IValueConverter
             return l > 0;
         if (value is decimal dec)
             return dec > 0;
+        // ✅ Добавляем поддержку коллекций
+        if (value is System.Collections.ICollection collection)
+            return collection.Count > 0;
         return false;
     }
 
@@ -47,13 +50,19 @@ public class IsNotNullConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
+        // ✅ Поддержка параметра для инвертирования
+        var invert = parameter?.ToString()?.ToLower() == "invert";
+        
         if (value == null)
-            return false;
+            return invert ? true : false;
         
         if (value is string str)
-            return !string.IsNullOrEmpty(str);
+        {
+            var hasValue = !string.IsNullOrEmpty(str);
+            return invert ? !hasValue : hasValue;
+        }
             
-        return true;
+        return invert ? false : true;
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)

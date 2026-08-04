@@ -11,7 +11,7 @@ public partial class ReceivingPage : BasePage
 
     public ReceivingPage(IBarcodeService barcodeService)
     {
-        InitializeComponent();
+        InitializeComponent(); // ✅ Убедитесь, что это есть
         _barcodeService = barcodeService;
         
         Loaded += OnPageLoaded;
@@ -29,12 +29,14 @@ public partial class ReceivingPage : BasePage
             {
                 _viewModel.OperationCompleted += OnOperationCompleted;
                 _viewModel.OperationCancelled += OnOperationCancelled;
+                
+                // Инициализация
                 await _viewModel.Initialize();
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка загрузки ReceivingPage: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка загрузки ReceivingPage: {ex.Message}");
             await DisplayAlert("Ошибка", $"Не удалось загрузить страницу: {ex.Message}", "OK");
             await Navigation.PopAsync();
         }

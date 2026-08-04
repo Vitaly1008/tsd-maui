@@ -3,10 +3,27 @@
                 xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
                 xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
                 xmlns:viewmodel="clr-namespace:FlowerWms.Tsd.ViewModels"
+                xmlns:converters="clr-namespace:FlowerWms.Tsd.Converters"
                 x:Class="FlowerWms.Tsd.Views.ReceivingPage"
                 NavigationPage.HasNavigationBar="False"
                 Title="">
     
+    <views:BasePage.Resources>
+        <converters:InverseBooleanConverter x:Key="InverseBooleanConverter" />
+        <converters:GreaterThanZeroConverter x:Key="GreaterThanZeroConverter" />
+        <converters:IsNotNullConverter x:Key="IsNotNullConverter" />
+        <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter" />
+        <converters:ConnectionIconConverter x:Key="ConnectionIconConverter" />
+        <converters:ScanStatusBackgroundConverter x:Key="ScanStatusBackgroundConverter" />
+        <converters:ScanStatusBorderConverter x:Key="ScanStatusBorderConverter" />
+        <converters:ScanStatusIconConverter x:Key="ScanStatusIconConverter" />
+        <converters:ScanStatusTextConverter x:Key="ScanStatusTextConverter" />
+        <converters:ScanStatusColorConverter x:Key="ScanStatusColorConverter" />
+        <converters:ScanStatusSubtitleConverter x:Key="ScanStatusSubtitleConverter" />
+        <converters:ModeBackgroundConverter x:Key="ModeBackgroundConverter" />
+        <converters:ModeTextColorConverter x:Key="ModeTextColorConverter" />
+    </views:BasePage.Resources>
+
     <Grid RowDefinitions="Auto, *">
 
         <!-- Верхняя панель -->
@@ -35,14 +52,14 @@
             </Frame>
 
             <Label Grid.Column="1" 
-                   Text="📥 Приемка" 
+                   Text="Приемка" 
                    TextColor="White" 
                    FontSize="18" 
                    FontAttributes="Bold"
                    VerticalOptions="Center"
                    Margin="8,0,0,0" />
 
-            <!-- Иконка статуса -->
+            <!-- Индикатор статуса -->
             <Label Grid.Column="2" 
                    Text="{Binding IsOnline, Converter={StaticResource ConnectionIconConverter}}" 
                    FontSize="20"
@@ -58,28 +75,24 @@
                        CornerRadius="12" 
                        BackgroundColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusBackgroundConverter}}"
                        BorderColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusBorderConverter}}">
-                    <Grid ColumnDefinitions="36, *">
+                    <Grid ColumnDefinitions="32, *">
+                        <!-- Иконка статуса -->
                         <Label Grid.Column="0" 
                                Text="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusIconConverter}}" 
-                               FontSize="24"
+                               FontSize="20"
                                HorizontalOptions="Center"
                                VerticalOptions="Center" />
                         <VerticalStackLayout Grid.Column="1" Padding="8,0,0,0" Spacing="2">
                             <!-- Статус сканирования -->
                             <Label Text="{Binding ScanStatusText}" 
-                                   FontSize="16" 
+                                   FontSize="14" 
                                    FontAttributes="Bold" 
                                    TextColor="{Binding ScanStatusColor}" />
-                            <!-- Информация о коробке (если отсканирована) -->
+                            <!-- Информация о коробке -->
                             <Label Text="{Binding BoxInfoText}" 
                                    FontSize="13" 
                                    TextColor="Gray"
                                    IsVisible="{Binding IsBoxScanned}" />
-                            <!-- Подсказка -->
-                            <Label Text="📷 Нажмите триггер для сканирования" 
-                                   FontSize="12" 
-                                   TextColor="#9E9E9E" 
-                                   IsVisible="{Binding IsBoxScanned, Converter={StaticResource InverseBooleanConverter}}" />
                         </VerticalStackLayout>
                     </Grid>
                 </Frame>
@@ -122,20 +135,45 @@
                     </Grid>
                 </Frame>
 
+                <!-- Информационное поле сканирования с индикацией ошибки -->
+                <Frame Padding="16" 
+                    CornerRadius="12" 
+                    BackgroundColor="{Binding ScanStatusColor, Converter={StaticResource ScanStatusBackgroundConverter}}"
+                    BorderColor="{Binding ScanStatusColor}">
+                    <Grid ColumnDefinitions="32, *">
+                        <Label Grid.Column="0" 
+                            Text="{Binding ScanStatusIcon}" 
+                            FontSize="20"
+                            HorizontalOptions="Center"
+                            VerticalOptions="Center" />
+                        <VerticalStackLayout Grid.Column="1" Padding="8,0,0,0" Spacing="2">
+                            <Label Text="{Binding ScanStatusText}" 
+                                FontSize="14" 
+                                FontAttributes="Bold" 
+                                TextColor="{Binding ScanStatusColor}" />
+                            <Label Text="{Binding BoxInfoText}" 
+                                FontSize="13" 
+                                TextColor="Gray"
+                                IsVisible="{Binding IsBoxScanned}" />
+                            <Label Text="{Binding ErrorMessage}" 
+                                FontSize="13" 
+                                TextColor="Red"
+                                IsVisible="{Binding HasError}" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </Frame>
                 <!-- Кнопки действий -->
                 <Grid ColumnDefinitions="*, *" ColumnSpacing="12">
                     <Button Grid.Column="0" 
-                            Text="📋 Список коробок" 
+                            Text="Список коробок" 
                             Command="{Binding ShowBoxesListCommand}"
                             Style="{StaticResource SecondaryButton}" />
                     <Button Grid.Column="1" 
-                            Text="✅ Принять" 
+                            Text="Принять" 
                             Command="{Binding ConfirmOperationCommand}"
                             IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
                             Style="{StaticResource PrimaryButton}" />
                 </Grid>
-
-                <!-- ❌ Кнопка "Отмена" УДАЛЕНА -->
 
                 <!-- Индикатор загрузки -->
                 <ActivityIndicator IsRunning="{Binding IsLoading}" 

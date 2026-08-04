@@ -4,7 +4,6 @@ using FlowerWms.Tsd.Converters;
 
 namespace FlowerWms.Tsd;
 
-// ✅ ДОБАВЛЯЕМ КЛЮЧЕВОЕ СЛОВО partial
 public partial class App : Application
 {
     public App()
@@ -12,7 +11,6 @@ public partial class App : Application
         try
         {
             InitializeResources();
-            Resources.Add("StatusBarPaddingConverter", new StatusBarPaddingConverter());
             MainPage = new NavigationPage(new Views.LoginPage());
         }
         catch (Exception ex)
@@ -33,6 +31,7 @@ public partial class App : Application
         Resources.Add("IsNotNullConverter", new IsNotNullConverter());
         Resources.Add("StringNotEmptyConverter", new StringNotEmptyConverter());
         Resources.Add("ConnectionIconConverter", new ConnectionIconConverter());
+        Resources.Add("SyncStatusIconConverter", new SyncStatusIconConverter()); // ✅ Добавляем
         Resources.Add("ModeBackgroundConverter", new ModeBackgroundConverter());
         Resources.Add("ModeTextColorConverter", new ModeTextColorConverter());
         Resources.Add("ModeLabelConverter", new ModeLabelConverter());
@@ -42,9 +41,10 @@ public partial class App : Application
         Resources.Add("ScanStatusTextConverter", new ScanStatusTextConverter());
         Resources.Add("ScanStatusColorConverter", new ScanStatusColorConverter());
         Resources.Add("ScanStatusSubtitleConverter", new ScanStatusSubtitleConverter());
-         Resources.Add("SearchButtonTextConverter", new SearchButtonTextConverter());
+        Resources.Add("SearchButtonTextConverter", new SearchButtonTextConverter());
+        Resources.Add("StatusBarPaddingConverter", new StatusBarPaddingConverter());
 
-        // Цвета - используем Color.FromArgb
+        // Цвета
         Resources.Add("PrimaryColor", Color.FromArgb("#2E7D32"));
         Resources.Add("PrimaryDark", Color.FromArgb("#1B5E20"));
         Resources.Add("SecondaryColor", Color.FromArgb("#4CAF50"));
@@ -53,7 +53,13 @@ public partial class App : Application
         Resources.Add("WarningColor", Color.FromArgb("#faad14"));
         Resources.Add("InfoColor", Color.FromArgb("#1890ff"));
 
-        // Стиль для кнопок - PrimaryButton
+        // Стили...
+        AddStyles();
+    }
+
+    private void AddStyles()
+    {
+        // PrimaryButton
         Resources.Add("PrimaryButton", new Style(typeof(Button))
         {
             Setters = {
@@ -66,7 +72,7 @@ public partial class App : Application
             }
         });
 
-        // Стиль для кнопок - SecondaryButton
+        // SecondaryButton
         Resources.Add("SecondaryButton", new Style(typeof(Button))
         {
             Setters = {
@@ -81,7 +87,7 @@ public partial class App : Application
             }
         });
 
-        // Стиль для кнопок - DangerButton
+        // DangerButton
         Resources.Add("DangerButton", new Style(typeof(Button))
         {
             Setters = {
@@ -91,25 +97,6 @@ public partial class App : Application
                 new Setter { Property = Button.FontAttributesProperty, Value = FontAttributes.Bold },
                 new Setter { Property = Button.HeightRequestProperty, Value = 42.0 },
                 new Setter { Property = Button.CornerRadiusProperty, Value = 8 }
-            }
-        });
-
-        // Стиль для Entry
-        Resources.Add(new Style(typeof(Entry))
-        {
-            Setters = {
-                new Setter { Property = Entry.HeightRequestProperty, Value = 48.0 },
-                new Setter { Property = Entry.FontSizeProperty, Value = 16.0 },
-                new Setter { Property = Entry.BackgroundColorProperty, Value = Colors.White },
-                new Setter { Property = Entry.TextColorProperty, Value = Color.FromArgb("#333333") }
-            }
-        });
-
-        // Стиль для Label
-        Resources.Add(new Style(typeof(Label))
-        {
-            Setters = {
-                new Setter { Property = Label.FontFamilyProperty, Value = "Arial" }
             }
         });
     }

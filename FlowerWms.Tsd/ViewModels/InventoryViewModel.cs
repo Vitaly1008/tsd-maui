@@ -4,6 +4,7 @@ using FlowerWms.Tsd.Models;
 using FlowerWms.Tsd.Services;
 using FlowerWms.Tsd.Helpers;
 using System.Collections.ObjectModel;
+using Microsoft.Maui.Devices;
 
 namespace FlowerWms.Tsd.ViewModels;
 
@@ -429,7 +430,7 @@ public partial class InventoryViewModel : ObservableObject
             Quantity = quantity,
             Grade = grade,
             LocationCode = "UNKNOWN",
-            Status = "Active"
+            Status = 1 //"Active"
         };
     }
 

@@ -122,7 +122,12 @@ public partial class OperationViewModel : ObservableObject, IDisposable
 
         if (ScannedBoxes.Any(b => b.Barcode == barcode))
         {
-            ErrorMessage = "❌ Коробка уже отсканирована";
+            ErrorMessage = "❌ Коробка уже отсканирована в этой сессии";
+            await Application.Current?.MainPage?.DisplayAlert(
+                "⚠️ Внимание",
+                ErrorMessage,
+                "OK"
+            );
             return;
         }
 
@@ -131,6 +136,20 @@ public partial class OperationViewModel : ObservableObject, IDisposable
 
         try
         {
+            // ✅ Проверка в БД
+            var dbHelper = new DatabaseHelper();
+            var exists = await dbHelper.IsBoxExistsByBarcode(barcode);
+            if (exists)
+            {
+                ErrorMessage = "❌ Коробка уже существует на складе";
+                await Application.Current?.MainPage?.DisplayAlert(
+                    "⚠️ Внимание",
+                    ErrorMessage,
+                    "OK"
+                );
+                return;
+            }
+
             var result = await _apiService.ScanBarcode(barcode, Constants.DeviceId);
 
             if (result.ContainsKey("data"))
@@ -431,7 +450,7 @@ public partial class OperationViewModel : ObservableObject, IDisposable
             Quantity = quantity,
             Grade = grade,
             LocationCode = CurrentLocation,
-            Status = "Active"
+            Status = 1 //"Active"
         };
     }
 

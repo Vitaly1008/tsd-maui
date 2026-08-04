@@ -74,7 +74,16 @@ public class ScanStatusSubtitleConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        return !string.IsNullOrEmpty(value?.ToString()) ? "Коробка добавлена в список" : "Нажмите триггер для сканирования";
+        // ✅ Поддержка параметра для инвертирования
+        var invert = parameter?.ToString()?.ToLower() == "invert";
+        var hasValue = !string.IsNullOrEmpty(value?.ToString());
+        
+        if (invert)
+        {
+            return hasValue ? "Нажмите триггер для сканирования" : "Коробка добавлена в список";
+        }
+        
+        return hasValue ? "Коробка добавлена в список" : "Нажмите триггер для сканирования";
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)

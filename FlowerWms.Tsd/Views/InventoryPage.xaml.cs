@@ -9,7 +9,7 @@ public partial class InventoryPage : BasePage
 
     public InventoryPage()
     {
-        InitializeComponent(); // ✅ Добавляем
+        InitializeComponent(); // ✅ Оставляем только здесь
         _viewModel = BindingContext as InventoryViewModel;
         
         if (_viewModel != null)

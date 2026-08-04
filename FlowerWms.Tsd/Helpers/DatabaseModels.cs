@@ -32,12 +32,17 @@ public class BoxCache
     public string barcode { get; set; } = string.Empty;
     
     public int box_number { get; set; }
+    public string grade { get; set; } = string.Empty;
+    public int initial_quantity { get; set; }
+    public int current_quantity { get; set; }
+    public string product_id { get; set; } = string.Empty;
     public string product_name { get; set; } = string.Empty;
     public string product_ean13 { get; set; } = string.Empty;
-    public int quantity { get; set; }
-    public string grade { get; set; } = string.Empty;
+    public string? location_id { get; set; }
     public string? location_code { get; set; }
-    public string? status { get; set; }
+    public string? order_id { get; set; }
+    public int status { get; set; } = 1;
+    public long created_at { get; set; }
     public long updated_at { get; set; }
 }
 
@@ -50,7 +55,25 @@ public class LocationCache
     [Unique]
     public string code { get; set; } = string.Empty;
     
-    public string? name { get; set; }
+    public string name { get; set; } = string.Empty;
     public string? barcode { get; set; }
+    public int is_active { get; set; } = 1;
+    public long created_at { get; set; }
+}
+
+[Table("products_cache")]
+public class ProductCache
+{
+    [PrimaryKey]
+    public string product_id { get; set; } = string.Empty;
+    
+    [Unique]
+    public string ean13 { get; set; } = string.Empty;
+    
+    public string name { get; set; } = string.Empty;
+    public string? short_name { get; set; }
+    public string? onec_guid { get; set; }
+    public string? barcode { get; set; }
+    public long created_at { get; set; }
     public long updated_at { get; set; }
 }

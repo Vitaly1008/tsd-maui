@@ -507,4 +507,66 @@ public class ApiService
             return false;
         }
     }
+
+    /// <summary>
+    /// Синхронизация справочника продуктов
+    /// </summary>
+    public async Task<bool> SyncProducts()
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/products");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var products = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
+                
+                if (products != null && products.Count > 0)
+                {
+                    var dbHelper = new DatabaseHelper();
+                    var productCache = new List<ProductCache>();
+                    
+                    foreach (var p in products)
+                    {
+                        var id = p.GetValueOrDefault("id", "")?.ToString() ?? "";
+                        var ean13 = p.GetValueOrDefault("ean13", "")?.ToString() ?? "";
+                        var name = p.GetValueOrDefault("name", "")?.ToString() ?? "";
+                        var shortName = p.GetValueOrDefault("shortName", "")?.ToString();
+                        var onecGuid = p.GetValueOrDefault("oneCGuid", "")?.ToString();
+                        var barcode = p.GetValueOrDefault("barcode", "")?.ToString();
+                        var createdAt = p.GetValueOrDefault("createdAt", 0) is long ca ? ca : 0;
+                        var updatedAt = p.GetValueOrDefault("updatedAt", 0) is long ua ? ua : 0;
+                        
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(ean13) && !string.IsNullOrEmpty(name))
+                        {
+                            productCache.Add(new ProductCache
+                            {
+                                product_id = id,
+                                ean13 = ean13,
+                                name = name,
+                                short_name = shortName,
+                                onec_guid = onecGuid,
+                                barcode = barcode,
+                                created_at = createdAt,
+                                updated_at = updatedAt
+                            });
+                        }
+                    }
+                    
+                    await dbHelper.SyncProducts(productCache);
+                    System.Diagnostics.Debug.WriteLine($"Синхронизировано {productCache.Count} продуктов");
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации продуктов: {ex.Message}");
+            return false;
+        }
+    }
 }
