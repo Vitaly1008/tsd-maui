@@ -16,7 +16,7 @@
               BackgroundColor="{StaticResource PrimaryColor}"
               ColumnDefinitions="Auto, *, Auto">
             
-            <!-- ✅ Увеличенная кнопка "Назад" -->
+            <!-- ✅ Кнопка "Назад" теперь работает -->
             <Frame Grid.Column="0"
                    BackgroundColor="Transparent"
                    Padding="4"
@@ -26,7 +26,7 @@
                    HorizontalOptions="Center"
                    VerticalOptions="Center">
                 <Frame.GestureRecognizers>
-                    <TapGestureRecognizer Command="{Binding CancelOperationCommand}" />
+                    <TapGestureRecognizer Command="{Binding BackCommand}" />
                 </Frame.GestureRecognizers>
                 <Label Text="‹" 
                        FontSize="32" 
@@ -43,7 +43,7 @@
                    VerticalOptions="Center"
                    Margin="8,0,0,0" />
 
-            <!-- ✅ Унифицированная иконка статуса -->
+            <!-- ✅ Индикатор подключения -->
             <Label Grid.Column="2" 
                    Text="{Binding IsOnline, Converter={StaticResource ConnectionIconConverter}}" 
                    FontSize="20"
@@ -54,7 +54,7 @@
         <ScrollView Grid.Row="1" Padding="16">
             <VerticalStackLayout Spacing="16">
 
-                <!-- ✅ Информационное поле с подсказкой -->
+                <!-- Информационное поле -->
                 <Frame Padding="16" 
                        CornerRadius="12" 
                        BackgroundColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusBackgroundConverter}}"
@@ -74,10 +74,9 @@
                                    FontSize="12" 
                                    TextColor="Gray" 
                                    IsVisible="{Binding LastScannedBarcode, Converter={StaticResource IsNotNullConverter}}" />
-                            <!-- ✅ Подсказка когда нет сканирований -->
-                            <Label Text="Нажмите триггер для сканирования коробки" 
+                            <Label Text="📷 Нажмите триггер для сканирования коробки" 
                                    FontSize="12" 
-                                   TextColor="Gray" 
+                                   TextColor="#9E9E9E" 
                                    IsVisible="{Binding LastScannedBarcode, Converter={StaticResource IsNotNullConverter}, ConverterParameter=invert}" />
                         </VerticalStackLayout>
                     </Grid>
@@ -102,10 +101,10 @@
 
                         <VerticalStackLayout Grid.Column="2" Spacing="4" HorizontalOptions="Center" Padding="16,0,0,0">
                             <Label Text="Заказ" TextColor="Gray" FontSize="12" />
-                            <Label Text="{Binding OrderNumber, TargetNullValue='Не указан'}" 
+                            <Label Text="{Binding OrderNumber, FallbackValue='Не указан'}" 
                                    FontSize="16" 
                                    FontAttributes="Bold" 
-                                   TextColor="{Binding OrderNumber, Converter={StaticResource IsNotNullConverter}, TargetNullValue='Gray'}"
+                                   TextColor="{Binding OrderNumber, Converter={StaticResource IsNotNullConverter}, FallbackValue='Gray'}"
                                    HorizontalTextAlignment="Center" />
                         </VerticalStackLayout>
                     </Grid>
@@ -124,17 +123,10 @@
                             Style="{StaticResource PrimaryButton}" />
                 </Grid>
 
-                <!-- Кнопка списка и отмена -->
-                <Grid ColumnDefinitions="*, *" ColumnSpacing="12">
-                    <Button Grid.Column="0" 
-                            Text="📋 Список коробок" 
-                            Command="{Binding ShowBoxesListCommand}"
-                            Style="{StaticResource SecondaryButton}" />
-                    <Button Grid.Column="1" 
-                            Text="❌ Отмена" 
-                            Command="{Binding CancelOperationCommand}"
-                            Style="{StaticResource DangerButton}" />
-                </Grid>
+                <!-- Кнопка списка коробок -->
+                <Button Text="📋 Список коробок" 
+                        Command="{Binding ShowBoxesListCommand}"
+                        Style="{StaticResource SecondaryButton}" />
 
                 <!-- Индикатор загрузки -->
                 <ActivityIndicator IsRunning="{Binding IsLoading}" 

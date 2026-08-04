@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Maui.Storage;
 
 namespace FlowerWms.Tsd.Helpers;
 
@@ -7,6 +8,8 @@ public static class Constants
     private static string? _apiBaseUrl;
     private static string? _deviceId;
     private static readonly object _lock = new object();
+    private const string CONFIG_KEY_API = "apiBaseUrl";
+    private const string CONFIG_KEY_DEVICE = "deviceId";
 
     public static string ApiBaseUrl
     {
@@ -17,12 +20,11 @@ public static class Constants
                 if (!string.IsNullOrEmpty(_apiBaseUrl))
                     return _apiBaseUrl;
 
-                // Пытаемся загрузить из настроек
-                _apiBaseUrl = LoadConfig("apiBaseUrl", null);
+                // Загружаем из SecureStorage
+                _apiBaseUrl = LoadConfig(CONFIG_KEY_API, null);
                 
                 if (string.IsNullOrEmpty(_apiBaseUrl))
                 {
-                    // Если нет в настройках - используем значение по умолчанию
                     _apiBaseUrl = "http://192.168.0.252:5152";
                 }
                 
@@ -34,8 +36,7 @@ public static class Constants
             lock (_lock)
             {
                 _apiBaseUrl = value;
-                // Сохраняем в настройки
-                SaveConfig("apiBaseUrl", value);
+                SaveConfig(CONFIG_KEY_API, value);
             }
         }
     }
@@ -47,26 +48,28 @@ public static class Constants
             if (!string.IsNullOrEmpty(_deviceId))
                 return _deviceId;
 
-            _deviceId = LoadConfig("deviceId", "RT40_001");
+            _deviceId = LoadConfig(CONFIG_KEY_DEVICE, "RT40_001");
             return _deviceId;
         }
     }
 
+    // ✅ Используем SecureStorage для безопасного хранения
     private static string LoadConfig(string key, string? defaultValue)
     {
         try
         {
-            var configPath = Path.Combine(FileSystem.AppDataDirectory, "config.json");
-            if (File.Exists(configPath))
+            var task = Task.Run(async () => await SecureStorage.GetAsync(key));
+            var value = task.Result;
+            
+            if (!string.IsNullOrEmpty(value))
             {
-                var json = File.ReadAllText(configPath);
-                var config = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                return config?.GetValueOrDefault(key) ?? defaultValue ?? string.Empty;
+                return value;
             }
             return defaultValue ?? string.Empty;
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка загрузки конфига {key}: {ex.Message}");
             return defaultValue ?? string.Empty;
         }
     }
@@ -75,28 +78,13 @@ public static class Constants
     {
         try
         {
-            var configPath = Path.Combine(FileSystem.AppDataDirectory, "config.json");
-            Dictionary<string, string> config;
-            
-            if (File.Exists(configPath))
-            {
-                var json = File.ReadAllText(configPath);
-                config = JsonSerializer.Deserialize<Dictionary<string, string>>(json) 
-                         ?? new Dictionary<string, string>();
-            }
-            else
-            {
-                config = new Dictionary<string, string>();
-            }
-            
-            config[key] = value;
-            
-            var newJson = JsonSerializer.Serialize(config);
-            File.WriteAllText(configPath, newJson);
+            var task = Task.Run(async () => await SecureStorage.SetAsync(key, value));
+            task.Wait();
+            System.Diagnostics.Debug.WriteLine($"✅ Конфиг сохранен: {key}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения конфига: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения конфига {key}: {ex.Message}");
         }
     }
 

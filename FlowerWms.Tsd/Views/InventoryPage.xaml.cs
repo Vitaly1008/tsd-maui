@@ -1,19 +1,19 @@
 using FlowerWms.Tsd.ViewModels;
+using FlowerWms.Tsd.Services;
 
 namespace FlowerWms.Tsd.Views;
 
-public partial class InventoryPage : BasePage  // ✅ Наследуем BasePage
+public partial class InventoryPage : BasePage
 {
     private InventoryViewModel _viewModel;
 
     public InventoryPage()
     {
-        InitializeComponent();
+        InitializeComponent(); // ✅ Добавляем
         _viewModel = BindingContext as InventoryViewModel;
         
         if (_viewModel != null)
         {
-            _viewModel.OperationCompleted += OnOperationCompleted;
             _viewModel.OperationCancelled += OnOperationCancelled;
             Loaded += OnPageLoaded;
         }
@@ -27,13 +27,49 @@ public partial class InventoryPage : BasePage  // ✅ Наследуем BasePag
         }
     }
 
-    private async void OnOperationCompleted(object? sender, EventArgs e)
+    private async void OnOperationCancelled(object? sender, EventArgs e)
     {
         await Navigation.PopAsync();
     }
 
-    private async void OnOperationCancelled(object? sender, EventArgs e)
+    protected override void OnAppearing()
     {
-        await Navigation.PopAsync();
+        base.OnAppearing();
+        
+        var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
+        if (barcodeService != null)
+        {
+            barcodeService.OnBarcodeScanned += OnBarcodeScanned;
+            barcodeService.StartListening();
+        }
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        
+        var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
+        if (barcodeService != null)
+        {
+            barcodeService.OnBarcodeScanned -= OnBarcodeScanned;
+        }
+    }
+
+    private void OnBarcodeScanned(string barcode)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            if (_viewModel != null)
+            {
+                if (_viewModel.IsLocationMode)
+                {
+                    await _viewModel.ScanBoxInLocationCommand.ExecuteAsync(barcode);
+                }
+                else
+                {
+                    await _viewModel.ScanBarcodeCommand.ExecuteAsync(barcode);
+                }
+            }
+        });
     }
 }

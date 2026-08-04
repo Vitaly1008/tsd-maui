@@ -10,7 +10,7 @@ public partial class LoginPage : BasePage
 
     public LoginPage()
     {
-        InitializeComponent();
+        InitializeComponent(); // ✅ Добавляем
         _viewModel = BindingContext as LoginViewModel;
         
         if (_viewModel != null)
@@ -18,7 +18,6 @@ public partial class LoginPage : BasePage
             _viewModel.LoginSuccess += OnLoginSuccess;
         }
 
-        // Обработка нажатия Enter
         this.Loaded += async (s, e) =>
         {
             var passwordEntry = this.FindByName<Entry>("PasswordEntry");
@@ -33,7 +32,6 @@ public partial class LoginPage : BasePage
                 };
             }
             
-            // ✅ Проверяем сервер при загрузке
             if (_viewModel != null)
             {
                 await _viewModel.CheckServerAsync();
@@ -45,7 +43,8 @@ public partial class LoginPage : BasePage
     {
         try
         {
-            await Navigation.PushAsync(new HomePage());
+            var homePage = new HomePage();
+            await Navigation.PushAsync(homePage);
             Navigation.RemovePage(this);
         }
         catch (Exception ex)

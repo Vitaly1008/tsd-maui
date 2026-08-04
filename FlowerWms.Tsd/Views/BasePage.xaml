@@ -4,5 +4,4 @@
              x:Class="FlowerWms.Tsd.Views.BasePage"
              NavigationPage.HasNavigationBar="False"
              Title="">
-    <!-- Этот файл может быть пустым -->
 </ContentPage>

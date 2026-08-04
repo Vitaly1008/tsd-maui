@@ -13,12 +13,14 @@ public class BarcodeService : IBarcodeService
     private UrovoScannerService? _scannerService;
     private bool _isListening;
     private readonly object _lock = new();
+    private bool _disposed;
 
     public event Action<string>? OnBarcodeScanned;
 
     public BarcodeService()
     {
-        // Инициализация будет при первом запуске
+        // ✅ Инициализация отложенная
+        System.Diagnostics.Debug.WriteLine("✅ BarcodeService создан");
     }
 
     private void EnsureScannerService()
@@ -34,6 +36,7 @@ public class BarcodeService : IBarcodeService
 
         _scannerService = new UrovoScannerService(context, (barcode) =>
         {
+            // ✅ Безопасный вызов события
             OnBarcodeScanned?.Invoke(barcode);
         });
     }
@@ -42,7 +45,7 @@ public class BarcodeService : IBarcodeService
     {
         lock (_lock)
         {
-            if (_isListening) return;
+            if (_isListening || _disposed) return;
         }
 
         try
@@ -57,7 +60,7 @@ public class BarcodeService : IBarcodeService
                 _isListening = true;
             }
 
-            System.Diagnostics.Debug.WriteLine("✅ Сканер запущен (Urovo RT40)");
+            System.Diagnostics.Debug.WriteLine("✅ Сканер запущен");
         }
         catch (Exception ex)
         {
@@ -69,7 +72,7 @@ public class BarcodeService : IBarcodeService
     {
         lock (_lock)
         {
-            if (!_isListening || _scannerService == null) return;
+            if (!_isListening || _scannerService == null || _disposed) return;
         }
 
         try
@@ -95,16 +98,19 @@ public class BarcodeService : IBarcodeService
         {
             lock (_lock)
             {
-                return _isListening;
+                return _isListening && !_disposed;
             }
         }
     }
 
     public void Dispose()
     {
+        if (_disposed) return;
+        
         StopListening();
         _scannerService?.Dispose();
         _scannerService = null;
+        _disposed = true;
         GC.SuppressFinalize(this);
     }
 }

@@ -2,11 +2,11 @@ using Android.Content;
 using Android.OS;
 using Android.Util;
 using Android.Runtime;
-using System.Diagnostics.CodeAnalysis; 
+using System.Diagnostics.CodeAnalysis;
 
 namespace FlowerWms.Tsd.Platforms.Android;
 
-[Preserve(AllMembers = true)]
+// ✅ Убираем DynamicDependency с класса, ставим на методы
 public class BarcodeBroadcastReceiver : BroadcastReceiver
 {
     private readonly Action<string>? _onBarcodeScanned;
@@ -18,6 +18,7 @@ public class BarcodeBroadcastReceiver : BroadcastReceiver
         _onBarcodeScanned = onBarcodeScanned;
     }
 
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(BarcodeBroadcastReceiver))]
     public override void OnReceive(Context? context, Intent? intent)
     {
         if (intent?.Action == null) return;
@@ -81,7 +82,6 @@ public class BarcodeBroadcastReceiver : BroadcastReceiver
     {
         var action = intent.Action;
 
-        // DataWedge
         if (action == "com.symbol.datawedge.api.ACTION_BARCODE")
         {
             var barcode = intent.GetStringExtra("com.ubx.datawedge.data_string");
@@ -94,7 +94,6 @@ public class BarcodeBroadcastReceiver : BroadcastReceiver
             if (!string.IsNullOrEmpty(barcode)) return barcode;
         }
 
-        // Urovo
         if (action == "com.urovo.scanner.ACTION_BARCODE_RESULT" ||
             action == "com.urovo.scanner.ACTION_SCAN_RESULT")
         {
@@ -105,21 +104,18 @@ public class BarcodeBroadcastReceiver : BroadcastReceiver
             if (!string.IsNullOrEmpty(barcode)) return barcode;
         }
 
-        // Android Scanner
         if (action == "com.android.scanner.ACTION_SCAN")
         {
             var barcode = intent.GetStringExtra("SCAN_RESULT");
             if (!string.IsNullOrEmpty(barcode)) return barcode;
         }
 
-        // RSCore
         if (action == "rs.core.hw.Barcode" || action == "rs.core.hw.ScanResult")
         {
             var barcode = intent.GetStringExtra("barcode");
             if (!string.IsNullOrEmpty(barcode)) return barcode;
         }
 
-        // Intent View
         if (action == Intent.ActionView)
         {
             var uri = intent.Data;

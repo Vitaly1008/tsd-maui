@@ -11,6 +11,8 @@ public partial class HomeViewModel : ObservableObject
     private readonly AuthService _authService;
     private readonly ServerDiscoveryService _discoveryService;
     private readonly NetworkService _networkService;
+    private bool _isInitialized;
+    private int _lastKnownPendingCount = -1; // ✅ Для отслеживания изменений
 
     [ObservableProperty]
     private int _pendingCount;
@@ -52,14 +54,13 @@ public partial class HomeViewModel : ObservableObject
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                // ✅ Используем FlowerWms.Tsd.Models.SyncStatus
                 IsOnline = status == FlowerWms.Tsd.Models.SyncStatus.Online;
                 ConnectionStatus = status switch
                 {
-                    FlowerWms.Tsd.Models.SyncStatus.Online => "Онлайн",
-                    FlowerWms.Tsd.Models.SyncStatus.Offline => "Офлайн",
-                    FlowerWms.Tsd.Models.SyncStatus.Syncing => "Синхронизация...",
-                    _ => "Неизвестно"
+                    FlowerWms.Tsd.Models.SyncStatus.Online => "✅ Онлайн",
+                    FlowerWms.Tsd.Models.SyncStatus.Offline => "📴 Офлайн",
+                    FlowerWms.Tsd.Models.SyncStatus.Syncing => "🔄 Синхронизация...",
+                    _ => "❓ Неизвестно"
                 };
                 IsSyncing = status == FlowerWms.Tsd.Models.SyncStatus.Syncing;
             });
@@ -69,7 +70,13 @@ public partial class HomeViewModel : ObservableObject
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                PendingCount = count;
+                // ✅ Обновляем только если изменилось
+                if (_lastKnownPendingCount != count)
+                {
+                    _lastKnownPendingCount = count;
+                    PendingCount = count;
+                    System.Diagnostics.Debug.WriteLine($"📊 Счетчик обновлен: {count}");
+                }
             });
         };
     }
@@ -79,11 +86,13 @@ public partial class HomeViewModel : ObservableObject
         MainThread.BeginInvokeOnMainThread(() =>
         {
             IsOnline = isOnline;
-            ConnectionStatus = isOnline ? "Онлайн" : "Офлайн";
+            ConnectionStatus = isOnline ? "✅ Онлайн" : "📴 Офлайн";
             
             if (isOnline)
             {
                 ServerAddress = Constants.ApiBaseUrl;
+                // ✅ При появлении сети проверяем счетчик
+                RefreshPendingCount();
             }
         });
     }
@@ -94,19 +103,30 @@ public partial class HomeViewModel : ObservableObject
         {
             ServerAddress = newAddress;
             IsOnline = true;
-            ConnectionStatus = "Онлайн";
+            ConnectionStatus = "✅ Онлайн";
         });
     }
 
     public async Task Initialize()
     {
+        // ✅ Предотвращаем повторную инициализацию
+        if (_isInitialized) return;
+        
         try
         {
             await _networkService.CheckNetworkAsync();
             
             IsOnline = await _syncService.CheckInternetManual();
-            PendingCount = await _syncService.GetPendingCount();
+            
+            // ✅ Загружаем счетчик только один раз при инициализации
+            _lastKnownPendingCount = await _syncService.GetPendingCount();
+            PendingCount = _lastKnownPendingCount;
+            
             ServerAddress = Constants.ApiBaseUrl;
+            
+            _isInitialized = true;
+            
+            System.Diagnostics.Debug.WriteLine($"✅ HomePage инициализирован. Счетчик: {PendingCount}");
         }
         catch (Exception ex)
         {
@@ -114,11 +134,41 @@ public partial class HomeViewModel : ObservableObject
         }
     }
 
+    // ✅ Метод для обновления счетчика (вызывается при возврате на главную)
+    public async Task RefreshPendingCount()
+    {
+        try
+        {
+            var currentCount = await _syncService.GetPendingCount();
+            
+            // ✅ Обновляем только если изменилось
+            if (_lastKnownPendingCount != currentCount)
+            {
+                _lastKnownPendingCount = currentCount;
+                PendingCount = currentCount;
+                System.Diagnostics.Debug.WriteLine($"📊 Счетчик обновлен при возврате: {currentCount}");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления счетчика: {ex.Message}");
+        }
+    }
+
     [RelayCommand]
     private async Task Sync()
     {
-        if (IsSyncing) return;
+        if (IsSyncing) 
+        {
+            System.Diagnostics.Debug.WriteLine("⚠️ Синхронизация уже выполняется");
+            return;
+        }
+        
+        System.Diagnostics.Debug.WriteLine("🔄 Запуск синхронизации");
         await _syncService.SyncManual();
+        
+        // ✅ Обновляем счетчик после синхронизации
+        await RefreshPendingCount();
     }
 
     [RelayCommand]
@@ -135,6 +185,7 @@ public partial class HomeViewModel : ObservableObject
                 ServerAddress = serverAddress;
                 Constants.ApiBaseUrl = serverAddress;
                 IsOnline = true;
+                ConnectionStatus = "✅ Онлайн";
                 
                 await Application.Current?.MainPage?.DisplayAlert(
                     "✅ Сервер найден",
@@ -145,6 +196,7 @@ public partial class HomeViewModel : ObservableObject
             else
             {
                 IsOnline = false;
+                ConnectionStatus = "📴 Офлайн";
                 await Application.Current?.MainPage?.DisplayAlert(
                     "❌ Сервер не найден",
                     "Не удалось найти сервер в сети.\nПроверьте подключение.",

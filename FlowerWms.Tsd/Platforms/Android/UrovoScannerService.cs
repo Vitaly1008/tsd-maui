@@ -1,19 +1,18 @@
 using Android.Content;
 using Android.OS;
 using Android.Runtime;
-using Java.Lang;
-using Java.Util;
-using Object = Java.Lang.Object;
+using System.Diagnostics.CodeAnalysis;
 
 namespace FlowerWms.Tsd.Platforms.Android;
 
-[Preserve(AllMembers = true)]
-public class UrovoScannerService : Object, IDisposable
+// ✅ Убираем DynamicDependency с класса, ставим на методы
+public class UrovoScannerService : Java.Lang.Object, IDisposable
 {
     private readonly Context _context;
     private BroadcastReceiver? _receiver;
     private bool _isListening;
     private readonly Action<string>? _onBarcodeScanned;
+    private bool _disposed;
 
     public UrovoScannerService(Context context, Action<string>? onBarcodeScanned)
     {
@@ -29,26 +28,22 @@ public class UrovoScannerService : Object, IDisposable
         {
             var filter = new IntentFilter();
             
-            // Urovo RT40 специфичные действия
             filter.AddAction("com.urovo.scanner.ACTION_BARCODE_RESULT");
             filter.AddAction("com.urovo.scanner.ACTION_SCAN_RESULT");
             filter.AddAction("com.urovo.scanner.ACTION_DECODE");
             filter.AddAction("com.urovo.scanner.ACTION_SCAN");
             filter.AddAction("android.intent.action.VIEW");
-            
-            // DataWedge для совместимости
             filter.AddAction("com.symbol.datawedge.api.ACTION_BARCODE");
 
             _receiver = new UrovoBroadcastReceiver(_onBarcodeScanned);
             _context.RegisterReceiver(_receiver, filter);
             _isListening = true;
 
-            // Активация сканера через Intent
             ActivateScanner();
             
             System.Diagnostics.Debug.WriteLine("✅ Urovo сканер активирован");
         }
-        catch (System.Exception ex)  // ✅ явно указываем System.Exception
+        catch (System.Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка активации сканера: {ex.Message}");
         }
@@ -58,11 +53,10 @@ public class UrovoScannerService : Object, IDisposable
     {
         try
         {
-            // Отправка broadcast для активации сканера
             var intent = new Intent("com.urovo.scanner.ACTION_START_SCAN");
             _context.SendBroadcast(intent);
         }
-        catch (System.Exception ex)  // ✅ явно указываем System.Exception
+        catch (System.Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"⚠️ Не удалось активировать сканер: {ex.Message}");
         }
@@ -81,7 +75,7 @@ public class UrovoScannerService : Object, IDisposable
             
             System.Diagnostics.Debug.WriteLine("✅ Urovo сканер остановлен");
         }
-        catch (System.Exception ex)  // ✅ явно указываем System.Exception
+        catch (System.Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка остановки сканера: {ex.Message}");
         }
@@ -89,14 +83,17 @@ public class UrovoScannerService : Object, IDisposable
 
     public bool IsListening => _isListening;
 
-    public void Dispose()
+    public new void Dispose()
     {
+        if (_disposed) return;
+        
         StopListening();
+        _disposed = true;
         GC.SuppressFinalize(this);
     }
 }
 
-[Preserve(AllMembers = true)]
+// ✅ Убираем DynamicDependency с класса, ставим на методы
 public class UrovoBroadcastReceiver : BroadcastReceiver
 {
     private readonly Action<string>? _onBarcodeScanned;
@@ -108,6 +105,7 @@ public class UrovoBroadcastReceiver : BroadcastReceiver
         _onBarcodeScanned = onBarcodeScanned;
     }
 
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(UrovoBroadcastReceiver))]
     public override void OnReceive(Context? context, Intent? intent)
     {
         if (intent?.Action == null) return;
@@ -142,7 +140,6 @@ public class UrovoBroadcastReceiver : BroadcastReceiver
     {
         var action = intent.Action;
 
-        // Urovo RT40
         if (action == "com.urovo.scanner.ACTION_BARCODE_RESULT" ||
             action == "com.urovo.scanner.ACTION_SCAN_RESULT")
         {
@@ -159,7 +156,6 @@ public class UrovoBroadcastReceiver : BroadcastReceiver
             if (!string.IsNullOrEmpty(barcode)) return barcode;
         }
 
-        // Urovo через Intent View
         if (action == Intent.ActionView)
         {
             var uri = intent.Data;
@@ -169,7 +165,6 @@ public class UrovoBroadcastReceiver : BroadcastReceiver
             }
         }
 
-        // DataWedge (для совместимости)
         if (action == "com.symbol.datawedge.api.ACTION_BARCODE")
         {
             var barcode = intent.GetStringExtra("com.ubx.datawedge.data_string");

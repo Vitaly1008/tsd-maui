@@ -2,13 +2,13 @@ using FlowerWms.Tsd.ViewModels;
 
 namespace FlowerWms.Tsd.Views;
 
-public partial class ShippingPage : BasePage  // ✅ Наследуем BasePage
+public partial class ShippingPage : BasePage
 {
     private ShippingViewModel _viewModel;
 
     public ShippingPage()
     {
-        InitializeComponent();
+        InitializeComponent(); // ✅ Добавляем
         _viewModel = BindingContext as ShippingViewModel;
         
         if (_viewModel != null)

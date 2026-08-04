@@ -12,6 +12,7 @@ public partial class ReceivingViewModel : ObservableObject
 {
     private readonly OperationViewModel _operationViewModel;
     private readonly IBarcodeService? _barcodeService;
+    private bool _isScannerStarted;
 
     [ObservableProperty]
     private bool _isLoading;
@@ -25,19 +26,28 @@ public partial class ReceivingViewModel : ObservableObject
     [ObservableProperty]
     private bool _isOnline = true;
 
+    // ✅ Новые свойства для отображения информации о сканировании
+    [ObservableProperty]
+    private string _scanStatusText = "Отсканируйте штрихкод коробки";
+
+    [ObservableProperty]
+    private string _boxInfoText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isBoxScanned;
+
+    [ObservableProperty]
+    private Color _scanStatusColor = Colors.Gray;
+
     public ObservableCollection<Box> ScannedBoxes => _operationViewModel.ScannedBoxes;
 
     public event EventHandler? OperationCompleted;
     public event EventHandler? OperationCancelled;
 
-    // ✅ Исправленный конструктор - получаем IBarcodeService через DI
     public ReceivingViewModel(IBarcodeService? barcodeService = null)
     {
         _operationViewModel = new OperationViewModel("Receiving");
-        
-        // Получаем сервис через DI
-        _barcodeService = barcodeService ?? 
-            (Application.Current?.Handler?.MauiContext?.Services?.GetService<IBarcodeService>());
+        _barcodeService = barcodeService;
         
         if (_barcodeService != null)
         {
@@ -58,12 +68,34 @@ public partial class ReceivingViewModel : ObservableObject
 
     public void StartScanner()
     {
-        _barcodeService?.StartListening();
+        if (_barcodeService == null || _isScannerStarted) return;
+        
+        try
+        {
+            _barcodeService.StartListening();
+            _isScannerStarted = true;
+            System.Diagnostics.Debug.WriteLine("✅ Сканер запущен из ViewModel");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка запуска сканера: {ex.Message}");
+        }
     }
 
     public void StopScanner()
     {
-        _barcodeService?.StopListening();
+        if (_barcodeService == null || !_isScannerStarted) return;
+        
+        try
+        {
+            _barcodeService.StopListening();
+            _isScannerStarted = false;
+            System.Diagnostics.Debug.WriteLine("✅ Сканер остановлен из ViewModel");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка остановки сканера: {ex.Message}");
+        }
     }
 
     public async Task Initialize()
@@ -74,7 +106,15 @@ public partial class ReceivingViewModel : ObservableObject
             await _operationViewModel.Initialize();
             var syncService = new SyncService();
             IsOnline = await syncService.CheckInternetManual();
-            StartScanner();
+            
+            if (_barcodeService != null)
+            {
+                StartScanner();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка инициализации: {ex.Message}");
         }
         finally
         {
@@ -85,8 +125,30 @@ public partial class ReceivingViewModel : ObservableObject
     [RelayCommand]
     public async Task ScanBox(string barcode)
     {
+        if (string.IsNullOrEmpty(barcode)) return;
+
         await _operationViewModel.ScanBox(barcode);
+        
         LastScannedBarcode = barcode;
+        
+        // ✅ Обновляем UI информацию о сканировании
+        var lastBox = ScannedBoxes.LastOrDefault();
+        if (lastBox != null)
+        {
+            IsBoxScanned = true;
+            ScanStatusText = $"✅ Отсканировано: {barcode}";
+            ScanStatusColor = Colors.Green;
+            
+            // Формируем информацию о коробке: цветок | количество | сорт | № коробки
+            BoxInfoText = $"🌺 {lastBox.ProductName} | {lastBox.Quantity} шт. | {lastBox.Grade} | №{lastBox.BoxNumber}";
+        }
+        else
+        {
+            IsBoxScanned = false;
+            ScanStatusText = "Отсканируйте штрихкод коробки";
+            ScanStatusColor = Colors.Gray;
+            BoxInfoText = string.Empty;
+        }
     }
 
     [RelayCommand]
@@ -114,6 +176,16 @@ public partial class ReceivingViewModel : ObservableObject
     public void RemoveBox(int index)
     {
         _operationViewModel.RemoveBox(index);
+        
+        // ✅ Если удалили последнюю коробку — сбрасываем статус
+        if (ScannedBoxes.Count == 0)
+        {
+            IsBoxScanned = false;
+            ScanStatusText = "Отсканируйте штрихкод коробки";
+            ScanStatusColor = Colors.Gray;
+            BoxInfoText = string.Empty;
+            LastScannedBarcode = null;
+        }
     }
 
     [RelayCommand]
@@ -146,13 +218,14 @@ public partial class ReceivingViewModel : ObservableObject
             return;
         }
 
-        var boxNumbers = string.Join("\n", ScannedBoxes.Select((b, i) => 
-            $"{i + 1}. #{b.BoxNumber} - {b.ProductName} ({b.Quantity} шт.)")
+        // ✅ Показываем штрихкоды вместо "Неизвестный продукт"
+        var boxList = string.Join("\n", ScannedBoxes.Select((b, i) => 
+            $"{i + 1}. {b.Barcode}")
         );
 
         await Application.Current?.MainPage?.DisplayAlert(
             $"📋 Список коробок ({ScannedBoxes.Count})",
-            boxNumbers,
+            boxList,
             "OK"
         );
     }
@@ -161,5 +234,14 @@ public partial class ReceivingViewModel : ObservableObject
     public async Task ShowError(string error)
     {
         await Application.Current?.MainPage?.DisplayAlert("Ошибка", error, "OK");
+    }
+
+    public void Dispose()
+    {
+        StopScanner();
+        if (_barcodeService != null)
+        {
+            _barcodeService.OnBarcodeScanned -= OnBarcodeScanned;
+        }
     }
 }

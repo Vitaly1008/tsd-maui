@@ -7,22 +7,22 @@ namespace FlowerWms.Tsd.Views;
 public partial class ReceivingPage : BasePage
 {
     private ReceivingViewModel? _viewModel;
+    private readonly IBarcodeService? _barcodeService;
 
-    public ReceivingPage()
+    public ReceivingPage(IBarcodeService barcodeService)
     {
         InitializeComponent();
-        // ❌ НЕ СОЗДАЁМ ViewModel здесь — Handler ещё null
+        _barcodeService = barcodeService;
         
         Loaded += OnPageLoaded;
+        Unloaded += OnPageUnloaded;
     }
 
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
         try
         {
-            // ✅ ПОЛУЧАЕМ СЕРВИС ПОСЛЕ ИНИЦИАЛИЗАЦИИ Handler
-            var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
-            _viewModel = new ReceivingViewModel(barcodeService);
+            _viewModel = new ReceivingViewModel(_barcodeService);
             BindingContext = _viewModel;
             
             if (_viewModel != null)
@@ -40,6 +40,11 @@ public partial class ReceivingPage : BasePage
         }
     }
 
+    private void OnPageUnloaded(object? sender, EventArgs e)
+    {
+        _viewModel?.StopScanner();
+    }
+
     private async void OnOperationCompleted(object? sender, EventArgs e)
     {
         _viewModel?.StopScanner();
@@ -52,10 +57,10 @@ public partial class ReceivingPage : BasePage
         await Navigation.PopAsync();
     }
     
-    // ✅ Освобождаем ресурсы при уходе со страницы
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         _viewModel?.StopScanner();
+        _viewModel?.Dispose();
     }
 }

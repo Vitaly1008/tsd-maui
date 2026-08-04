@@ -21,7 +21,7 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
-        // Регистрируем сервисы
+        // ✅ Регистрируем сервисы как Singleton
         builder.Services.AddSingleton<ApiService>();
         builder.Services.AddSingleton<AuthService>();
         builder.Services.AddSingleton<OfflineService>();
@@ -30,8 +30,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<NetworkService>();
         builder.Services.AddSingleton<ServerDiscoveryService>();
         
-        // ✅ Регистрируем IBarcodeService
-        builder.Services.AddTransient<IBarcodeService, BarcodeService>();
+        // ✅ Регистрируем IBarcodeService как Singleton
+        builder.Services.AddSingleton<IBarcodeService, BarcodeService>();
 
         return builder.Build();
     }

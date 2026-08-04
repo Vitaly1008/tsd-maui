@@ -20,8 +20,8 @@ public class OfflineService
     {
         try
         {
-            var db = _dbHelper.Database;
-            var transactionId = $"offline_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+            var db = await _dbHelper.GetDatabaseAsync();
+            var transactionId = $"offline_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString("N").Substring(0, 8)}";
 
             var transaction = new OfflineTransaction
             {
@@ -40,6 +40,7 @@ public class OfflineService
         }
         catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения транзакции: {ex.Message}");
             throw;
         }
     }
@@ -48,13 +49,14 @@ public class OfflineService
     {
         try
         {
-            var db = _dbHelper.Database;
+            var db = await _dbHelper.GetDatabaseAsync();
             return await db.QueryAsync<OfflineTransaction>(
-                "SELECT * FROM offline_transactions WHERE is_synced = 0 AND retry_count < 5 ORDER BY created_at ASC"
+                "SELECT * FROM offline_transactions WHERE is_synced = 0 AND retry_count < 5 ORDER BY created_at ASC LIMIT 100"
             );
         }
         catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения транзакций: {ex.Message}");
             return new List<OfflineTransaction>();
         }
     }
@@ -63,13 +65,14 @@ public class OfflineService
     {
         try
         {
-            var db = _dbHelper.Database;
+            var db = await _dbHelper.GetDatabaseAsync();
             return await db.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM offline_transactions WHERE is_synced = 0"
             );
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка подсчета: {ex.Message}");
             return 0;
         }
     }
@@ -78,7 +81,7 @@ public class OfflineService
     {
         try
         {
-            var db = _dbHelper.Database;
+            var db = await _dbHelper.GetDatabaseAsync();
             await db.ExecuteAsync(
                 "UPDATE offline_transactions SET is_synced = 1, synced_at = ? WHERE transaction_id = ?",
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -87,7 +90,7 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            /* Do nothing*/
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления: {ex.Message}");
         }
     }
 
@@ -95,7 +98,7 @@ public class OfflineService
     {
         try
         {
-            var db = _dbHelper.Database;
+            var db = await _dbHelper.GetDatabaseAsync();
             await db.ExecuteAsync(
                 "UPDATE offline_transactions SET retry_count = retry_count + 1, error_message = ? WHERE transaction_id = ?",
                 error,
@@ -104,7 +107,7 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            /* Do nothing*/
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления: {ex.Message}");
         }
     }
 
@@ -112,7 +115,7 @@ public class OfflineService
     {
         try
         {
-            var db = _dbHelper.Database;
+            var db = await _dbHelper.GetDatabaseAsync();
             await db.ExecuteAsync(
                 "DELETE FROM offline_transactions WHERE transaction_id = ?",
                 transactionId
@@ -120,25 +123,31 @@ public class OfflineService
         }
         catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка удаления: {ex.Message}");
             throw;
         }
     }
 
     public async Task CleanOldSynced(int olderThanDays = 30)
     {
+        await _dbHelper.CleanOldData(olderThanDays);
+    }
+
+    // ✅ Добавляем метод для получения всех транзакций с пагинацией
+    public async Task<List<OfflineTransaction>> GetTransactions(int limit = 50, int offset = 0)
+    {
         try
         {
-            var db = _dbHelper.Database;
-            var cutoff = DateTimeOffset.UtcNow.AddDays(-olderThanDays).ToUnixTimeMilliseconds();
-            
-            await db.ExecuteAsync(
-                "DELETE FROM offline_transactions WHERE is_synced = 1 AND synced_at < ?",
-                cutoff
+            var db = await _dbHelper.GetDatabaseAsync();
+            return await db.QueryAsync<OfflineTransaction>(
+                "SELECT * FROM offline_transactions ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                limit, offset
             );
         }
         catch (Exception ex)
         {
-            /* Do nothing*/
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения транзакций: {ex.Message}");
+            return new List<OfflineTransaction>();
         }
     }
 }

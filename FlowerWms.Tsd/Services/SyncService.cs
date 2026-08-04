@@ -9,9 +9,9 @@ public class SyncService
     private readonly OfflineService _offlineService;
     private readonly ApiService _apiService;
     private bool _isSyncing;
+    private readonly SemaphoreSlim _syncLock = new SemaphoreSlim(1, 1);
 
-    // ✅ Используем FlowerWms.Tsd.Models.SyncStatus
-    public event EventHandler<FlowerWms.Tsd.Models.SyncStatus>? StatusChanged;
+    public event EventHandler<SyncStatus>? StatusChanged;
     public event EventHandler<int>? PendingCountChanged;
 
     public SyncService()
@@ -31,7 +31,7 @@ public class SyncService
     public async Task CheckConnectivity()
     {
         var hasInternet = await CheckInternetManual();
-        StatusChanged?.Invoke(this, hasInternet ? FlowerWms.Tsd.Models.SyncStatus.Online : FlowerWms.Tsd.Models.SyncStatus.Offline);
+        StatusChanged?.Invoke(this, hasInternet ? SyncStatus.Online : SyncStatus.Offline);
     }
 
     public async Task<bool> CheckInternetManual()
@@ -42,7 +42,7 @@ public class SyncService
             if (string.IsNullOrEmpty(token))
                 return false;
 
-            var client = new HttpClient();
+            using var client = new HttpClient();
             client.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             client.Timeout = TimeSpan.FromSeconds(3);
@@ -60,35 +60,52 @@ public class SyncService
 
     public async Task SyncAll()
     {
+        // ✅ Защита от повторного вызова
         if (_isSyncing)
         {
+            System.Diagnostics.Debug.WriteLine("⚠️ Синхронизация уже выполняется");
             return;
         }
 
-        var hasInternet = await CheckInternetManual();
-        if (!hasInternet)
+        // ✅ Используем семафор для защиты
+        if (!await _syncLock.WaitAsync(TimeSpan.Zero))
         {
-            StatusChanged?.Invoke(this, FlowerWms.Tsd.Models.SyncStatus.Offline);
+            System.Diagnostics.Debug.WriteLine("⚠️ Синхронизация уже выполняется (семафор)");
             return;
         }
-
-        var pendingCount = await _offlineService.GetPendingCount();
-        if (pendingCount == 0)
-        {
-            return;
-        }
-
-        _isSyncing = true;
-        StatusChanged?.Invoke(this, FlowerWms.Tsd.Models.SyncStatus.Syncing);
 
         try
         {
+            var hasInternet = await CheckInternetManual();
+            if (!hasInternet)
+            {
+                StatusChanged?.Invoke(this, SyncStatus.Offline);
+                return;
+            }
+
+            var pendingCount = await _offlineService.GetPendingCount();
+            if (pendingCount == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("✅ Нет транзакций для синхронизации");
+                return;
+            }
+
+            _isSyncing = true;
+            StatusChanged?.Invoke(this, SyncStatus.Syncing);
+
             var transactions = await _offlineService.GetUnsyncedTransactions();
             int successCount = 0;
             int errorCount = 0;
 
             foreach (var tx in transactions)
             {
+                // ✅ Проверяем, не превышен ли лимит попыток
+                if (tx.retry_count >= 5)
+                {
+                    errorCount++;
+                    continue;
+                }
+
                 try
                 {
                     var transactionId = tx.transaction_id;
@@ -135,7 +152,8 @@ public class SyncService
                                 ["operationType"] = operationType
                             }
                         );
-                        if (!(bool)result["success"])
+                        
+                        if (result.TryGetValue("success", out var successObj) && successObj is bool success && !success)
                         {
                             allSuccess = false;
                             break;
@@ -159,10 +177,15 @@ public class SyncService
                     errorCount++;
                 }
 
+                // ✅ Обновляем счетчик после каждой транзакции
                 var remaining = await _offlineService.GetPendingCount();
                 PendingCountChanged?.Invoke(this, remaining);
             }
+            
+            // ✅ Очищаем старые синхронизированные транзакции
             await _offlineService.CleanOldSynced();
+            
+            System.Diagnostics.Debug.WriteLine($"✅ Синхронизация завершена: успешно {successCount}, ошибок {errorCount}");
         }
         catch (Exception ex)
         {
@@ -171,7 +194,8 @@ public class SyncService
         finally
         {
             _isSyncing = false;
-            StatusChanged?.Invoke(this, FlowerWms.Tsd.Models.SyncStatus.Online);
+            _syncLock.Release();
+            StatusChanged?.Invoke(this, SyncStatus.Online);
 
             var remaining = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, remaining);

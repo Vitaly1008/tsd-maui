@@ -50,6 +50,25 @@ public partial class ShippingViewModel : ObservableObject
         }
     }
 
+    // ✅ Кнопка "Назад" - вызывает отмену операции
+    [RelayCommand]
+    private async Task Back()
+    {
+        if (ScannedBoxes.Count > 0)
+        {
+            var confirm = await Application.Current?.MainPage?.DisplayAlert(
+                "Выход",
+                $"Вы отсканировали {ScannedBoxes.Count} коробок. Выйти без сохранения?",
+                "Да",
+                "Нет"
+            );
+            
+            if (confirm == false) return;
+        }
+        
+        await _operationViewModel.CancelOperation();
+    }
+
     [RelayCommand]
     private async Task ScanBox(string barcode)
     {
@@ -70,7 +89,6 @@ public partial class ShippingViewModel : ObservableObject
         if (!string.IsNullOrEmpty(result))
         {
             OrderNumber = result;
-            // Здесь можно добавить логику проверки заказа через API
         }
     }
 
@@ -78,12 +96,6 @@ public partial class ShippingViewModel : ObservableObject
     private async Task ConfirmOperation()
     {
         await _operationViewModel.ConfirmOperation($"Отгрузка по заказу {OrderNumber ?? "без заказа"}");
-    }
-
-    [RelayCommand]
-    private async Task CancelOperation()
-    {
-        await _operationViewModel.CancelOperation();
     }
 
     [RelayCommand]

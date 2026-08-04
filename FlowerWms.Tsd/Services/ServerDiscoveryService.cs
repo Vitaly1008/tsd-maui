@@ -10,7 +10,7 @@ public class ServerDiscoveryService
     private readonly SecureStorageService _secureStorage;
     private const string STORAGE_KEY = "server_address";
     private const int DEFAULT_PORT = 5152;
-    private const int TIMEOUT_MS = 1000;        // 1000 мс на один запрос
+    private const int TIMEOUT_MS = 1200;        // 1200 мс на один запрос
     private const int MAX_PARALLEL = 20;        // 30 параллельных запросов
 
     // Событие для уведомления о прогрессе поиска
