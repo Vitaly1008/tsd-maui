@@ -31,7 +31,7 @@ public partial class App : Application
         Resources.Add("IsNotNullConverter", new IsNotNullConverter());
         Resources.Add("StringNotEmptyConverter", new StringNotEmptyConverter());
         Resources.Add("ConnectionIconConverter", new ConnectionIconConverter());
-        Resources.Add("SyncStatusIconConverter", new SyncStatusIconConverter()); // ✅ Добавляем
+        Resources.Add("SyncStatusIconConverter", new SyncStatusIconConverter());
         Resources.Add("ModeBackgroundConverter", new ModeBackgroundConverter());
         Resources.Add("ModeTextColorConverter", new ModeTextColorConverter());
         Resources.Add("ModeLabelConverter", new ModeLabelConverter());
@@ -53,50 +53,62 @@ public partial class App : Application
         Resources.Add("WarningColor", Color.FromArgb("#faad14"));
         Resources.Add("InfoColor", Color.FromArgb("#1890ff"));
 
-        // Стили...
         AddStyles();
     }
 
     private void AddStyles()
     {
-        // PrimaryButton
         Resources.Add("PrimaryButton", new Style(typeof(Button))
         {
             Setters = {
                 new Setter { Property = Button.BackgroundColorProperty, Value = Color.FromArgb("#2E7D32") },
                 new Setter { Property = Button.TextColorProperty, Value = Colors.White },
-                new Setter { Property = Button.FontSizeProperty, Value = 14.0 },
+                new Setter { Property = Button.FontSizeProperty, Value = 15.0 },
                 new Setter { Property = Button.FontAttributesProperty, Value = FontAttributes.Bold },
-                new Setter { Property = Button.HeightRequestProperty, Value = 42.0 },
-                new Setter { Property = Button.CornerRadiusProperty, Value = 8 }
+                new Setter { Property = Button.HeightRequestProperty, Value = 44.0 },
+                new Setter { Property = Button.CornerRadiusProperty, Value = 10 },
+                new Setter { Property = Button.PaddingProperty, Value = new Thickness(12, 8) }
             }
         });
 
-        // SecondaryButton
         Resources.Add("SecondaryButton", new Style(typeof(Button))
         {
             Setters = {
                 new Setter { Property = Button.BackgroundColorProperty, Value = Colors.White },
                 new Setter { Property = Button.TextColorProperty, Value = Color.FromArgb("#2E7D32") },
-                new Setter { Property = Button.FontSizeProperty, Value = 14.0 },
+                new Setter { Property = Button.FontSizeProperty, Value = 15.0 },
                 new Setter { Property = Button.FontAttributesProperty, Value = FontAttributes.Bold },
-                new Setter { Property = Button.HeightRequestProperty, Value = 42.0 },
-                new Setter { Property = Button.CornerRadiusProperty, Value = 8 },
-                new Setter { Property = Button.BorderWidthProperty, Value = 1.0 },
+                new Setter { Property = Button.HeightRequestProperty, Value = 44.0 },
+                new Setter { Property = Button.CornerRadiusProperty, Value = 10 },
+                new Setter { Property = Button.PaddingProperty, Value = new Thickness(12, 8) },
+                new Setter { Property = Button.BorderWidthProperty, Value = 1.5 },
                 new Setter { Property = Button.BorderColorProperty, Value = Color.FromArgb("#2E7D32") }
             }
         });
 
-        // DangerButton
         Resources.Add("DangerButton", new Style(typeof(Button))
         {
             Setters = {
                 new Setter { Property = Button.BackgroundColorProperty, Value = Color.FromArgb("#ff4d4f") },
                 new Setter { Property = Button.TextColorProperty, Value = Colors.White },
-                new Setter { Property = Button.FontSizeProperty, Value = 14.0 },
+                new Setter { Property = Button.FontSizeProperty, Value = 15.0 },
                 new Setter { Property = Button.FontAttributesProperty, Value = FontAttributes.Bold },
-                new Setter { Property = Button.HeightRequestProperty, Value = 42.0 },
-                new Setter { Property = Button.CornerRadiusProperty, Value = 8 }
+                new Setter { Property = Button.HeightRequestProperty, Value = 44.0 },
+                new Setter { Property = Button.CornerRadiusProperty, Value = 10 },
+                new Setter { Property = Button.PaddingProperty, Value = new Thickness(12, 8) }
+            }
+        });
+
+        Resources.Add("SuccessButton", new Style(typeof(Button))
+        {
+            Setters = {
+                new Setter { Property = Button.BackgroundColorProperty, Value = Color.FromArgb("#4CAF50") },
+                new Setter { Property = Button.TextColorProperty, Value = Colors.White },
+                new Setter { Property = Button.FontSizeProperty, Value = 15.0 },
+                new Setter { Property = Button.FontAttributesProperty, Value = FontAttributes.Bold },
+                new Setter { Property = Button.HeightRequestProperty, Value = 44.0 },
+                new Setter { Property = Button.CornerRadiusProperty, Value = 10 },
+                new Setter { Property = Button.PaddingProperty, Value = new Thickness(12, 8) }
             }
         });
     }

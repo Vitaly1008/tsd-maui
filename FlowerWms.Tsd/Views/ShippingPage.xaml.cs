@@ -1,14 +1,17 @@
+using FlowerWms.Tsd.Services;
 using FlowerWms.Tsd.ViewModels;
 
 namespace FlowerWms.Tsd.Views;
 
 public partial class ShippingPage : BasePage
 {
-    private ShippingViewModel _viewModel;
+    private ShippingViewModel? _viewModel;
 
     public ShippingPage()
     {
-        InitializeComponent(); // ✅ Добавляем
+        // ✅ ВЫЗЫВАЕМ InitializeComponent() ЗДЕСЬ
+        InitializeComponent();
+        
         _viewModel = BindingContext as ShippingViewModel;
         
         if (_viewModel != null)
@@ -35,5 +38,39 @@ public partial class ShippingPage : BasePage
     private async void OnOperationCancelled(object? sender, EventArgs e)
     {
         await Navigation.PopAsync();
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        
+        var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
+        if (barcodeService != null)
+        {
+            barcodeService.OnBarcodeScanned += OnBarcodeScanned;
+            barcodeService.StartListening();
+        }
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        
+        var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
+        if (barcodeService != null)
+        {
+            barcodeService.OnBarcodeScanned -= OnBarcodeScanned;
+        }
+    }
+
+    private void OnBarcodeScanned(string barcode)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            if (_viewModel != null)
+            {
+                await _viewModel.ScanBoxCommand.ExecuteAsync(barcode);
+            }
+        });
     }
 }

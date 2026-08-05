@@ -97,6 +97,10 @@ public static class Constants
         public const string ConfirmOperation = "/api/tsd/operation/confirm";
         public const string EndOperation = "/api/tsd/operation/end";
         public const string SyncBox = "/api/barcodes/sync-box";
-         public const string Products = "/api/products";
+        public const string Products = "/api/products";
+        public const string BoxesByLocation = "/api/boxes/location";  // НОВЫЙ
+        public const string BoxByBarcode = "/api/boxes/barcode";      // НОВЫЙ
+        public const string MoveBox = "/api/boxes/move";              // НОВЫЙ
+        public const string UpdateBoxQuantity = "/api/boxes/quantity"; // НОВЫЙ
     }
 }

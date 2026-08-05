@@ -19,46 +19,48 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Верхняя панель -->
-        <Grid Grid.Row="0" 
-              Padding="16,12"
-              BackgroundColor="{StaticResource PrimaryColor}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
+    <!-- Верхняя панель - добавить индикатор синхронизации -->
+    <Grid Grid.Row="0" 
+        Padding="16,12"
+        BackgroundColor="{StaticResource PrimaryColor}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
 
-            <VerticalStackLayout Grid.Column="0" Spacing="2">
-                <Label Text="ALPHA WMS" 
-                       TextColor="White" 
-                       FontSize="18"
-                       FontAttributes="Bold" />
-                <Label Text="{Binding ServerAddress, StringFormat='🌐 {0}'}" 
-                       TextColor="White" 
-                       FontSize="10"
-                       Opacity="0.7" />
-            </VerticalStackLayout>
+        <VerticalStackLayout Grid.Column="0" Spacing="2">
+            <Label Text="ALPHA WMS" 
+                TextColor="White" 
+                FontSize="18"
+                FontAttributes="Bold" />
+            <Label Text="{Binding ServerAddress, StringFormat='🌐 {0}'}" 
+                TextColor="White" 
+                FontSize="10"
+                Opacity="0.7" />
+        </VerticalStackLayout>
 
-            <HorizontalStackLayout Grid.Column="1" Spacing="8">
-                <!-- Бейдж с количеством -->
-                <Frame IsVisible="{Binding PendingCount, Converter={StaticResource GreaterThanZeroConverter}}"
-                       BackgroundColor="{StaticResource WarningColor}"
-                       CornerRadius="10"
-                       Padding="6,1">
-                    <HorizontalStackLayout Spacing="3">
-                        <Label Text="🔄" TextColor="White" FontSize="10" />
-                        <Label Text="{Binding PendingCount}" 
-                               TextColor="White" 
-                               FontSize="9"
-                               FontAttributes="Bold" />
-                    </HorizontalStackLayout>
-                </Frame>
-
-                <!-- Статус подключения -->
-                <Label Text="{Binding IsOnline, Converter={StaticResource ConnectionIconConverter}}" 
-                       FontSize="18" />
+        <!-- Бейдж с количеством ожидающих синхронизации -->
+        <Frame Grid.Column="1"
+            IsVisible="{Binding PendingCount, Converter={StaticResource GreaterThanZeroConverter}}"
+            BackgroundColor="{StaticResource WarningColor}"
+            CornerRadius="12"
+            Padding="8,2"
+            Margin="0,0,8,0">
+            <HorizontalStackLayout Spacing="4">
+                <Label Text="🔄" TextColor="White" FontSize="12" />
+                <Label Text="{Binding PendingCount}" 
+                    TextColor="White" 
+                    FontSize="11"
+                    FontAttributes="Bold" />
             </HorizontalStackLayout>
-        </Grid>
+        </Frame>
+
+        <!-- Иконка статуса подключения -->
+        <Label Grid.Column="2" 
+            Text="{Binding ConnectionStatusIcon}" 
+            FontSize="18" />
+    </Grid>
 
         <!-- Основной контент -->
         <ScrollView Grid.Row="1" Padding="12">
@@ -142,31 +144,44 @@
                     </Grid>
                 </Frame>
 
-                <!-- Кнопка "Синхронизация" - всегда доступна, показывает статус -->
-                <Button x:Name="SyncButton"
-                        Command="{Binding SyncCommand}"
-                        IsEnabled="{Binding IsSyncing, Converter={StaticResource InverseBooleanConverter}}"
-                        Style="{StaticResource PrimaryButton}"
-                        HeightRequest="40"
-                        FontSize="12"
-                        Margin="0, 4, 0, 0">
-                    <Button.Triggers>
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsSyncing}"
-                                     Value="True">
-                            <Setter Property="Text" Value="⏳ Синхронизация..." />
-                            <Setter Property="IsEnabled" Value="False" />
-                            <Setter Property="Opacity" Value="0.6" />
-                        </DataTrigger>
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsSyncing}"
-                                     Value="False">
-                            <Setter Property="Text" Value="🔄 Синхронизация" />
-                            <Setter Property="IsEnabled" Value="True" />
-                            <Setter Property="Opacity" Value="1" />
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
+                <!-- Кнопка синхронизации -->
+                <Frame CornerRadius="10"
+                    Padding="0" 
+                    HasShadow="True"
+                    BackgroundColor="White">
+                    <Frame.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SyncCommand}" />
+                    </Frame.GestureRecognizers>
+                    <Grid ColumnDefinitions="44, *, 32"
+                        Padding="12"
+                        HeightRequest="60">
+                        <Label Grid.Column="0" 
+                            Text="{Binding IsSyncing, Converter={StaticResource SyncStatusIconConverter}}" 
+                            FontSize="24"
+                            HorizontalOptions="Center" 
+                            VerticalOptions="Center" />
+                        <VerticalStackLayout Grid.Column="1" Padding="6,0,0,0" VerticalOptions="Center">
+                            <Label FontSize="16" FontAttributes="Bold">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label"
+                                                Binding="{Binding IsSyncing}"
+                                                Value="True">
+                                        <Setter Property="Text" Value="⏳ Синхронизация..." />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label"
+                                                Binding="{Binding IsSyncing}"
+                                                Value="False">
+                                        <Setter Property="Text" Value="🔄 Синхронизация" />
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                            <Label Text="{Binding SyncStatusMessage}" 
+                                FontSize="12" 
+                                TextColor="Gray" />
+                        </VerticalStackLayout>
+                        <Label Grid.Column="2" Text="›" FontSize="20" TextColor="Gray" HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Grid>
+                </Frame>
 
                 <!-- Нижняя панель с кнопками "Поиск" и "Выход" -->
                 <Grid Grid.Row="2" 

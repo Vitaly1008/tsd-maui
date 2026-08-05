@@ -5,11 +5,13 @@ namespace FlowerWms.Tsd.Views;
 
 public partial class HomePage : BasePage
 {
-    private HomeViewModel _viewModel;
+    private HomeViewModel? _viewModel;
 
     public HomePage()
     {
+        // ✅ ВЫЗЫВАЕМ InitializeComponent() ЗДЕСЬ
         InitializeComponent();
+        
         _viewModel = BindingContext as HomeViewModel;
         
         if (_viewModel != null)
@@ -35,11 +37,10 @@ public partial class HomePage : BasePage
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка инициализации HomePage: {ex.Message}");
-            await DisplayAlert("Ошибка", $"Не удалось загрузить главный экран: {ex.Message}", "OK");
+            await DisplayAlertAsync("Ошибка", $"Не удалось загрузить главный экран: {ex.Message}", "OK");
         }
     }
 
-    // ✅ При возврате на страницу обновляем только счетчик, не переинициализируем всё
     protected override async void OnAppearing()
     {
         base.OnAppearing();
@@ -56,7 +57,7 @@ public partial class HomePage : BasePage
             var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
             if (barcodeService == null)
             {
-                await DisplayAlert("Ошибка", "Сервис сканера недоступен", "OK");
+                await DisplayAlertAsync("Ошибка", "Сервис сканера недоступен", "OK");
                 return;
             }
             
@@ -65,7 +66,7 @@ public partial class HomePage : BasePage
         }
         catch (Exception ex)
         {
-            await DisplayAlert("Ошибка", $"Не удалось открыть приемку: {ex.Message}", "OK");
+            await DisplayAlertAsync("Ошибка", $"Не удалось открыть приемку: {ex.Message}", "OK");
         }
     }
 
@@ -81,7 +82,7 @@ public partial class HomePage : BasePage
 
     private async void OnNavigateToPending(object? sender, EventArgs e)
     {
-        await DisplayAlert("Информация", "Страница списка транзакций в разработке", "OK");
+        await DisplayAlertAsync("Информация", "Страница списка транзакций в разработке", "OK");
     }
 
     private async void OnLogoutRequested(object? sender, EventArgs e)

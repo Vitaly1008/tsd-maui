@@ -6,11 +6,13 @@ namespace FlowerWms.Tsd.Views;
 
 public partial class LoginPage : BasePage
 {
-    private LoginViewModel _viewModel;
+    private LoginViewModel? _viewModel;
 
     public LoginPage()
     {
-        InitializeComponent(); // ✅ Добавляем
+        // ✅ ВЫЗЫВАЕМ InitializeComponent() ЗДЕСЬ
+        InitializeComponent();
+        
         _viewModel = BindingContext as LoginViewModel;
         
         if (_viewModel != null)
@@ -50,7 +52,7 @@ public partial class LoginPage : BasePage
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка навигации: {ex.Message}");
-            await DisplayAlert("Ошибка", $"Не удалось перейти на главный экран: {ex.Message}", "OK");
+            await DisplayAlertAsync("Ошибка", $"Не удалось перейти на главный экран: {ex.Message}", "OK");
         }
     }
 }

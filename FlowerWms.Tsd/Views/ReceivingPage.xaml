@@ -3,179 +3,176 @@
                 xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
                 xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
                 xmlns:viewmodel="clr-namespace:FlowerWms.Tsd.ViewModels"
-                xmlns:converters="clr-namespace:FlowerWms.Tsd.Converters"
                 x:Class="FlowerWms.Tsd.Views.ReceivingPage"
                 NavigationPage.HasNavigationBar="False"
+                x:DataType="viewmodel:ReceivingViewModel"
                 Title="">
     
-    <views:BasePage.Resources>
-        <converters:InverseBooleanConverter x:Key="InverseBooleanConverter" />
-        <converters:GreaterThanZeroConverter x:Key="GreaterThanZeroConverter" />
-        <converters:IsNotNullConverter x:Key="IsNotNullConverter" />
-        <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter" />
-        <converters:ConnectionIconConverter x:Key="ConnectionIconConverter" />
-        <converters:ScanStatusBackgroundConverter x:Key="ScanStatusBackgroundConverter" />
-        <converters:ScanStatusBorderConverter x:Key="ScanStatusBorderConverter" />
-        <converters:ScanStatusIconConverter x:Key="ScanStatusIconConverter" />
-        <converters:ScanStatusTextConverter x:Key="ScanStatusTextConverter" />
-        <converters:ScanStatusColorConverter x:Key="ScanStatusColorConverter" />
-        <converters:ScanStatusSubtitleConverter x:Key="ScanStatusSubtitleConverter" />
-        <converters:ModeBackgroundConverter x:Key="ModeBackgroundConverter" />
-        <converters:ModeTextColorConverter x:Key="ModeTextColorConverter" />
-    </views:BasePage.Resources>
-
     <Grid RowDefinitions="Auto, *">
 
         <!-- Верхняя панель -->
         <Grid Grid.Row="0" 
-              Padding="12" 
+              Padding="16,12" 
               BackgroundColor="{StaticResource PrimaryColor}"
               ColumnDefinitions="Auto, *, Auto">
             
-            <!-- Кнопка "Назад" -->
-            <Frame Grid.Column="0"
-                   BackgroundColor="Transparent"
-                   Padding="4"
-                   CornerRadius="8"
-                   WidthRequest="44"
-                   HeightRequest="44"
-                   HorizontalOptions="Center"
-                   VerticalOptions="Center">
-                <Frame.GestureRecognizers>
-                    <TapGestureRecognizer Command="{Binding CancelOperationCommand}" />
-                </Frame.GestureRecognizers>
-                <Label Text="‹" 
-                       FontSize="32" 
-                       TextColor="White"
-                       HorizontalOptions="Center"
-                       VerticalOptions="Center" />
-            </Frame>
+            <Label Grid.Column="0" 
+                   Text="📥" 
+                   FontSize="22"
+                   TextColor="White"
+                   VerticalOptions="Center" />
 
             <Label Grid.Column="1" 
                    Text="Приемка" 
                    TextColor="White" 
-                   FontSize="18" 
+                   FontSize="20" 
                    FontAttributes="Bold"
                    VerticalOptions="Center"
-                   Margin="8,0,0,0" />
+                   Margin="12,0,0,0" />
 
-            <!-- Индикатор статуса -->
-            <Label Grid.Column="2" 
-                   Text="{Binding IsOnline, Converter={StaticResource ConnectionIconConverter}}" 
-                   FontSize="20"
-                   VerticalOptions="Center" />
+            <HorizontalStackLayout Grid.Column="2" Spacing="8" VerticalOptions="Center">
+                <Label Text="{Binding ScannedCount, StringFormat='📦 {0}'}" 
+                       TextColor="White" 
+                       FontSize="14"
+                       FontAttributes="Bold" />
+                <Label Text="{Binding IsOnline, Converter={StaticResource ConnectionIconConverter}}" 
+                       FontSize="18" />
+            </HorizontalStackLayout>
         </Grid>
 
         <!-- Основной контент -->
         <ScrollView Grid.Row="1" Padding="16">
             <VerticalStackLayout Spacing="16">
 
-                <!-- Информационное поле сканирования -->
+                <!-- Статус сканирования -->
                 <Frame Padding="16" 
                        CornerRadius="12" 
-                       BackgroundColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusBackgroundConverter}}"
-                       BorderColor="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusBorderConverter}}">
-                    <Grid ColumnDefinitions="32, *">
-                        <!-- Иконка статуса -->
+                       BackgroundColor="{Binding ScanStatusColor, Converter={StaticResource ScanStatusBackgroundConverter}}"
+                       BorderColor="{Binding ScanStatusColor}">
+                    <Grid ColumnDefinitions="36, *">
                         <Label Grid.Column="0" 
-                               Text="{Binding LastScannedBarcode, Converter={StaticResource ScanStatusIconConverter}}" 
-                               FontSize="20"
+                               Text="{Binding ScanStatusIcon}" 
+                               FontSize="24"
                                HorizontalOptions="Center"
                                VerticalOptions="Center" />
-                        <VerticalStackLayout Grid.Column="1" Padding="8,0,0,0" Spacing="2">
-                            <!-- Статус сканирования -->
+                        <VerticalStackLayout Grid.Column="1" Padding="8,0,0,0" Spacing="4">
                             <Label Text="{Binding ScanStatusText}" 
-                                   FontSize="14" 
+                                   FontSize="16" 
                                    FontAttributes="Bold" 
                                    TextColor="{Binding ScanStatusColor}" />
-                            <!-- Информация о коробке -->
                             <Label Text="{Binding BoxInfoText}" 
-                                   FontSize="13" 
+                                   FontSize="14" 
                                    TextColor="Gray"
                                    IsVisible="{Binding IsBoxScanned}" />
-                        </VerticalStackLayout>
-                    </Grid>
-                </Frame>
-
-                <!-- Информация о сессии -->
-                <Frame Padding="16" CornerRadius="12" HasShadow="True" BackgroundColor="White">
-                    <Grid ColumnDefinitions="*, 1, *" Padding="0">
-                        <VerticalStackLayout Grid.Column="0" Spacing="4" HorizontalOptions="Center">
-                            <Label Text="Коробок" TextColor="Gray" FontSize="12" />
-                            <Label Text="{Binding ScannedBoxes.Count}" 
-                                   FontSize="24" 
-                                   FontAttributes="Bold" 
-                                   HorizontalTextAlignment="Center" />
-                        </VerticalStackLayout>
-
-                        <BoxView Grid.Column="1" 
-                                 Color="LightGray" 
-                                 WidthRequest="1" 
-                                 HeightRequest="40" 
-                                 VerticalOptions="Center" />
-
-                        <Grid Grid.Column="2" Padding="16,0,0,0">
-                            <VerticalStackLayout Spacing="4" HorizontalOptions="Center">
-                                <Label Text="Локация" TextColor="Gray" FontSize="12" />
-                                <Label Text="{Binding CurrentLocation}" 
-                                       FontSize="16" 
-                                       FontAttributes="Bold" 
-                                       TextColor="{StaticResource PrimaryColor}"
-                                       HorizontalTextAlignment="Center" />
-                            </VerticalStackLayout>
-                            <Label Text="✏️" 
-                                   FontSize="20" 
-                                   HorizontalOptions="End" 
-                                   VerticalOptions="Center">
-                                <Label.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding ShowLocationInputCommand}" />
-                                </Label.GestureRecognizers>
-                            </Label>
-                        </Grid>
-                    </Grid>
-                </Frame>
-
-                <!-- Информационное поле сканирования с индикацией ошибки -->
-                <Frame Padding="16" 
-                    CornerRadius="12" 
-                    BackgroundColor="{Binding ScanStatusColor, Converter={StaticResource ScanStatusBackgroundConverter}}"
-                    BorderColor="{Binding ScanStatusColor}">
-                    <Grid ColumnDefinitions="32, *">
-                        <Label Grid.Column="0" 
-                            Text="{Binding ScanStatusIcon}" 
-                            FontSize="20"
-                            HorizontalOptions="Center"
-                            VerticalOptions="Center" />
-                        <VerticalStackLayout Grid.Column="1" Padding="8,0,0,0" Spacing="2">
-                            <Label Text="{Binding ScanStatusText}" 
-                                FontSize="14" 
-                                FontAttributes="Bold" 
-                                TextColor="{Binding ScanStatusColor}" />
-                            <Label Text="{Binding BoxInfoText}" 
-                                FontSize="13" 
-                                TextColor="Gray"
-                                IsVisible="{Binding IsBoxScanned}" />
                             <Label Text="{Binding ErrorMessage}" 
-                                FontSize="13" 
-                                TextColor="Red"
-                                IsVisible="{Binding HasError}" />
+                                   FontSize="14" 
+                                   TextColor="Red"
+                                   IsVisible="{Binding HasError}" />
                         </VerticalStackLayout>
                     </Grid>
                 </Frame>
+
+                <!-- Локация -->
+                <Frame Padding="16" CornerRadius="12" HasShadow="True" BackgroundColor="White">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <VerticalStackLayout Spacing="4">
+                            <Label Text="📍 Локация" TextColor="Gray" FontSize="12" />
+                            <Label Text="{Binding CurrentLocation}" 
+                                   FontSize="18" 
+                                   FontAttributes="Bold" 
+                                   TextColor="{StaticResource PrimaryColor}" />
+                        </VerticalStackLayout>
+                        <Button Grid.Column="1"
+                                Text="✏️"
+                                Command="{Binding ShowLocationInputCommand}"
+                                BackgroundColor="Transparent"
+                                TextColor="{StaticResource PrimaryColor}"
+                                FontSize="20"
+                                Padding="8,0" />
+                    </Grid>
+                </Frame>
+
+                <!-- Список отсканированных коробок -->
+                <Frame Padding="0" CornerRadius="12" HasShadow="True" BackgroundColor="White">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        
+                        <Frame Grid.Row="0" 
+                            Padding="16,12" 
+                            BackgroundColor="{StaticResource PrimaryColor}"
+                            CornerRadius="12,12,0,0"
+                            HasShadow="False">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Label Grid.Column="0" 
+                                    Text="📦 Отсканированные коробки" 
+                                    TextColor="White" 
+                                    FontSize="16" 
+                                    FontAttributes="Bold" />
+                                <Label Grid.Column="1" 
+                                    Text="{Binding ScannedCount, StringFormat='{0} шт.'}" 
+                                    TextColor="White" 
+                                    FontSize="14" />
+                            </Grid>
+                        </Frame>
+
+                        <!-- ✅ Убираем Padding у CollectionView, используем Margin у ItemTemplate -->
+                        <CollectionView Grid.Row="1"
+                                        ItemsSource="{Binding ScannedBoxes}"
+                                        HeightRequest="200">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,4" Margin="8,0" ColumnDefinitions="Auto, *, Auto">
+                                        <Label Grid.Column="0" 
+                                            Text="📦" 
+                                            FontSize="16"
+                                            VerticalOptions="Center" />
+                                        <VerticalStackLayout Grid.Column="1" Padding="8,0">
+                                            <Label Text="{Binding BoxNumber, StringFormat='Коробка #{0}'}" 
+                                                FontSize="14" 
+                                                FontAttributes="Bold" />
+                                            <Label Text="{Binding ProductName}" 
+                                                FontSize="12" 
+                                                TextColor="Gray" />
+                                            <Label Text="{Binding Quantity, StringFormat='{0} шт. | {1}'}" 
+                                                FontSize="11" 
+                                                TextColor="Gray" />
+                                        </VerticalStackLayout>
+                                        <Button Grid.Column="2"
+                                                Text="✕"
+                                                Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodel:ReceivingViewModel}}, Path=RemoveBoxCommand}"
+                                                CommandParameter="{Binding Index}"
+                                                BackgroundColor="Transparent"
+                                                TextColor="Red"
+                                                FontSize="18"
+                                                Padding="8,0" />
+                                    </Grid>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </Grid>
+                </Frame>
+
                 <!-- Кнопки действий -->
                 <Grid ColumnDefinitions="*, *" ColumnSpacing="12">
                     <Button Grid.Column="0" 
-                            Text="Список коробок" 
+                            Text="📋 Список" 
                             Command="{Binding ShowBoxesListCommand}"
+                            IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
                             Style="{StaticResource SecondaryButton}" />
                     <Button Grid.Column="1" 
-                            Text="Принять" 
+                            Text="✅ Принять" 
                             Command="{Binding ConfirmOperationCommand}"
                             IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
                             Style="{StaticResource PrimaryButton}" />
                 </Grid>
 
-                <!-- Индикатор загрузки -->
                 <ActivityIndicator IsRunning="{Binding IsLoading}" 
                                    Color="{StaticResource PrimaryColor}" 
                                    HorizontalOptions="Center" />

@@ -5,11 +5,13 @@ namespace FlowerWms.Tsd.Views;
 
 public partial class InventoryPage : BasePage
 {
-    private InventoryViewModel _viewModel;
+    private InventoryViewModel? _viewModel;
 
     public InventoryPage()
     {
-        InitializeComponent(); // ✅ Оставляем только здесь
+        // ✅ ВЫЗЫВАЕМ InitializeComponent() ЗДЕСЬ
+        InitializeComponent();
+        
         _viewModel = BindingContext as InventoryViewModel;
         
         if (_viewModel != null)
@@ -61,14 +63,7 @@ public partial class InventoryPage : BasePage
         {
             if (_viewModel != null)
             {
-                if (_viewModel.IsLocationMode)
-                {
-                    await _viewModel.ScanBoxInLocationCommand.ExecuteAsync(barcode);
-                }
-                else
-                {
-                    await _viewModel.ScanBarcodeCommand.ExecuteAsync(barcode);
-                }
+                await _viewModel.ScanBarcodeCommand.ExecuteAsync(barcode);
             }
         });
     }

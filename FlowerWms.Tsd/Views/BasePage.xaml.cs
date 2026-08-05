@@ -3,13 +3,13 @@ using Microsoft.Maui.Devices;
 
 namespace FlowerWms.Tsd.Views;
 
-// ✅ Делаем класс abstract, чтобы не вызывать InitializeComponent напрямую
-public abstract partial class BasePage : ContentPage
+public partial class BasePage : ContentPage
 {
     public BasePage()
     {
-        // ✅ Убираем InitializeComponent() - он вызывается в наследниках
-        // Устанавливаем отступ для статус-бара на Android
+        // ❌ НЕ ВЫЗЫВАЕМ InitializeComponent() здесь!
+        // Он будет вызван в каждой наследующей странице
+        
         if (DeviceInfo.Current.Platform == DevicePlatform.Android)
         {
             var statusBarHeight = GetStatusBarHeight();
@@ -22,6 +22,8 @@ public abstract partial class BasePage : ContentPage
         try
         {
             var context = Android.App.Application.Context;
+            if (context == null) return 30;
+            
             var resourceId = context.Resources.GetIdentifier("status_bar_height", "dimen", "android");
             if (resourceId > 0)
             {

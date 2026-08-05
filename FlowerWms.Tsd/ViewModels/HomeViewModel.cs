@@ -1,18 +1,20 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using FlowerWms.Tsd.Services;
 using FlowerWms.Tsd.Helpers;
+using FlowerWms.Tsd.Models;
+using FlowerWms.Tsd.Services;
 
 namespace FlowerWms.Tsd.ViewModels;
 
 public partial class HomeViewModel : ObservableObject
 {
+    private readonly SyncQueueService _syncQueueService;
     private readonly SyncService _syncService;
     private readonly AuthService _authService;
     private readonly ServerDiscoveryService _discoveryService;
     private readonly NetworkService _networkService;
     private bool _isInitialized;
-    private int _lastKnownPendingCount = -1; // ✅ Для отслеживания изменений
+    private int _lastKnownPendingCount = -1;
 
     [ObservableProperty]
     private int _pendingCount;
@@ -27,6 +29,12 @@ public partial class HomeViewModel : ObservableObject
     private string _connectionStatus = "Подключение...";
     
     [ObservableProperty]
+    private string _connectionStatusIcon = "⏳";
+    
+    [ObservableProperty]
+    private string _syncStatusMessage = "Все данные синхронизированы ✅";
+
+    [ObservableProperty]
     private string _serverAddress = string.Empty;
 
     [ObservableProperty]
@@ -40,6 +48,7 @@ public partial class HomeViewModel : ObservableObject
 
     public HomeViewModel()
     {
+        _syncQueueService = new SyncQueueService();
         _syncService = new SyncService();
         _authService = new AuthService();
         _discoveryService = new ServerDiscoveryService();
@@ -50,33 +59,47 @@ public partial class HomeViewModel : ObservableObject
         _networkService.NetworkStatusChanged += OnNetworkStatusChanged;
         _networkService.ServerFound += OnServerFound;
 
+        _syncQueueService.PendingCountChanged += (s, count) =>
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                PendingCount = count;
+                UpdateSyncStatusMessage(count);
+            });
+        };
+
+        _syncQueueService.SyncStatusChanged += (s, isSyncing) =>
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                IsSyncing = isSyncing;
+                if (!isSyncing && PendingCount == 0)
+                {
+                    SyncStatusMessage = "✅ Все данные синхронизированы";
+                }
+            });
+        };
+
         _syncService.StatusChanged += (s, status) =>
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                IsOnline = status == FlowerWms.Tsd.Models.SyncStatus.Online;
+                IsOnline = status == SyncStatus.Online;
                 ConnectionStatus = status switch
                 {
-                    FlowerWms.Tsd.Models.SyncStatus.Online => "✅ Онлайн",
-                    FlowerWms.Tsd.Models.SyncStatus.Offline => "📴 Офлайн",
-                    FlowerWms.Tsd.Models.SyncStatus.Syncing => "🔄 Синхронизация...",
+                    SyncStatus.Online => "✅ Онлайн",
+                    SyncStatus.Offline => "📴 Офлайн",
+                    SyncStatus.Syncing => "🔄 Синхронизация...",
                     _ => "❓ Неизвестно"
                 };
-                IsSyncing = status == FlowerWms.Tsd.Models.SyncStatus.Syncing;
-            });
-        };
-
-        _syncService.PendingCountChanged += (s, count) =>
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                // ✅ Обновляем только если изменилось
-                if (_lastKnownPendingCount != count)
+                ConnectionStatusIcon = status switch
                 {
-                    _lastKnownPendingCount = count;
-                    PendingCount = count;
-                    System.Diagnostics.Debug.WriteLine($"📊 Счетчик обновлен: {count}");
-                }
+                    SyncStatus.Online => "📶",
+                    SyncStatus.Offline => "📴",
+                    SyncStatus.Syncing => "🔄",
+                    _ => "❓"
+                };
+                IsSyncing = status == SyncStatus.Syncing;
             });
         };
     }
@@ -91,8 +114,7 @@ public partial class HomeViewModel : ObservableObject
             if (isOnline)
             {
                 ServerAddress = Constants.ApiBaseUrl;
-                // ✅ При появлении сети проверяем счетчик
-                RefreshPendingCount();
+                _ = RefreshPendingCount();
             }
         });
     }
@@ -107,9 +129,20 @@ public partial class HomeViewModel : ObservableObject
         });
     }
 
+    private void UpdateSyncStatusMessage(int count)
+    {
+        if (count == 0)
+        {
+            SyncStatusMessage = "✅ Все данные синхронизированы";
+        }
+        else
+        {
+            SyncStatusMessage = $"⏳ Ожидает синхронизации: {count}";
+        }
+    }
+
     public async Task Initialize()
     {
-        // ✅ Предотвращаем повторную инициализацию
         if (_isInitialized) return;
         
         try
@@ -118,9 +151,9 @@ public partial class HomeViewModel : ObservableObject
             
             IsOnline = await _syncService.CheckInternetManual();
             
-            // ✅ Загружаем счетчик только один раз при инициализации
-            _lastKnownPendingCount = await _syncService.GetPendingCount();
+            _lastKnownPendingCount = await _syncQueueService.GetPendingCount();
             PendingCount = _lastKnownPendingCount;
+            UpdateSyncStatusMessage(PendingCount);
             
             ServerAddress = Constants.ApiBaseUrl;
             
@@ -134,19 +167,18 @@ public partial class HomeViewModel : ObservableObject
         }
     }
 
-    // ✅ Метод для обновления счетчика (вызывается при возврате на главную)
     public async Task RefreshPendingCount()
     {
         try
         {
-            var currentCount = await _syncService.GetPendingCount();
+            var currentCount = await _syncQueueService.GetPendingCount();
             
-            // ✅ Обновляем только если изменилось
             if (_lastKnownPendingCount != currentCount)
             {
                 _lastKnownPendingCount = currentCount;
                 PendingCount = currentCount;
-                System.Diagnostics.Debug.WriteLine($"📊 Счетчик обновлен при возврате: {currentCount}");
+                UpdateSyncStatusMessage(currentCount);
+                System.Diagnostics.Debug.WriteLine($"📊 Счетчик обновлен: {currentCount}");
             }
         }
         catch (Exception ex)
@@ -165,9 +197,7 @@ public partial class HomeViewModel : ObservableObject
         }
         
         System.Diagnostics.Debug.WriteLine("🔄 Запуск синхронизации");
-        await _syncService.SyncManual();
-        
-        // ✅ Обновляем счетчик после синхронизации
+        await _syncQueueService.ProcessQueueAsync();
         await RefreshPendingCount();
     }
 
@@ -187,7 +217,7 @@ public partial class HomeViewModel : ObservableObject
                 IsOnline = true;
                 ConnectionStatus = "✅ Онлайн";
                 
-                await Application.Current?.MainPage?.DisplayAlert(
+                await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "✅ Сервер найден",
                     $"Сервер доступен по адресу:\n{serverAddress}",
                     "OK"
@@ -197,7 +227,7 @@ public partial class HomeViewModel : ObservableObject
             {
                 IsOnline = false;
                 ConnectionStatus = "📴 Офлайн";
-                await Application.Current?.MainPage?.DisplayAlert(
+                await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "❌ Сервер не найден",
                     "Не удалось найти сервер в сети.\nПроверьте подключение.",
                     "OK"
@@ -206,7 +236,7 @@ public partial class HomeViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await Application.Current?.MainPage?.DisplayAlert(
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Ошибка",
                 $"Ошибка поиска сервера: {ex.Message}",
                 "OK"
