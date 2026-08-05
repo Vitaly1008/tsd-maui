@@ -25,10 +25,11 @@ public class OfflineTransaction
 [Table("boxes_cache")]
 public class BoxCache
 {
-    [PrimaryKey]
+    // ✅ Убираем PrimaryKey с box_id, делаем его обычным полем
     public string box_id { get; set; } = string.Empty;
     
-    [Unique]
+    // ✅ PrimaryKey делаем по barcode (он уникальный)
+    [PrimaryKey]
     public string barcode { get; set; } = string.Empty;
     
     public int box_number { get; set; }

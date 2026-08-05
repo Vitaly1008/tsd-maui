@@ -150,7 +150,7 @@ public class DatabaseHelper
         {
             var db = await GetDatabaseAsync();
             
-            // ✅ Принудительно проверяем статус
+            // Принудительно проверяем статус
             if (box.status == 0)
             {
                 System.Diagnostics.Debug.WriteLine($"⚠️ Статус 0, меняем на 1 для коробки {box.barcode}");
@@ -159,42 +159,15 @@ public class DatabaseHelper
             
             box.updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             
-            // ✅ Используем InsertOrReplace с проверкой
-            try
-            {
-                // Пытаемся обновить существующую запись
-                var existing = await db.Table<BoxCache>()
-                    .FirstOrDefaultAsync(b => b.barcode == box.barcode);
-                
-                if (existing != null)
-                {
-                    // ✅ Обновляем существующую запись
-                    await db.UpdateAsync(box);
-                    System.Diagnostics.Debug.WriteLine($"✅ Коробка обновлена: {box.barcode}, статус={box.status}");
-                }
-                else
-                {
-                    // ✅ Вставляем новую запись
-                    await db.InsertAsync(box);
-                    System.Diagnostics.Debug.WriteLine($"✅ Коробка создана: {box.barcode}, статус={box.status}");
-                }
-            }
-            catch (SQLiteException ex) when (ex.Message.Contains("PRIMARY KEY"))
-            {
-                // Если все равно ошибка PRIMARY KEY - вставляем принудительно
-                System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка PRIMARY KEY, вставляем принудительно: {ex.Message}");
-                
-                // Удаляем существующую запись
-                await db.ExecuteAsync("DELETE FROM boxes_cache WHERE box_id = ?", box.box_id);
-                await db.InsertAsync(box);
-                
-                System.Diagnostics.Debug.WriteLine($"✅ Коробка вставлена принудительно: {box.barcode}");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения коробки: {ex.Message}");
-                throw;
-            }
+            // ✅ Сначала удаляем существующую запись с таким barcode (если есть)
+            await db.ExecuteAsync(
+                "DELETE FROM boxes_cache WHERE barcode = ?",
+                box.barcode
+            );
+            
+            // ✅ Затем вставляем новую
+            await db.InsertAsync(box);
+            System.Diagnostics.Debug.WriteLine($"✅ Коробка сохранена: {box.barcode}, статус={box.status}");
         }
         catch (Exception ex)
         {
@@ -208,14 +181,8 @@ public class DatabaseHelper
         try
         {
             var db = await GetDatabaseAsync();
-            var box = await db.Table<BoxCache>().FirstOrDefaultAsync(b => b.barcode == barcode);
-            
-            if (box != null)
-            {
-                System.Diagnostics.Debug.WriteLine($"📦 Найдена коробка: {barcode}, статус={box.status}");
-            }
-            
-            return box;
+            // ✅ Используем FirstOrDefaultAsync вместо FindAsync
+            return await db.Table<BoxCache>().FirstOrDefaultAsync(b => b.barcode == barcode);
         }
         catch (Exception ex)
         {
@@ -295,11 +262,8 @@ public class DatabaseHelper
         try
         {
             var db = await GetDatabaseAsync();
-            var count = await db.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM boxes_cache WHERE barcode = ? AND status = 1",
-                barcode
-            );
-            return count > 0;
+            var box = await db.Table<BoxCache>().FirstOrDefaultAsync(b => b.barcode == barcode);
+            return box != null;
         }
         catch (Exception ex)
         {
@@ -406,4 +370,82 @@ public class DatabaseHelper
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка компактизации: {ex.Message}");
         }
     }
+
+    // ============================================================
+    // МЕТОДЫ ДЛЯ РАБОТЫ С ЛОКАЦИЯМИ
+    // ============================================================
+
+    /// <summary>
+    /// Получить локацию по коду
+    /// </summary>
+    public async Task<LocationCache?> GetLocationByCode(string code)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            return await db.Table<LocationCache>().FirstOrDefaultAsync(l => l.code == code);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения локации: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Проверить существование локации
+    /// </summary>
+    public async Task<bool> IsLocationExists(string code)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var location = await db.Table<LocationCache>().FirstOrDefaultAsync(l => l.code == code);
+            return location != null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка проверки локации: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Сохранить локацию в кэш
+    /// </summary>
+    public async Task SaveLocation(LocationCache location)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            await db.InsertOrReplaceAsync(location);
+            System.Diagnostics.Debug.WriteLine($"✅ Локация сохранена: {location.code}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения локации: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Синхронизировать список локаций
+    /// </summary>
+    public async Task SyncLocations(List<LocationCache> locations)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            foreach (var location in locations)
+            {
+                await db.InsertOrReplaceAsync(location);
+            }
+            System.Diagnostics.Debug.WriteLine($"✅ Синхронизировано {locations.Count} локаций");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации локаций: {ex.Message}");
+        }
+    }
+
+
 }

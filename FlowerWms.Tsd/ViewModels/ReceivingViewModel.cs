@@ -58,6 +58,9 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _scannedCount;
 
+    [ObservableProperty]
+    private bool _isBoxListExpanded = true; // по умолчанию развернут
+
     public ObservableCollection<Box> ScannedBoxes { get; } = new();
 
     public event EventHandler? OperationCompleted;
@@ -133,6 +136,23 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
         try
         {
             IsOnline = await _syncService.CheckInternetManual();
+            
+            // ✅ Проверяем наличие локации UNKNOWN в локальной БД
+            var unknownLocation = await _dbHelper.GetLocationByCode("UNKNOWN");
+            if (unknownLocation == null)
+            {
+                // Если нет - создаем
+                var location = new LocationCache
+                {
+                    location_id = Guid.NewGuid().ToString(),
+                    code = "UNKNOWN",
+                    name = "Неизвестная локация",
+                    is_active = 1,
+                    created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+                await _dbHelper.SaveLocation(location);
+                System.Diagnostics.Debug.WriteLine("✅ Создана локация UNKNOWN в локальной БД");
+            }
             
             if (_barcodeService != null)
             {
@@ -210,6 +230,15 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrEmpty(barcode)) return;
         if (IsLoading) return;
+
+        // ============================================================
+        // ✅ ОПРЕДЕЛЯЕМ ТИП ШТРИХКОДА
+        // ============================================================
+        if (IsLocationBarcode(barcode))
+        {
+            await ScanLocation(barcode);
+            return;
+        }
 
         // Сбрасываем ошибку
         HasError = false;
@@ -324,15 +353,79 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public void ScanLocation(string locationCode)
+    public async Task ScanLocation(string locationCode)
     {
-        CurrentLocation = locationCode;
-        LastScannedBarcode = locationCode;
+        if (string.IsNullOrEmpty(locationCode)) return;
         
-        // Обновляем локацию у всех отсканированных коробок
-        foreach (var box in ScannedBoxes)
+        IsLoading = true;
+        
+        try
         {
-            box.LocationCode = locationCode;
+            // 1. Проверяем в локальном кэше
+            var location = await _dbHelper.GetLocationByCode(locationCode);
+            
+            // 2. Если нет в кэше и есть интернет - пробуем с сервера
+            if (location == null && IsOnline)
+            {
+                var synced = await _apiService.SyncLocations();
+                if (synced)
+                {
+                    location = await _dbHelper.GetLocationByCode(locationCode);
+                }
+            }
+            
+            // 3. Если локация не найдена - показываем ошибку
+            if (location == null)
+            {
+                HasError = true;
+                ErrorMessage = $"❌ Локация '{locationCode}' не найдена";
+                ScanStatusIcon = "❌";
+                ScanStatusColor = Colors.Red;
+                ScanStatusText = ErrorMessage;
+                CurrentLocation = "UNKNOWN";
+                return;
+            }
+            
+            // 4. Проверяем активна ли локация
+            if (location.is_active != 1)
+            {
+                HasError = true;
+                ErrorMessage = $"⚠️ Локация '{locationCode}' неактивна";
+                ScanStatusIcon = "⚠️";
+                ScanStatusColor = Colors.Orange;
+                ScanStatusText = ErrorMessage;
+                CurrentLocation = "UNKNOWN";
+                return;
+            }
+            
+            // 5. Успешно - устанавливаем локацию
+            CurrentLocation = locationCode;
+            LastScannedBarcode = locationCode;
+            HasError = false;
+            ErrorMessage = string.Empty;
+            ScanStatusIcon = "📍";
+            ScanStatusColor = Colors.Blue;
+            ScanStatusText = $"📍 Локация: {locationCode} ({location.name})";
+            
+            // Обновляем локацию у всех отсканированных коробок
+            foreach (var box in ScannedBoxes)
+            {
+                box.LocationCode = locationCode;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"✅ Локация установлена: {locationCode}");
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            ErrorMessage = $"❌ Ошибка проверки локации: {ex.Message}";
+            ScanStatusIcon = "❌";
+            ScanStatusColor = Colors.Red;
+            ScanStatusText = ErrorMessage;
+        }
+        finally
+        {
+            IsLoading = false;
         }
     }
 
@@ -361,10 +454,13 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             // Сохраняем коробки в кэш
             foreach (var box in boxes)
             {
+                var location = await _dbHelper.GetLocationByCode(CurrentLocation);
+                var locationId = location?.location_id ?? "";
+
                 var boxCache = new BoxCache
                 {
+                    barcode = box.Barcode, // ✅ теперь это PrimaryKey
                     box_id = box.Id,
-                    barcode = box.Barcode,
                     box_number = box.BoxNumber,
                     grade = box.Grade,
                     initial_quantity = box.Quantity,
@@ -373,6 +469,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                     product_name = box.ProductName,
                     product_ean13 = box.ProductEan13,
                     location_code = box.LocationCode ?? CurrentLocation,
+                    location_id = locationId, // ✅ добавляем ID локации
                     status = 1,
                     created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
@@ -487,13 +584,13 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public void RemoveBox(int index)
+    private void RemoveBox(object parameter)
     {
-        if (index >= 0 && index < ScannedBoxes.Count)
+        if (parameter is Box box && ScannedBoxes.Contains(box))
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                ScannedBoxes.RemoveAt(index);
+                ScannedBoxes.Remove(box);
                 ScannedCount = ScannedBoxes.Count;
                 
                 if (ScannedBoxes.Count == 0)
@@ -561,5 +658,45 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
         _syncQueueService.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);
+    }
+
+    [RelayCommand]
+    private void ToggleBoxList()
+    {
+        IsBoxListExpanded = !IsBoxListExpanded;
+    }
+
+    /// <summary>
+    /// Определяет, является ли штрихкод локацией или коробкой
+    /// </summary>
+    private bool IsLocationBarcode(string barcode)
+    {
+        // Проверяем, что штрихкод не содержит 13 цифр подряд (EAN-13)
+        var hasEan13 = System.Text.RegularExpressions.Regex.IsMatch(barcode, @"^\d{13}");
+        if (hasEan13) return false;
+        
+        // Проверяем формат коробки: EAN13-Quantity-Grade-BoxNumber
+        var parts = barcode.Split('-');
+        if (parts.Length == 4)
+        {
+            // Проверяем, что первая часть - 13 цифр (EAN-13)
+            if (parts[0].Length == 13 && System.Text.RegularExpressions.Regex.IsMatch(parts[0], @"^\d{13}"))
+            {
+                // Проверяем, что последняя часть - число (номер коробки)
+                if (int.TryParse(parts[3], out _))
+                {
+                    return false; // это коробка
+                }
+            }
+        }
+        
+        // Проверяем, может это просто номер коробки (только цифры)
+        if (int.TryParse(barcode, out _))
+        {
+            return false; // это коробка
+        }
+        
+        // Если не похоже на коробку - считаем локацией
+        return true;
     }
 }

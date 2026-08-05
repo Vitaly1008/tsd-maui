@@ -40,16 +40,15 @@ public class SyncService
         {
             var token = await new SecureStorageService().GetToken();
             if (string.IsNullOrEmpty(token))
+            {
+                System.Diagnostics.Debug.WriteLine("⚠️ Нет токена для проверки интернета");
                 return false;
+            }
 
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            client.Timeout = TimeSpan.FromSeconds(3);
-            
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}{Constants.ApiEndpoints.Ping}");
-            
-            return response.IsSuccessStatusCode;
+            // ✅ Используем ApiService для проверки, а не создаем новый HttpClient
+            // Просто проверяем через ApiService
+            var apiService = new ApiService();
+            return await apiService.PingServer();
         }
         catch (Exception ex)
         {

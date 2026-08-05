@@ -43,6 +43,7 @@ public partial class App : Application
         Resources.Add("ScanStatusSubtitleConverter", new ScanStatusSubtitleConverter());
         Resources.Add("SearchButtonTextConverter", new SearchButtonTextConverter());
         Resources.Add("StatusBarPaddingConverter", new StatusBarPaddingConverter());
+        Resources.Add("ExpandIconConverter", new ExpandIconConverter());
 
         // Цвета
         Resources.Add("PrimaryColor", Color.FromArgb("#2E7D32"));

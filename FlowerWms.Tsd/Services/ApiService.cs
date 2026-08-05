@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using FlowerWms.Tsd.Helpers;
 using FlowerWms.Tsd.Models;
+using Location = FlowerWms.Tsd.Models.Location;
 
 namespace FlowerWms.Tsd.Services;
 
@@ -569,4 +570,91 @@ public class ApiService
             return false;
         }
     }
+
+    /// <summary>
+    /// Получить список всех локаций с сервера
+    /// </summary>
+    public async Task<List<Location>> GetLocations()
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/locations");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var locationsData = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content) 
+                                    ?? new List<Dictionary<string, object>>();
+                
+                return locationsData.Select(Location.FromJson).ToList();
+            }
+
+            return new List<Location>();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения локаций: {ex.Message}");
+            return new List<Location>();
+        }
+    }
+
+    /// <summary>
+    /// Синхронизация справочника локаций
+    /// </summary>
+    public async Task<bool> SyncLocations()
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/locations");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var locations = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
+                
+                if (locations != null && locations.Count > 0)
+                {
+                    var dbHelper = new DatabaseHelper();
+                    var locationCache = new List<LocationCache>();
+                    
+                    foreach (var loc in locations)
+                    {
+                        var id = loc.GetValueOrDefault("id", "")?.ToString() ?? "";
+                        var code = loc.GetValueOrDefault("code", "")?.ToString() ?? "";
+                        var name = loc.GetValueOrDefault("name", "")?.ToString() ?? "";
+                        var barcode = loc.GetValueOrDefault("barcode", "")?.ToString();
+                        var isActive = loc.GetValueOrDefault("isActive", true) is bool ia ? ia : true;
+                        var createdAt = loc.GetValueOrDefault("createdAt", 0) is long ca ? ca : 0;
+                        
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(code))
+                        {
+                            locationCache.Add(new LocationCache
+                            {
+                                location_id = id,
+                                code = code,
+                                name = name,
+                                barcode = barcode,
+                                is_active = isActive ? 1 : 0,
+                                created_at = createdAt
+                            });
+                        }
+                    }
+                    
+                    await dbHelper.SyncLocations(locationCache);
+                    System.Diagnostics.Debug.WriteLine($"Синхронизировано {locationCache.Count} локаций");
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации локаций: {ex.Message}");
+            return false;
+        }
+    }
+
 }
