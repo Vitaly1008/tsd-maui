@@ -102,5 +102,11 @@ public static class Constants
         public const string BoxByBarcode = "/api/boxes/barcode";      // НОВЫЙ
         public const string MoveBox = "/api/boxes/move";              // НОВЫЙ
         public const string UpdateBoxQuantity = "/api/boxes/quantity"; // НОВЫЙ
+        public const string CreateDraftBox = "/api/barcodes/create-draft-box";
+        public const string ActivateBox = "/api/barcodes/activate-box";
+        public const string DraftBoxByBarcode = "/api/barcodes/draft-box/barcode";
+        public const string DeleteDraftBox = "/api/barcodes/draft-box";
+        public const string CheckBoxNumber = "/api/barcodes/check-box-number";
+        public const string DraftBoxes = "/api/barcodes/draft-boxes";
     }
 }

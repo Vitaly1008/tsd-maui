@@ -255,7 +255,26 @@ public class DatabaseHelper
     }
 
     /// <summary>
-    /// Проверка существования коробки по штрихкоду в кэше
+    /// Проверка существования АКТИВНОЙ коробки по штрихкоду в кэше
+    /// </summary>
+    public async Task<bool> IsActiveBoxExistsByBarcode(string barcode)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var box = await db.Table<BoxCache>()
+                .FirstOrDefaultAsync(b => b.barcode == barcode && b.status == 1);
+            return box != null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка проверки существования коробки: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Проверка существования ЛЮБОЙ коробки по штрихкоду в кэше (включая Draft)
     /// </summary>
     public async Task<bool> IsBoxExistsByBarcode(string barcode)
     {
@@ -273,9 +292,9 @@ public class DatabaseHelper
     }
 
     /// <summary>
-    /// Проверка существования коробки по номеру
+    /// Проверка существования АКТИВНОЙ коробки по номеру
     /// </summary>
-    public async Task<bool> IsBoxNumberExists(int boxNumber)
+    public async Task<bool> IsActiveBoxNumberExists(int boxNumber)
     {
         try
         {
@@ -446,6 +465,4 @@ public class DatabaseHelper
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации локаций: {ex.Message}");
         }
     }
-
-
 }

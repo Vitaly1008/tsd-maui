@@ -25,13 +25,11 @@ public class OfflineTransaction
 [Table("boxes_cache")]
 public class BoxCache
 {
-    // ✅ Убираем PrimaryKey с box_id, делаем его обычным полем
-    public string box_id { get; set; } = string.Empty;
-    
-    // ✅ PrimaryKey делаем по barcode (он уникальный)
+    // ✅ PrimaryKey по barcode (он уникальный)
     [PrimaryKey]
     public string barcode { get; set; } = string.Empty;
     
+    public string box_id { get; set; } = string.Empty;
     public int box_number { get; set; }
     public string grade { get; set; } = string.Empty;
     public int initial_quantity { get; set; }
@@ -42,7 +40,7 @@ public class BoxCache
     public string? location_id { get; set; }
     public string? location_code { get; set; }
     public string? order_id { get; set; }
-    public int status { get; set; } = 1;
+    public int status { get; set; } = 0; // По умолчанию Draft
     public long created_at { get; set; }
     public long updated_at { get; set; }
 }

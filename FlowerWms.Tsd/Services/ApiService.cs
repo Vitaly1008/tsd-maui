@@ -186,35 +186,43 @@ public class ApiService
         try
         {
             var client = await GetHttpClient();
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{Constants.ApiBaseUrl}{Constants.ApiEndpoints.SyncBox}");
             
-            var data = new
+            // Формируем правильный запрос для /api/barcodes/sync-box
+            var syncRequest = new
             {
-                barcode,
-                locationCode = payload.ContainsKey("locationCode") ? payload["locationCode"]?.ToString() : "UNKNOWN",
-                operationType
+                barcode = barcode,
+                locationCode = payload.ContainsKey("locationCode") 
+                    ? payload["locationCode"]?.ToString() 
+                    : (payload.ContainsKey("LocationCode") ? payload["LocationCode"]?.ToString() : "UNKNOWN"),
+                operationType = operationType,
+                status = payload.ContainsKey("status") 
+                ? Convert.ToInt32(payload["status"]) 
+                : 1  // 👈 ПО УМОЛЧАНИЮ 1
             };
             
-            var json = JsonSerializer.Serialize(data);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-            request.Headers.Add("deviceId", Constants.DeviceId);
-
-            var response = await client.SendAsync(request);
-            var content = await response.Content.ReadAsStringAsync();
+            var json = JsonSerializer.Serialize(syncRequest);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/barcodes/sync-box", 
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)
             {
                 return new Dictionary<string, object>
                 {
                     ["success"] = true,
-                    ["data"] = JsonSerializer.Deserialize<object>(content) ?? new object()
+                    ["data"] = JsonSerializer.Deserialize<object>(responseContent) ?? new object()
                 };
             }
 
             return new Dictionary<string, object>
             {
                 ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {content}"
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
             };
         }
         catch (Exception ex)
@@ -654,6 +662,223 @@ public class ApiService
         {
             System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации локаций: {ex.Message}");
             return false;
+        }
+    }
+    // Добавить в конец класса ApiService
+
+    /// <summary>
+    /// Создание Draft-коробки на сервере
+    /// </summary>
+    public async Task<Dictionary<string, object>> CreateDraftBox(
+        string ean13, int quantity, string grade, int boxNumber)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var request = new
+            {
+                ean13 = ean13,
+                quantity = quantity,
+                grade = grade,
+                boxNumber = boxNumber
+            };
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/barcodes/create-draft-box",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Активация коробки на сервере (Draft → Active)
+    /// </summary>
+    public async Task<Dictionary<string, object>> ActivateBox(string boxId, string? comment = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var request = new { comment = comment ?? "Активация через ТСД" };
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/barcodes/activate-box/{boxId}",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Получение информации о Draft-коробке по штрихкоду
+    /// </summary>
+    public async Task<Dictionary<string, object>> GetDraftBoxByBarcode(string barcode)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync(
+                $"{Constants.ApiBaseUrl}/api/barcodes/draft-box/barcode/{barcode}"
+            );
+            
+            var content = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {content}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Удаление Draft-коробки
+    /// </summary>
+    public async Task<Dictionary<string, object>> DeleteDraftBox(string boxId)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.DeleteAsync(
+                $"{Constants.ApiBaseUrl}/api/barcodes/draft-box/{boxId}"
+            );
+            
+            var content = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = JsonSerializer.Deserialize<object>(content) ?? new object()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {content}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Проверка, свободен ли номер коробки
+    /// </summary>
+    public async Task<Dictionary<string, object>> CheckBoxNumber(int boxNumber)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync(
+                $"{Constants.ApiBaseUrl}/api/barcodes/check-box-number/{boxNumber}"
+            );
+            
+            var content = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {content}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
         }
     }
 

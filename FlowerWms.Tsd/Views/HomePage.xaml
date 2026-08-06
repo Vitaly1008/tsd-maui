@@ -65,13 +65,6 @@
         <!-- Основной контент -->
         <ScrollView Grid.Row="1" Padding="12">
             <VerticalStackLayout Spacing="12">
-                
-                <Label Text="📦 Выберите операцию" 
-                       FontSize="20"
-                       FontAttributes="Bold" 
-                       HorizontalTextAlignment="Center" 
-                       Margin="0, 4, 0, 8" />
-
                 <!-- Приемка -->
                 <Frame CornerRadius="10"
                        Padding="0" 

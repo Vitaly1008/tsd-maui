@@ -148,7 +148,8 @@ public class SyncService
                                 ["quantity"] = box.Quantity,
                                 ["locationCode"] = locationCode,
                                 ["grade"] = box.Grade,
-                                ["operationType"] = operationType
+                                ["operationType"] = operationType,
+                                ["status"] = 1
                             }
                         );
                         

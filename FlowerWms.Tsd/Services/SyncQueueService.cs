@@ -195,7 +195,8 @@ public class SyncQueueService
                     ["quantity"] = boxData.GetValueOrDefault("quantity", 100),
                     ["locationCode"] = locationCode,
                     ["grade"] = boxData.GetValueOrDefault("grade", "Premium")?.ToString() ?? "Premium",
-                    ["operationType"] = "Receiving"
+                    ["operationType"] = "Receiving",
+                    ["status"] = boxData.GetValueOrDefault("status", 1)
                 };
 
                 var result = await _apiService.SyncOfflineTransaction(
