@@ -76,3 +76,23 @@ public class ProductCache
     public long created_at { get; set; }
     public long updated_at { get; set; }
 }
+
+[Table("box_operations_cache")]
+public class BoxOperationCache
+{
+    [PrimaryKey, AutoIncrement]
+    public int Id { get; set; }
+    
+    public string operation_id { get; set; } = string.Empty;
+    public string box_id { get; set; } = string.Empty;
+    public string box_barcode { get; set; } = string.Empty;
+    public string operation_type { get; set; } = string.Empty; // Reserve, Ship, Move, etc.
+    public int quantity { get; set; }
+    public string? from_location_code { get; set; }
+    public string? to_location_code { get; set; }
+    public string device_id { get; set; } = string.Empty;
+    public string? comment { get; set; }
+    public long created_at { get; set; }
+    public int is_synced { get; set; } = 0;
+    public long? synced_at { get; set; }
+}

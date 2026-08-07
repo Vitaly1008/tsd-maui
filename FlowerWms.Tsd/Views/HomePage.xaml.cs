@@ -9,7 +9,6 @@ public partial class HomePage : BasePage
 
     public HomePage()
     {
-        // ✅ ВЫЗЫВАЕМ InitializeComponent() ЗДЕСЬ
         InitializeComponent();
         
         _viewModel = BindingContext as HomeViewModel;
@@ -72,11 +71,29 @@ public partial class HomePage : BasePage
 
     private async void OnNavigateToShipping(object? sender, EventArgs e)
     {
-        await Navigation.PushAsync(new ShippingPage());
+        try
+        {
+            // ✅ Получаем сервис сканера (как в ReceivingPage)
+            var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
+            if (barcodeService == null)
+            {
+                await DisplayAlertAsync("Ошибка", "Сервис сканера недоступен", "OK");
+                return;
+            }
+            
+            // ✅ Создаём страницу с передачей сервиса
+            var shippingPage = new ShippingPage(barcodeService);
+            await Navigation.PushAsync(shippingPage);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("Ошибка", $"Не удалось открыть отгрузку: {ex.Message}", "OK");
+        }
     }
 
     private async void OnNavigateToInventory(object? sender, EventArgs e)
     {
+        // TODO: Аналогично добавить передачу IBarcodeService
         await Navigation.PushAsync(new InventoryPage());
     }
 

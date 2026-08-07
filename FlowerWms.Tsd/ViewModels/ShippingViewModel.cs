@@ -59,7 +59,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     private int _scannedCount;
 
     [ObservableProperty]
-    private string _orderButtonText = "📋 Выбрать заказ (заглушка)";
+    private bool _isBoxListExpanded = true;
 
     public ObservableCollection<Box> ScannedBoxes { get; } = new();
 
@@ -128,9 +128,15 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         {
             IsOnline = await _syncService.CheckInternetManual();
             
+            // ✅ ВСЕГДА запускаем сканер, если сервис есть
             if (_barcodeService != null)
             {
                 StartScanner();
+                System.Diagnostics.Debug.WriteLine("✅ Сканер запущен из ShippingViewModel.Initialize()");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("⚠️ BarcodeService is NULL in ShippingViewModel");
             }
             
             _isInitialized = true;
@@ -142,88 +148,13 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         }
     }
 
-    [RelayCommand]
-    public async Task ScanBox(string barcode)
-    {
-        if (string.IsNullOrEmpty(barcode)) return;
-        if (IsLoading) return;
-
-        HasError = false;
-        ErrorMessage = string.Empty;
-        IsLoading = true;
-        
-        try
-        {
-            // Проверка на дубликат в текущей сессии
-            if (ScannedBoxes.Any(b => b.Barcode == barcode))
-            {
-                HasError = true;
-                ErrorMessage = "⚠️ Коробка уже отсканирована в этой сессии";
-                ScanStatusIcon = "❌";
-                ScanStatusColor = Colors.Red;
-                ScanStatusText = ErrorMessage;
-                Vibration.Vibrate(200);
-                return;
-            }
-
-            // Парсим штрихкод
-            var (ean13, quantity, grade, boxNumber) = ParseBarcode(barcode);
-            
-            // Получаем информацию о продукте
-            var productName = await GetProductName(ean13);
-            
-            // Создаем коробку
-            var box = new Box
-            {
-                Id = Guid.NewGuid().ToString(),
-                Barcode = barcode,
-                BoxNumber = boxNumber,
-                ProductName = productName,
-                ProductEan13 = ean13,
-                Quantity = quantity > 0 ? quantity : 100,
-                Grade = grade,
-                Status = 1 // Active
-            };
-            
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                ScannedBoxes.Add(box);
-                ScannedCount = ScannedBoxes.Count;
-                LastScannedBarcode = barcode;
-                
-                IsBoxScanned = true;
-                HasError = false;
-                ScanStatusIcon = "✅";
-                ScanStatusColor = Colors.Green;
-                ScanStatusText = $"✅ Отсканировано: {barcode}";
-                
-                BoxInfoText = $"{productName} | {box.Quantity} шт. | {grade} | №{boxNumber}";
-                BoxNumberDisplay = $"№{boxNumber}";
-            });
-            
-            Vibration.Vibrate(100);
-        }
-        catch (Exception ex)
-        {
-            HasError = true;
-            ErrorMessage = $"❌ Ошибка: {ex.Message}";
-            ScanStatusIcon = "❌";
-            ScanStatusColor = Colors.Red;
-            ScanStatusText = ErrorMessage;
-        }
-        finally
-        {
-            IsLoading = false;
-        }
-    }
-
     private (string ean13, int quantity, string grade, int boxNumber) ParseBarcode(string barcode)
     {
         var parts = barcode.Split('-');
         
         string ean13 = parts.Length > 0 ? parts[0] : "0000000000000";
         int quantity = parts.Length > 1 && int.TryParse(parts[1], out var q) ? q : 0;
-        string grade = parts.Length > 2 ? GetGradeName(parts[2]) : "Unknown";
+        string grade = parts.Length > 2 ? GetGradeName(parts[2]) : "Premium";
         int boxNumber = parts.Length > 3 && int.TryParse(parts[3], out var n) ? n : 0;
 
         return (ean13, quantity, grade, boxNumber);
@@ -233,12 +164,25 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     {
         return gradeCode switch
         {
-            "1" => "Premium",
-            "2" => "Extra",
-            "3" => "Standard",
-            "5" => "Decorated",
-            "9" => "Rejected",
+            "1" => "First",
+            "2" => "Second",
+            "3" => "Decorated",
+            "5" => "Rejected",
+            "9" => "Premium",
             _ => gradeCode
+        };
+    }
+
+    private string GetGradeCode(string gradeName)
+    {
+        return gradeName switch
+        {
+            "First" => "1",
+            "Second" => "2",
+            "Decorated" => "3",
+            "Rejected" => "5",
+            "Premium" => "9",
+            _ => gradeName
         };
     }
 
@@ -274,9 +218,247 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    public async Task ScanBox(string barcode)
+    {
+        if (string.IsNullOrEmpty(barcode)) return;
+        if (IsLoading) return;
+
+        // Проверяем, не является ли штрихкод локацией
+        if (IsLocationBarcode(barcode))
+        {
+            await ScanLocation(barcode);
+            return;
+        }
+
+        HasError = false;
+        ErrorMessage = string.Empty;
+        IsLoading = true;
+        
+        try
+        {
+            // Проверка на дубликат в текущей сессии
+            if (ScannedBoxes.Any(b => b.Barcode == barcode))
+            {
+                HasError = true;
+                ErrorMessage = "⚠️ Коробка уже отсканирована в этой сессии";
+                ScanStatusIcon = "❌";
+                ScanStatusColor = Colors.Red;
+                ScanStatusText = ErrorMessage;
+                Vibration.Vibrate(200);
+                return;
+            }
+
+            // Парсим штрихкод
+            var (ean13, quantity, grade, boxNumber) = ParseBarcode(barcode);
+
+            // ============================================================
+            // ✅ ПОЛУЧАЕМ КОРОБКУ С СЕРВЕРА ИЛИ ИЗ КЭША
+            // ============================================================
+            Box? box = null;
+            bool isFromServer = false;
+
+            if (IsOnline)
+            {
+                try
+                {
+                    // Сначала пробуем получить коробку по штрихкоду
+                    var serverBox = await _apiService.GetBoxByBarcode(barcode);
+                    if (serverBox != null)
+                    {
+                        box = serverBox;
+                        isFromServer = true;
+                        System.Diagnostics.Debug.WriteLine($"✅ Коробка найдена на сервере: #{box.BoxNumber}");
+                    }
+                    else
+                    {
+                        // Если не нашли по штрихкоду, пробуем по номеру
+                        serverBox = await _apiService.GetBoxByNumber(boxNumber);
+                        if (serverBox != null)
+                        {
+                            box = serverBox;
+                            isFromServer = true;
+                            System.Diagnostics.Debug.WriteLine($"✅ Коробка найдена на сервере по номеру: #{box.BoxNumber}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка получения коробки с сервера: {ex.Message}");
+                }
+            }
+
+            // Если не нашли на сервере — ищем в локальном кэше
+            if (box == null)
+            {
+                var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
+                if (cachedBox != null)
+                {
+                    box = new Box
+                    {
+                        Id = cachedBox.box_id,
+                        Barcode = cachedBox.barcode,
+                        BoxNumber = cachedBox.box_number,
+                        Grade = cachedBox.grade,
+                        CurrentQuantity = cachedBox.current_quantity,
+                        InitialQuantity = cachedBox.initial_quantity,
+                        ProductId = cachedBox.product_id,
+                        ProductName = cachedBox.product_name,
+                        ProductEan13 = cachedBox.product_ean13,
+                        LocationCode = cachedBox.location_code,
+                        Status = cachedBox.status,
+                        CreatedAt = cachedBox.created_at,
+                        UpdatedAt = cachedBox.updated_at
+                    };
+                    System.Diagnostics.Debug.WriteLine($"📦 Коробка найдена в кэше: #{box.BoxNumber}");
+                }
+            }
+
+            if (box == null)
+            {
+                HasError = true;
+                ErrorMessage = $"⚠️ Коробка №{boxNumber} не найдена на складе!";
+                ScanStatusIcon = "❌";
+                ScanStatusColor = Colors.Red;
+                ScanStatusText = ErrorMessage;
+                Vibration.Vibrate(200);
+                return;
+            }
+
+            // Проверяем статус коробки
+            if (box.Status == 3) // Shipped
+            {
+                HasError = true;
+                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} уже отгружена!";
+                ScanStatusIcon = "❌";
+                ScanStatusColor = Colors.Red;
+                ScanStatusText = ErrorMessage;
+                Vibration.Vibrate(200);
+                return;
+            }
+
+            if (box.Status == 5) // Reserved
+            {
+                HasError = true;
+                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} уже зарезервирована!";
+                ScanStatusIcon = "⚠️";
+                ScanStatusColor = Colors.Orange;
+                ScanStatusText = ErrorMessage;
+                Vibration.Vibrate(200);
+                return;
+            }
+
+            // Получаем название продукта если его нет
+            if (string.IsNullOrEmpty(box.ProductName))
+            {
+                box.ProductName = await GetProductName(box.ProductEan13);
+            }
+
+            // Добавляем в список
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                ScannedBoxes.Add(box);
+                ScannedCount = ScannedBoxes.Count;
+                LastScannedBarcode = barcode;
+                
+                IsBoxScanned = true;
+                HasError = false;
+                ErrorMessage = string.Empty;
+                ScanStatusIcon = "✅";
+                ScanStatusColor = Colors.Green;
+                ScanStatusText = $"✅ Найдена: {barcode}";
+                
+                BoxInfoText = $"{box.ProductName} | {box.CurrentQuantity} шт. | {box.Grade} | №{box.BoxNumber}";
+                BoxNumberDisplay = $"№{box.BoxNumber}";
+            });
+            
+            Vibration.Vibrate(100);
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            ErrorMessage = $"❌ Ошибка: {ex.Message}";
+            ScanStatusIcon = "❌";
+            ScanStatusColor = Colors.Red;
+            ScanStatusText = ErrorMessage;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    [RelayCommand]
+    public async Task ScanLocation(string locationCode)
+    {
+        if (string.IsNullOrEmpty(locationCode)) return;
+        
+        IsLoading = true;
+        
+        try
+        {
+            var location = await _dbHelper.GetLocationByCode(locationCode);
+            
+            if (location == null && IsOnline)
+            {
+                var synced = await _apiService.SyncLocations();
+                if (synced)
+                {
+                    location = await _dbHelper.GetLocationByCode(locationCode);
+                }
+            }
+            
+            if (location == null)
+            {
+                HasError = true;
+                ErrorMessage = $"❌ Локация '{locationCode}' не найдена";
+                ScanStatusIcon = "❌";
+                ScanStatusColor = Colors.Red;
+                ScanStatusText = ErrorMessage;
+                return;
+            }
+            
+            if (location.is_active != 1)
+            {
+                HasError = true;
+                ErrorMessage = $"⚠️ Локация '{locationCode}' неактивна";
+                ScanStatusIcon = "⚠️";
+                ScanStatusColor = Colors.Orange;
+                ScanStatusText = ErrorMessage;
+                return;
+            }
+            
+            LastScannedBarcode = locationCode;
+            HasError = false;
+            ErrorMessage = string.Empty;
+            ScanStatusIcon = "📍";
+            ScanStatusColor = Colors.Blue;
+            ScanStatusText = $"📍 Локация: {locationCode} ({location.name})";
+            
+            // Устанавливаем локацию для всех отсканированных коробок
+            foreach (var box in ScannedBoxes)
+            {
+                box.LocationCode = locationCode;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"✅ Локация установлена: {locationCode}");
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            ErrorMessage = $"❌ Ошибка проверки локации: {ex.Message}";
+            ScanStatusIcon = "❌";
+            ScanStatusColor = Colors.Red;
+            ScanStatusText = ErrorMessage;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    [RelayCommand]
     public async Task SelectOrder()
     {
-        // ЗАГЛУШКА - только информационное сообщение
         await Application.Current?.MainPage?.DisplayAlert(
             "📋 Выбор заказа",
             "Функция выбора заказа будет доступна в следующей версии.\nПока вы можете сканировать коробки для отгрузки.",
@@ -299,54 +481,120 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
 
         IsLoading = true;
         var boxes = ScannedBoxes.ToList();
+        int shippedCount = 0;
+        int reservedCount = 0;
+        int localCount = 0;
         
         try
         {
-            // Сохраняем в очередь синхронизации
-            var payload = new
+            foreach (var box in boxes)
             {
-                boxes = boxes.Select(b => new
+                // ============================================================
+                // ✅ РЕЗЕРВИРОВАНИЕ КОРОБКИ
+                // ============================================================
+                if (IsOnline && !box.Id.StartsWith("local_"))
                 {
-                    id = b.Id,
-                    barcode = b.Barcode,
-                    boxNumber = b.BoxNumber,
-                    productName = b.ProductName,
-                    productEan13 = b.ProductEan13,
-                    quantity = b.Quantity,
-                    grade = b.Grade
-                }),
-                orderNumber = OrderNumber ?? "Без заказа",
-                operationType = "Shipping",
-                timestamp = DateTime.UtcNow
-            };
-            
-            var transactionId = await _syncQueueService.EnqueueAsync(
-                operationType: "Shipping",
-                barcode: string.Join(",", boxes.Select(b => b.Barcode)),
-                payload: payload,
-                deviceId: Constants.DeviceId
-            );
-            
-            System.Diagnostics.Debug.WriteLine($"✅ Транзакция отгрузки добавлена: {transactionId}");
-            
+                    try
+                    {
+                        // 1. Резервируем коробку
+                        var reserveResult = await _apiService.ReserveBox(box.Id);
+                        
+                        if (reserveResult.TryGetValue("success", out var reserveSuccess) && reserveSuccess is bool rs && rs)
+                        {
+                            reservedCount++;
+                            
+                            // Сохраняем операцию резервирования в локальную БД
+                            await SaveBoxOperation(box, "Reserve", $"Резервирование через ТСД, заказ: {OrderNumber ?? "Без заказа"}");
+                            
+                            // 2. Отгружаем коробку
+                            var shipResult = await _apiService.ShipBox(
+                                box.Id,
+                                comment: $"Отгрузка через ТСД, заказ: {OrderNumber ?? "Без заказа"}"
+                            );
+                            
+                            if (shipResult.TryGetValue("success", out var shipSuccess) && shipSuccess is bool ss && ss)
+                            {
+                                shippedCount++;
+                                
+                                // Сохраняем операцию отгрузки в локальную БД
+                                await SaveBoxOperation(box, "Ship", $"Отгружено через ТСД, заказ: {OrderNumber ?? "Без заказа"}");
+                                
+                                // Обновляем локальный кэш
+                                var boxCache = new BoxCache
+                                {
+                                    barcode = box.Barcode,
+                                    box_id = box.Id,
+                                    box_number = box.BoxNumber,
+                                    grade = box.Grade,
+                                    initial_quantity = box.InitialQuantity,
+                                    current_quantity = box.CurrentQuantity,
+                                    product_id = box.ProductId,
+                                    product_name = box.ProductName,
+                                    product_ean13 = box.ProductEan13,
+                                    location_code = box.LocationCode ?? "UNKNOWN",
+                                    status = 3, // Shipped
+                                    created_at = box.CreatedAt,
+                                    updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                };
+                                await _dbHelper.SaveBox(boxCache);
+                                
+                                System.Diagnostics.Debug.WriteLine($"✅ Коробка отгружена: #{box.BoxNumber}");
+                            }
+                            else
+                            {
+                                var errorMsg = shipResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                                throw new Exception($"Ошибка отгрузки: {errorMsg}");
+                            }
+                        }
+                        else
+                        {
+                            var errorMsg = reserveResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                            throw new Exception($"Ошибка резервирования: {errorMsg}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ Ошибка отгрузки: {ex.Message}");
+                        
+                        // Если не удалось отгрузить — сохраняем локально
+                        await SaveLocalShipping(box);
+                        localCount++;
+                    }
+                }
+                else
+                {
+                    // Офлайн-режим или локальная коробка
+                    await SaveLocalShipping(box);
+                    localCount++;
+                }
+            }
+
+            // ============================================================
+            // ✅ ПОКАЗЫВАЕМ РЕЗУЛЬТАТ
+            // ============================================================
             var hasInternet = await _syncService.CheckInternetManual();
+            var totalCount = shippedCount + reservedCount + localCount;
             
-            if (hasInternet)
-            {
-                await Application.Current?.MainPage?.DisplayAlert(
-                    "✅ Успешно",
-                    $"Отгружено {boxes.Count} коробок.\nДанные синхронизированы с сервером.",
-                    "OK"
-                );
-            }
+            var message = $"Обработано {totalCount} коробок.\n";
+            if (shippedCount > 0)
+                message += $"✅ Отгружено: {shippedCount}\n";
+            if (reservedCount > 0)
+                message += $"🔒 Зарезервировано: {reservedCount}\n";
+            if (localCount > 0)
+                message += $"📴 Сохранено локально: {localCount}\n";
+            
+            if (localCount == 0 && hasInternet)
+                message += "Данные синхронизированы с сервером.";
+            else if (localCount > 0 && hasInternet)
+                message += "Часть данных будет синхронизирована позже.";
             else
-            {
-                await Application.Current?.MainPage?.DisplayAlert(
-                    "📴 Офлайн-режим",
-                    $"Отгружено {boxes.Count} коробок.\nДанные сохранены локально и будут синхронизированы автоматически.",
-                    "OK"
-                );
-            }
+                message += "Данные сохранены локально и будут синхронизированы при подключении.";
+
+            await Application.Current?.MainPage?.DisplayAlert(
+                localCount == 0 ? "✅ Успешно" : "⚠️ Внимание",
+                message,
+                "OK"
+            );
             
             ClearSession();
             OperationCompleted?.Invoke(this, EventArgs.Empty);
@@ -355,13 +603,97 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         {
             await Application.Current?.MainPage?.DisplayAlert(
                 "❌ Ошибка",
-                $"Не удалось сохранить операцию: {ex.Message}",
+                $"Не удалось выполнить отгрузку: {ex.Message}",
                 "OK"
             );
         }
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    private async Task SaveLocalShipping(Box box)
+    {
+        // Сохраняем операцию в локальную БД
+        await SaveBoxOperation(box, "Ship", $"Отгружено локально, заказ: {OrderNumber ?? "Без заказа"}");
+        
+        // Обновляем кэш
+        var boxCache = new BoxCache
+        {
+            barcode = box.Barcode,
+            box_id = box.Id,
+            box_number = box.BoxNumber,
+            grade = box.Grade,
+            initial_quantity = box.InitialQuantity,
+            current_quantity = box.CurrentQuantity,
+            product_id = box.ProductId,
+            product_name = box.ProductName,
+            product_ean13 = box.ProductEan13,
+            location_code = box.LocationCode ?? "UNKNOWN",
+            status = 3, // Shipped
+            created_at = box.CreatedAt,
+            updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+        await _dbHelper.SaveBox(boxCache);
+        
+        // Добавляем в очередь синхронизации
+        var payload = new
+        {
+            boxes = new[]
+            {
+                new
+                {
+                    id = box.Id,
+                    barcode = box.Barcode,
+                    boxNumber = box.BoxNumber,
+                    productName = box.ProductName,
+                    productEan13 = box.ProductEan13,
+                    quantity = box.CurrentQuantity,
+                    grade = GetGradeCode(box.Grade),
+                    locationCode = box.LocationCode ?? "UNKNOWN",
+                    status = 3
+                }
+            },
+            orderNumber = OrderNumber ?? "Без заказа",
+            operationType = "Shipping",
+            timestamp = DateTime.UtcNow
+        };
+        
+        await _syncQueueService.EnqueueAsync(
+            operationType: "Shipping",
+            barcode: box.Barcode,
+            payload: payload,
+            deviceId: Constants.DeviceId
+        );
+        
+        System.Diagnostics.Debug.WriteLine($"📴 Коробка сохранена локально: #{box.BoxNumber}");
+    }
+
+    private async Task SaveBoxOperation(Box box, string operationType, string comment)
+    {
+        try
+        {
+            var operation = new BoxOperationCache
+            {
+                operation_id = $"op_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString().Substring(0, 8)}",
+                box_id = box.Id,
+                box_barcode = box.Barcode,
+                operation_type = operationType,
+                quantity = box.CurrentQuantity,
+                from_location_code = box.LocationCode,
+                to_location_code = operationType == "Ship" ? "SHIPPED" : null,
+                device_id = Constants.DeviceId,
+                comment = comment,
+                created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                is_synced = IsOnline ? 1 : 0
+            };
+            
+            await _dbHelper.SaveBoxOperation(operation);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения операции: {ex.Message}");
         }
     }
 
@@ -378,6 +710,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             BoxInfoText = string.Empty;
             BoxNumberDisplay = string.Empty;
             ScanStatusIcon = "📷";
+            OrderNumber = null;
         });
     }
 
@@ -401,15 +734,40 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public void RemoveBox(int index)
+    public void RemoveBox(object parameter)
     {
-        if (index >= 0 && index < ScannedBoxes.Count)
+        if (parameter is Box box && ScannedBoxes.Contains(box))
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                ScannedBoxes.RemoveAt(index);
+                ScannedBoxes.Remove(box);
                 ScannedCount = ScannedBoxes.Count;
+                
+                if (ScannedBoxes.Count == 0)
+                {
+                    IsBoxScanned = false;
+                    ScanStatusText = "Отсканируйте штрихкод коробки";
+                    ScanStatusColor = Colors.Gray;
+                    BoxInfoText = string.Empty;
+                    LastScannedBarcode = null;
+                }
             });
+        }
+    }
+
+    [RelayCommand]
+    public async Task ShowLocationInput()
+    {
+        var result = await Application.Current?.MainPage?.DisplayPromptAsync(
+            "Введите код локации",
+            "Например: A-01, B-02-03",
+            "Подтвердить",
+            "Отмена"
+        );
+
+        if (!string.IsNullOrEmpty(result))
+        {
+            await ScanLocation(result);
         }
     }
 
@@ -427,7 +785,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         }
 
         var boxList = string.Join("\n", ScannedBoxes.Select((b, i) => 
-            $"{i + 1}. #{b.BoxNumber} | {b.ProductName} | {b.Quantity} шт.")
+            $"{i + 1}. #{b.BoxNumber} | {b.ProductName} | {b.CurrentQuantity} шт. | {b.Grade} | {(b.Status == 5 ? "🔒" : "📦")}")
         );
 
         await Application.Current?.MainPage?.DisplayAlert(
@@ -435,6 +793,130 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             boxList,
             "OK"
         );
+    }
+
+    [RelayCommand]
+    public async Task ShowBoxHistory(object parameter)
+    {
+        if (parameter is Box box)
+        {
+            try
+            {
+                // Пробуем получить историю с сервера
+                string historyText = $"📋 История коробки #{box.BoxNumber}\n\n";
+                
+                if (IsOnline)
+                {
+                    try
+                    {
+                        var client = new HttpClient();
+                        var token = await new SecureStorageService().GetToken();
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            client.DefaultRequestHeaders.Authorization = 
+                                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                        }
+                        
+                        var response = await client.GetAsync(
+                            $"{Constants.ApiBaseUrl}/api/boxes/{box.Id}/history"
+                        );
+                        
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var content = await response.Content.ReadAsStringAsync();
+                            var history = System.Text.Json.JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
+                            
+                            if (history != null && history.Count > 0)
+                            {
+                                foreach (var op in history)
+                                {
+                                    var type = op.GetValueOrDefault("operationType", "")?.ToString() ?? "Unknown";
+                                    var quantity = op.GetValueOrDefault("quantity", 0);
+                                    var comment = op.GetValueOrDefault("comment", "")?.ToString() ?? "";
+                                    var createdAt = op.GetValueOrDefault("createdAt", 0) is long ts ? 
+                                        DateTimeOffset.FromUnixTimeMilliseconds(ts).LocalDateTime.ToString("dd.MM.yy HH:mm") : 
+                                        "Неизвестно";
+                                    
+                                    historyText += $"🕐 {createdAt} | {type} | {quantity} шт.";
+                                    if (!string.IsNullOrEmpty(comment))
+                                        historyText += $" | {comment}";
+                                    historyText += "\n";
+                                }
+                            }
+                            else
+                            {
+                                historyText += "Нет операций в истории на сервере.\n";
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка получения истории с сервера: {ex.Message}");
+                        historyText += "⚠️ Не удалось получить историю с сервера.\n";
+                    }
+                }
+                
+                // Добавляем локальные операции
+                var localOps = await _dbHelper.GetBoxOperationsByBarcode(box.Barcode);
+                if (localOps.Any())
+                {
+                    historyText += "\n📴 Локальные операции:\n";
+                    foreach (var op in localOps)
+                    {
+                        var date = DateTimeOffset.FromUnixTimeMilliseconds(op.created_at).LocalDateTime.ToString("dd.MM.yy HH:mm");
+                        historyText += $"📱 {date} | {op.operation_type} | {op.quantity} шт.";
+                        if (!string.IsNullOrEmpty(op.comment))
+                            historyText += $" | {op.comment}";
+                        historyText += "\n";
+                    }
+                }
+                
+                await Application.Current?.MainPage?.DisplayAlert(
+                    $"📋 История коробки #{box.BoxNumber}",
+                    historyText,
+                    "OK"
+                );
+            }
+            catch (Exception ex)
+            {
+                await Application.Current?.MainPage?.DisplayAlert(
+                    "❌ Ошибка",
+                    $"Не удалось получить историю: {ex.Message}",
+                    "OK"
+                );
+            }
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleBoxList()
+    {
+        IsBoxListExpanded = !IsBoxListExpanded;
+    }
+
+    private bool IsLocationBarcode(string barcode)
+    {
+        var hasEan13 = System.Text.RegularExpressions.Regex.IsMatch(barcode, @"^\d{13}");
+        if (hasEan13) return false;
+        
+        var parts = barcode.Split('-');
+        if (parts.Length == 4)
+        {
+            if (parts[0].Length == 13 && System.Text.RegularExpressions.Regex.IsMatch(parts[0], @"^\d{13}"))
+            {
+                if (int.TryParse(parts[3], out _))
+                {
+                    return false;
+                }
+            }
+        }
+        
+        if (int.TryParse(barcode, out _))
+        {
+            return false;
+        }
+        
+        return true;
     }
 
     public void Dispose()

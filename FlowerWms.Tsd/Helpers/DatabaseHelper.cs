@@ -465,4 +465,109 @@ public class DatabaseHelper
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации локаций: {ex.Message}");
         }
     }
+
+    // ============================================================
+    // МЕТОДЫ ДЛЯ РАБОТЫ С ИСТОРИЕЙ ОПЕРАЦИЙ
+    // ============================================================
+
+    /// <summary>
+    /// Сохранить операцию коробки в локальную БД
+    /// </summary>
+    public async Task SaveBoxOperation(BoxOperationCache operation)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            
+            // Проверяем, существует ли таблица
+            var tableExists = await TableExists("box_operations_cache");
+            if (!tableExists)
+            {
+                await db.CreateTableAsync<BoxOperationCache>();
+            }
+            
+            operation.created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            await db.InsertAsync(operation);
+            
+            System.Diagnostics.Debug.WriteLine($"✅ Операция сохранена: {operation.operation_type} для коробки {operation.box_barcode}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения операции: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Получить историю операций для коробки по штрихкоду
+    /// </summary>
+    public async Task<List<BoxOperationCache>> GetBoxOperationsByBarcode(string barcode)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var tableExists = await TableExists("box_operations_cache");
+            if (!tableExists)
+            {
+                await db.CreateTableAsync<BoxOperationCache>();
+                return new List<BoxOperationCache>();
+            }
+            
+            return await db.Table<BoxOperationCache>()
+                .Where(o => o.box_barcode == barcode)
+                .OrderByDescending(o => o.created_at)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения истории: {ex.Message}");
+            return new List<BoxOperationCache>();
+        }
+    }
+
+    /// <summary>
+    /// Получить историю операций для коробки по ID
+    /// </summary>
+    public async Task<List<BoxOperationCache>> GetBoxOperationsByBoxId(string boxId)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var tableExists = await TableExists("box_operations_cache");
+            if (!tableExists)
+            {
+                await db.CreateTableAsync<BoxOperationCache>();
+                return new List<BoxOperationCache>();
+            }
+            
+            return await db.Table<BoxOperationCache>()
+                .Where(o => o.box_id == boxId)
+                .OrderByDescending(o => o.created_at)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения истории: {ex.Message}");
+            return new List<BoxOperationCache>();
+        }
+    }
+
+    /// <summary>
+    /// Отметить операцию как синхронизированную
+    /// </summary>
+    public async Task MarkOperationSynced(string operationId)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            await db.ExecuteAsync(
+                "UPDATE box_operations_cache SET is_synced = 1, synced_at = ? WHERE operation_id = ?",
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                operationId
+            );
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка отметки операции: {ex.Message}");
+        }
+    }
 }

@@ -45,6 +45,11 @@ public partial class App : Application
         Resources.Add("StatusBarPaddingConverter", new StatusBarPaddingConverter());
         Resources.Add("ExpandIconConverter", new ExpandIconConverter());
 
+        Resources.Add("BoxStatusIconConverter", new BoxStatusIconConverter());
+        Resources.Add("BoxStatusLabelConverter", new BoxStatusLabelConverter());
+        Resources.Add("BoxStatusColorConverter", new BoxStatusColorConverter());
+        Resources.Add("LocationDisplayConverter", new LocationDisplayConverter());
+
         // Цвета
         Resources.Add("PrimaryColor", Color.FromArgb("#2E7D32"));
         Resources.Add("PrimaryDark", Color.FromArgb("#1B5E20"));

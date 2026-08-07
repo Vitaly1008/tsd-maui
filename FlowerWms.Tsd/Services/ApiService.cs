@@ -882,4 +882,156 @@ public class ApiService
         }
     }
 
+    // ============================================================
+    // МЕТОДЫ ДЛЯ ОТГРУЗКИ
+    // ============================================================
+
+    /// <summary>
+    /// Резервирование коробки
+    /// </summary>
+    public async Task<Dictionary<string, object>> ReserveBox(string boxId)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var request = new { boxId = boxId };
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/boxes/reserve",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Отгрузка коробки (с комментарием)
+    /// </summary>
+    public async Task<Dictionary<string, object>> ShipBox(string boxId, string? comment = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var request = new { comment = comment ?? "Отгрузка через ТСД" };
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/ship",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Получить коробку по номеру
+    /// </summary>
+    public async Task<Box?> GetBoxByNumber(int boxNumber)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/by-number/{boxNumber}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var boxData = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
+                if (boxData != null)
+                {
+                    return Box.FromJson(boxData);
+                }
+            }
+            
+            return null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробки по номеру: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Получить коробку по штрихкоду (путь)
+    /// </summary>
+    public async Task<Box?> GetBoxByBarcode(string barcode)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/barcode/{barcode}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var boxData = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
+                if (boxData != null)
+                {
+                    return Box.FromJson(boxData);
+                }
+            }
+            
+            return null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробки по штрихкоду: {ex.Message}");
+            return null;
+        }
+    }
+
 }

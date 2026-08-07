@@ -6,71 +6,63 @@ namespace FlowerWms.Tsd.Views;
 public partial class ShippingPage : BasePage
 {
     private ShippingViewModel? _viewModel;
+    private readonly IBarcodeService? _barcodeService;
 
-    public ShippingPage()
+    // ✅ Конструктор с IBarcodeService (как в ReceivingPage)
+    public ShippingPage(IBarcodeService barcodeService)
     {
-        // ✅ ВЫЗЫВАЕМ InitializeComponent() ЗДЕСЬ
         InitializeComponent();
+        _barcodeService = barcodeService;
         
-        _viewModel = BindingContext as ShippingViewModel;
-        
-        if (_viewModel != null)
-        {
-            _viewModel.OperationCompleted += OnOperationCompleted;
-            _viewModel.OperationCancelled += OnOperationCancelled;
-            Loaded += OnPageLoaded;
-        }
+        Loaded += OnPageLoaded;
+        Unloaded += OnPageUnloaded;
     }
 
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
-        if (_viewModel != null)
+        try
         {
-            await _viewModel.Initialize();
+            // ✅ Создаём ViewModel с сервисом
+            _viewModel = new ShippingViewModel(_barcodeService);
+            BindingContext = _viewModel;
+            
+            if (_viewModel != null)
+            {
+                _viewModel.OperationCompleted += OnOperationCompleted;
+                _viewModel.OperationCancelled += OnOperationCancelled;
+                
+                await _viewModel.Initialize();
+            }
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка загрузки ShippingPage: {ex.Message}");
+            await DisplayAlertAsync("Ошибка", $"Не удалось загрузить страницу: {ex.Message}", "OK");
+            await Navigation.PopAsync();
+        }
+    }
+
+    private void OnPageUnloaded(object? sender, EventArgs e)
+    {
+        _viewModel?.StopScanner();
     }
 
     private async void OnOperationCompleted(object? sender, EventArgs e)
     {
+        _viewModel?.StopScanner();
         await Navigation.PopAsync();
     }
 
     private async void OnOperationCancelled(object? sender, EventArgs e)
     {
+        _viewModel?.StopScanner();
         await Navigation.PopAsync();
-    }
-
-    protected override void OnAppearing()
-    {
-        base.OnAppearing();
-        
-        var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
-        if (barcodeService != null)
-        {
-            barcodeService.OnBarcodeScanned += OnBarcodeScanned;
-            barcodeService.StartListening();
-        }
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-        
-        var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
-        if (barcodeService != null)
-        {
-            barcodeService.OnBarcodeScanned -= OnBarcodeScanned;
-        }
-    }
-
-    private void OnBarcodeScanned(string barcode)
-    {
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            if (_viewModel != null)
-            {
-                await _viewModel.ScanBoxCommand.ExecuteAsync(barcode);
-            }
-        });
+        _viewModel?.StopScanner();
+        _viewModel?.Dispose();
     }
 }

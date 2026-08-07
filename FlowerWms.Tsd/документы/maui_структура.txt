@@ -1,0 +1,60 @@
+F:\alphaWMS\mobile\FlowerWms.Tsd\
+│
+├───Converters/                   # XAML конвертеры
+│   ├── BoolConverters.cs            # InverseBoolean, GreaterThanZero, IsNotNull, StringNotEmpty
+│   ├── ConnectionIconConverter.cs   # 📶/📴 иконка статуса
+│   ├── ExpandIconConverter.cs       # ▶/▼ для раскрытия списков
+│   ├── ModeConverters.cs            # ModeBackground, ModeTextColor, ModeLabel
+│   ├── ScanStatusConverters.cs      # ScanStatusBackground, Border, Icon, Text, Color
+│   ├── SearchButtonConverter.cs     # Поиск сервера
+│   └── StatusBarPaddingConverter.cs # Отступ под статус-бар Android
+│
+├───Helpers/                      # Вспомогательные классы
+│   ├── Constants.cs                 # ApiBaseUrl, DeviceId, ApiEndpoints
+│   ├── DatabaseHelper.cs            # SQLite операции (SaveBox, GetBox, SyncProducts, SyncLocations)
+│   ├── DatabaseModels.cs            # Модели SQLite (OfflineTransaction, BoxCache, LocationCache, ProductCache)
+│   └── StatusBarHelper.cs           # Высота статус-бара Android
+│
+├───Models/                       # Модели данных (для UI и API)
+│   ├── Auth.cs                      # LoginRequest, LoginResponse
+│   ├── Box.cs                       # Коробка (Id, Barcode, BoxNumber, Grade, Quantity, Status, LocationCode)
+│   ├── BoxOperation.cs              # Операция коробки (Id, BoxId, OperationType, Quantity, Comment)
+│   ├── Location.cs                  # Локация (Id, Code, Name, IsActive)
+│   ├── Operation.cs                 # Enum: OperationType, SyncStatus
+│   └── Product.cs                   # Товар (Id, Ean13, Name, ShortName)
+│
+├───Services/                     # Сервисы
+│   ├── ApiService.cs                # HTTP запросы к бэкенду (Login, Scan, Sync, CreateDraftBox, ActivateBox, ShipBox)
+│   ├── AuthService.cs               # Аутентификация (Login, Logout, ValidateToken)
+│   ├── IBarcodeService.cs           # Интерфейс сканера
+│   ├── NetworkService.cs            # Мониторинг сети, авто-поиск сервера
+│   ├── OfflineService.cs            # Работа с офлайн-транзакциями (Save, GetUnsynced, MarkAsSynced)
+│   ├── SecureStorageService.cs      # Безопасное хранение (Token, User)
+│   ├── ServerDiscoveryService.cs    # Поиск сервера в сети (Ping, DiscoverServer)
+│   ├── SyncQueueService.cs          # Очередь синхронизации (Enqueue, ProcessQueue, AutoSync)
+│   └── SyncService.cs               # Синхронизация (SyncAll, CheckInternet, GetPendingCount)
+│
+├───ViewModels/                   # MVVM ViewModels
+│   ├── HomeViewModel.cs             # Главный экран (меню, статус сети, синхронизация)
+│   ├── LoginViewModel.cs            # Экран входа (логин, поиск сервера)
+│   ├── ReceivingViewModel.cs        # Приемка (сканирование, создание Draft, активация)
+│   ├── ShippingViewModel.cs         # Отгрузка (поиск коробок, резервирование, отгрузка)
+│   └── InventoryViewModel.cs        # Инвентаризация (просмотр локации, перемещение коробок)
+│
+├───Views/                        # XAML страницы
+│   ├── BasePage.xaml                # Базовая страница (отступ под статус-бар)
+│   ├── LoginPage.xaml               # Экран входа
+│   ├── HomePage.xaml                # Главный экран
+│   ├── ReceivingPage.xaml           # Приемка
+│   ├── ShippingPage.xaml            # Отгрузка
+│   ├── InventoryPage.xaml           # Инвентаризация
+│   └── AboutPage.xaml               # О программе
+│
+├───Platforms/                    # Платформозависимый код
+│   └───Android/
+│       └── BarcodeService.cs        # Реализация сканера штрихкодов (Zebra/DataLogic/камера)
+│
+├── App.xaml                       # Ресурсы (стили, конвертеры, цвета)
+├── App.xaml.cs                    # Точка входа (MainPage = LoginPage)
+├── MauiProgram.cs                 # DI регистрация (ApiService, AuthService, SyncService, BarcodeService)
+└── FlowerWms.Tsd.csproj          # Зависимости (CommunityToolkit.Mvvm, SQLite)

@@ -44,6 +44,12 @@
         <ScrollView Grid.Row="1" Padding="16">
             <VerticalStackLayout Spacing="16">
 
+                <!-- Кнопка "Отгрузить" - наверху -->
+                <Button Text="✅ Отгрузить коробки" 
+                        Command="{Binding ConfirmOperationCommand}"
+                        IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
+                        Style="{StaticResource PrimaryButton}" />
+
                 <!-- Статус сканирования -->
                 <Frame Padding="16" 
                        CornerRadius="12" 
@@ -78,20 +84,27 @@
                         Style="{StaticResource SecondaryButton}"
                         Opacity="0.7" />
 
-                <!-- Номер заказа -->
-                <Frame Padding="16" CornerRadius="12" HasShadow="True" BackgroundColor="White"
-                       IsVisible="{Binding OrderNumber, Converter={StaticResource IsNotNullConverter}}">
-                    <Grid>
-                        <Label Text="📋 Заказ" TextColor="Gray" FontSize="12" />
-                        <Label Text="{Binding OrderNumber}" 
-                               FontSize="18" 
-                               FontAttributes="Bold" 
-                               TextColor="{StaticResource PrimaryColor}"
-                               Margin="0,20,0,0" />
+                <!-- Локация (как в приемке) -->
+                <Frame Padding="16" CornerRadius="12" HasShadow="True" BackgroundColor="White">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <VerticalStackLayout Spacing="4">
+                            <Label Text="📍 Локация отгрузки" TextColor="Gray" FontSize="12" />
+                            <Label Text="{Binding ScannedBoxes.Count, Converter={StaticResource LocationDisplayConverter}, FallbackValue='Не указана'}" 
+                                   FontSize="18" 
+                                   FontAttributes="Bold" 
+                                   TextColor="{StaticResource PrimaryColor}" />
+                        </VerticalStackLayout>
+                        <Button Grid.Column="1"
+                                Text="✏️"
+                                Command="{Binding ShowLocationInputCommand}"
+                                BackgroundColor="Transparent"
+                                TextColor="{StaticResource PrimaryColor}"
+                                FontSize="20"
+                                Padding="8,0" />
                     </Grid>
                 </Frame>
 
-                <!-- Список отсканированных коробок -->
+                <!-- Список отсканированных коробок - выпадающий (как в приемке) -->
                 <Frame Padding="0" CornerRadius="12" HasShadow="True" BackgroundColor="White">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -99,78 +112,95 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         
+                        <!-- Заголовок с возможностью сворачивания -->
                         <Frame Grid.Row="0" 
-                            Padding="16,12" 
-                            BackgroundColor="{StaticResource PrimaryColor}"
-                            CornerRadius="12,12,0,0"
-                            HasShadow="False">
+                               Padding="16,12" 
+                               BackgroundColor="{StaticResource PrimaryColor}"
+                               CornerRadius="12,12,0,0"
+                               HasShadow="False">
+                            <Frame.GestureRecognizers>
+                                <TapGestureRecognizer>
+                                    <TapGestureRecognizer.Command>
+                                        <Binding Path="ToggleBoxListCommand" />
+                                    </TapGestureRecognizer.Command>
+                                </TapGestureRecognizer>
+                            </Frame.GestureRecognizers>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <Label Grid.Column="0" 
-                                    Text="📦 Коробки к отгрузке" 
-                                    TextColor="White" 
-                                    FontSize="16" 
-                                    FontAttributes="Bold" />
-                                <Label Grid.Column="1" 
-                                    Text="{Binding ScannedCount, StringFormat='{0} шт.'}" 
-                                    TextColor="White" 
-                                    FontSize="14" />
+                                       Text="📦 Коробки к отгрузке" 
+                                       TextColor="White" 
+                                       FontSize="16" 
+                                       FontAttributes="Bold" />
+                                <HorizontalStackLayout Grid.Column="1" Spacing="8">
+                                    <Label Text="{Binding ScannedCount, StringFormat='{0} шт.'}" 
+                                           TextColor="White" 
+                                           FontSize="14" />
+                                    <Label Text="{Binding IsBoxListExpanded, Converter={StaticResource ExpandIconConverter}}" 
+                                           TextColor="White" 
+                                           FontSize="16" />
+                                </HorizontalStackLayout>
                             </Grid>
                         </Frame>
 
-                        <!-- ✅ Убираем Padding у CollectionView, используем Margin у ItemTemplate -->
+                        <!-- Список - отображается только если развернут -->
                         <CollectionView Grid.Row="1"
+                                        IsVisible="{Binding IsBoxListExpanded}"
                                         ItemsSource="{Binding ScannedBoxes}"
                                         HeightRequest="200">
                             <CollectionView.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Padding="8,4" Margin="8,0" ColumnDefinitions="Auto, *, Auto">
                                         <Label Grid.Column="0" 
-                                            Text="📦" 
-                                            FontSize="16"
-                                            VerticalOptions="Center" />
+                                               Text="{Binding Status, Converter={StaticResource BoxStatusIconConverter}, FallbackValue='📦'}" 
+                                               FontSize="16"
+                                               VerticalOptions="Center" />
                                         <VerticalStackLayout Grid.Column="1" Padding="8,0">
-                                            <Label Text="{Binding BoxNumber, StringFormat='Коробка #{0}'}" 
-                                                FontSize="14" 
-                                                FontAttributes="Bold" />
+                                            <HorizontalStackLayout Spacing="8">
+                                                <Label Text="{Binding BoxNumber, StringFormat='Коробка #{0}'}" 
+                                                       FontSize="14" 
+                                                       FontAttributes="Bold" />
+                                                <Label Text="{Binding Status, Converter={StaticResource BoxStatusLabelConverter}}" 
+                                                       FontSize="10" 
+                                                       TextColor="White"
+                                                       BackgroundColor="{Binding Status, Converter={StaticResource BoxStatusColorConverter}}"
+                                                       Padding="6,2"
+                                                       HorizontalOptions="Start" />
+                                            </HorizontalStackLayout>
                                             <Label Text="{Binding ProductName}" 
-                                                FontSize="12" 
-                                                TextColor="Gray" />
-                                            <Label Text="{Binding Quantity, StringFormat='{0} шт. | {1}'}" 
-                                                FontSize="11" 
-                                                TextColor="Gray" />
+                                                   FontSize="12" 
+                                                   TextColor="Gray" />
+                                            <Label Text="{Binding CurrentQuantity, StringFormat='{0} шт. | {1}'}" 
+                                                   FontSize="11" 
+                                                   TextColor="Gray" />
                                         </VerticalStackLayout>
-                                        <Button Grid.Column="2"
-                                                Text="✕"
-                                                Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodel:ShippingViewModel}}, Path=RemoveBoxCommand}"
-                                                CommandParameter="{Binding Index}"
-                                                BackgroundColor="Transparent"
-                                                TextColor="Red"
-                                                FontSize="18"
-                                                Padding="8,0" />
+                                        <HorizontalStackLayout Grid.Column="2" Spacing="4" VerticalOptions="Center">
+                                            <!-- Кнопка истории -->
+                                            <Button Text="📋"
+                                                    Command="{Binding Source={RelativeSource AncestorType={x:Type views:ShippingPage}}, Path=BindingContext.ShowBoxHistoryCommand}"
+                                                    CommandParameter="{Binding .}"
+                                                    BackgroundColor="Transparent"
+                                                    TextColor="Blue"
+                                                    FontSize="14"
+                                                    Padding="4,0" />
+                                            <!-- Кнопка удаления -->
+                                            <Button Text="✕"
+                                                    Command="{Binding Source={RelativeSource AncestorType={x:Type views:ShippingPage}}, Path=BindingContext.RemoveBoxCommand}"
+                                                    CommandParameter="{Binding .}"
+                                                    BackgroundColor="Transparent"
+                                                    TextColor="Red"
+                                                    FontSize="18"
+                                                    Padding="4,0" />
+                                        </HorizontalStackLayout>
                                     </Grid>
                                 </DataTemplate>
                             </CollectionView.ItemTemplate>
                         </CollectionView>
                     </Grid>
                 </Frame>
-
-                <!-- Кнопки действий -->
-                <Grid ColumnDefinitions="*, *" ColumnSpacing="12">
-                    <Button Grid.Column="0" 
-                            Text="📋 Список" 
-                            Command="{Binding ShowBoxesListCommand}"
-                            IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
-                            Style="{StaticResource SecondaryButton}" />
-                    <Button Grid.Column="1" 
-                            Text="✅ Отгрузить" 
-                            Command="{Binding ConfirmOperationCommand}"
-                            IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
-                            Style="{StaticResource PrimaryButton}" />
-                </Grid>
 
                 <ActivityIndicator IsRunning="{Binding IsLoading}" 
                                    Color="{StaticResource PrimaryColor}" 
