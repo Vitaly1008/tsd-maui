@@ -1033,5 +1033,110 @@ public class ApiService
             return null;
         }
     }
+    
+    // ============================================================
+    // МЕТОДЫ ДЛЯ СПИСАНИЯ (ЧАСТИЧНАЯ ОТГРУЗКА)
+    // ============================================================
 
+    /// <summary>
+    /// Списание количества коробки (частичная отгрузка)
+    /// </summary>
+    public async Task<Dictionary<string, object>> ConsumeBox(string boxId, int quantity, string? comment = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var request = new 
+            { 
+                boxId = boxId,
+                quantity = quantity,
+                comment = comment ?? $"Списание через ТСД: {quantity} шт."
+            };
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/boxes/consume",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Списание количества коробки по штрихкоду (для офлайн-синхронизации)
+    /// </summary>
+    public async Task<Dictionary<string, object>> ConsumeBoxByBarcode(string barcode, int quantity, string? comment = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var request = new 
+            { 
+                barcode = barcode,
+                quantity = quantity,
+                comment = comment ?? $"Списание через ТСД: {quantity} шт."
+            };
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/boxes/consume-by-barcode",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
 }

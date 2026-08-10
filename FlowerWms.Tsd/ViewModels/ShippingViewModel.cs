@@ -18,12 +18,14 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     private bool _isScannerStarted;
     private bool _isInitialized;
     private bool _disposed;
+    private Box? _currentSelectedBox;
+
+    // ============================================================
+    // ОСНОВНЫЕ СВОЙСТВА (как в ReceivingViewModel)
+    // ============================================================
 
     [ObservableProperty]
     private bool _isLoading;
-
-    [ObservableProperty]
-    private string? _orderNumber;
 
     [ObservableProperty]
     private string? _lastScannedBarcode;
@@ -60,6 +62,28 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private bool _isBoxListExpanded = true;
+
+    // ============================================================
+    // СВОЙСТВА ДЛЯ УПРАВЛЕНИЯ ОТГРУЗКОЙ
+    // ============================================================
+
+    [ObservableProperty]
+    private int _shipQuantity = 0;
+
+    [ObservableProperty]
+    private int _maxQuantity;
+
+    [ObservableProperty]
+    private bool _isFullShipmentMode = true;  // По умолчанию - полная отгрузка
+
+    [ObservableProperty]
+    private bool _isPartialShipmentMode;
+
+    [ObservableProperty]
+    private bool _canPartialShip;
+
+    [ObservableProperty]
+    private string _shipQuantityDisplay = "0";
 
     public ObservableCollection<Box> ScannedBoxes { get; } = new();
 
@@ -128,15 +152,10 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         {
             IsOnline = await _syncService.CheckInternetManual();
             
-            // ✅ ВСЕГДА запускаем сканер, если сервис есть
             if (_barcodeService != null)
             {
                 StartScanner();
                 System.Diagnostics.Debug.WriteLine("✅ Сканер запущен из ShippingViewModel.Initialize()");
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("⚠️ BarcodeService is NULL in ShippingViewModel");
             }
             
             _isInitialized = true;
@@ -173,19 +192,6 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         };
     }
 
-    private string GetGradeCode(string gradeName)
-    {
-        return gradeName switch
-        {
-            "First" => "1",
-            "Second" => "2",
-            "Decorated" => "3",
-            "Rejected" => "5",
-            "Premium" => "9",
-            _ => gradeName
-        };
-    }
-
     private async Task<string> GetProductName(string ean13)
     {
         try
@@ -216,6 +222,10 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         
         return "Неизвестный продукт";
     }
+
+    // ============================================================
+    // ОСНОВНАЯ ЛОГИКА СКАНИРОВАНИЯ
+    // ============================================================
 
     [RelayCommand]
     public async Task ScanBox(string barcode)
@@ -255,30 +265,16 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             // ✅ ПОЛУЧАЕМ КОРОБКУ С СЕРВЕРА ИЛИ ИЗ КЭША
             // ============================================================
             Box? box = null;
-            bool isFromServer = false;
 
             if (IsOnline)
             {
                 try
                 {
-                    // Сначала пробуем получить коробку по штрихкоду
                     var serverBox = await _apiService.GetBoxByBarcode(barcode);
                     if (serverBox != null)
                     {
                         box = serverBox;
-                        isFromServer = true;
                         System.Diagnostics.Debug.WriteLine($"✅ Коробка найдена на сервере: #{box.BoxNumber}");
-                    }
-                    else
-                    {
-                        // Если не нашли по штрихкоду, пробуем по номеру
-                        serverBox = await _apiService.GetBoxByNumber(boxNumber);
-                        if (serverBox != null)
-                        {
-                            box = serverBox;
-                            isFromServer = true;
-                            System.Diagnostics.Debug.WriteLine($"✅ Коробка найдена на сервере по номеру: #{box.BoxNumber}");
-                        }
                     }
                 }
                 catch (Exception ex)
@@ -336,11 +332,22 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 return;
             }
 
+            if (box.Status == 2) // Empty
+            {
+                HasError = true;
+                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} пуста!";
+                ScanStatusIcon = "📭";
+                ScanStatusColor = Colors.Orange;
+                ScanStatusText = ErrorMessage;
+                Vibration.Vibrate(200);
+                return;
+            }
+
             if (box.Status == 5) // Reserved
             {
                 HasError = true;
-                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} уже зарезервирована!";
-                ScanStatusIcon = "⚠️";
+                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} зарезервирована!";
+                ScanStatusIcon = "🔒";
                 ScanStatusColor = Colors.Orange;
                 ScanStatusText = ErrorMessage;
                 Vibration.Vibrate(200);
@@ -352,6 +359,13 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             {
                 box.ProductName = await GetProductName(box.ProductEan13);
             }
+
+            // ✅ Запоминаем выбранную коробку
+            _currentSelectedBox = box;
+            MaxQuantity = box.CurrentQuantity;
+            
+            // ✅ Обновляем режимы
+            UpdateModes();
 
             // Добавляем в список
             MainThread.BeginInvokeOnMainThread(() =>
@@ -365,10 +379,14 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 ErrorMessage = string.Empty;
                 ScanStatusIcon = "✅";
                 ScanStatusColor = Colors.Green;
-                ScanStatusText = $"✅ Найдена: {barcode}";
+                ScanStatusText = $"✅ Найдена: #{box.BoxNumber} ({box.CurrentQuantity} шт.)";
                 
                 BoxInfoText = $"{box.ProductName} | {box.CurrentQuantity} шт. | {box.Grade} | №{box.BoxNumber}";
                 BoxNumberDisplay = $"№{box.BoxNumber}";
+                
+                // Автоматически устанавливаем количество
+                ShipQuantity = box.CurrentQuantity;
+                ShipQuantityDisplay = ShipQuantity.ToString();
             });
             
             Vibration.Vibrate(100);
@@ -384,6 +402,502 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    // ============================================================
+    // УПРАВЛЕНИЕ РЕЖИМАМИ ОТГРУЗКИ
+    // ============================================================
+
+    private void UpdateModes()
+    {
+        if (ScannedBoxes.Count > 1)
+        {
+            // Несколько коробок - только полная отгрузка
+            CanPartialShip = false;
+            IsFullShipmentMode = true;
+            IsPartialShipmentMode = false;
+            ShipQuantity = ScannedBoxes.Sum(b => b.CurrentQuantity);
+            ShipQuantityDisplay = ShipQuantity.ToString();
+        }
+        else if (ScannedBoxes.Count == 1)
+        {
+            // Одна коробка - можно выбрать режим
+            CanPartialShip = true;
+            
+            // Если частичная отгрузка уже была включена, оставляем
+            if (!IsPartialShipmentMode)
+            {
+                IsFullShipmentMode = true;
+                ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
+                ShipQuantityDisplay = ShipQuantity.ToString();
+            }
+            else
+            {
+                IsFullShipmentMode = false;
+                // Количество уже установлено
+            }
+        }
+        else
+        {
+            CanPartialShip = false;
+            IsFullShipmentMode = true;
+            IsPartialShipmentMode = false;
+            ShipQuantity = 0;
+            ShipQuantityDisplay = "0";
+        }
+    }
+
+    [RelayCommand]
+    public void SetFullShipment()
+    {
+        if (!CanPartialShip && ScannedBoxes.Count > 1)
+        {
+            return;
+        }
+
+        IsFullShipmentMode = true;
+        IsPartialShipmentMode = false;
+        ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
+        ShipQuantityDisplay = ShipQuantity.ToString();
+    }
+
+    [RelayCommand]
+    public void SetPartialShipment()
+    {
+        if (!CanPartialShip)
+        {
+            Application.Current?.MainPage?.DisplayAlert(
+                "Информация",
+                "Частичная отгрузка доступна только для одной коробки",
+                "OK"
+            );
+            return;
+        }
+
+        IsFullShipmentMode = false;
+        IsPartialShipmentMode = true;
+        ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
+        ShipQuantityDisplay = ShipQuantity.ToString();
+    }
+
+    [RelayCommand]
+    public void IncreaseQuantity()
+    {
+        if (!IsPartialShipmentMode || _currentSelectedBox == null) return;
+        if (ShipQuantity < _currentSelectedBox.CurrentQuantity)
+        {
+            ShipQuantity++;
+            ShipQuantityDisplay = ShipQuantity.ToString();
+        }
+    }
+
+    [RelayCommand]
+    public void DecreaseQuantity()
+    {
+        if (!IsPartialShipmentMode || _currentSelectedBox == null) return;
+        if (ShipQuantity > 1)
+        {
+            ShipQuantity--;
+            ShipQuantityDisplay = ShipQuantity.ToString();
+        }
+    }
+
+    // ============================================================
+    // ЛОГИКА ОТГРУЗКИ
+    // ============================================================
+
+    [RelayCommand]
+    public async Task ConfirmOperation()
+    {
+        if (ScannedBoxes.Count == 0)
+        {
+            await Application.Current?.MainPage?.DisplayAlert(
+                "Внимание",
+                "Нет коробок для отгрузки",
+                "OK"
+            );
+            return;
+        }
+
+        IsLoading = true;
+        var boxes = ScannedBoxes.ToList();
+        int shippedCount = 0;      // Полностью отгружены (Shipped)
+        int emptyCount = 0;        // Стали пустыми (Empty)
+        int partialCount = 0;      // Частично отгружены (Active)
+        int localCount = 0;        // Сохранены локально
+        int totalShippedQuantity = 0;
+        
+        try
+        {
+            for (int i = 0; i < boxes.Count; i++)
+            {
+                var box = boxes[i];
+                
+                // ✅ Определяем количество для отгрузки
+                int quantityToShip;
+                bool isFullShipment; // true = клиент забирает всю коробку
+                
+                // Если это последняя коробка и включен режим частичной отгрузки
+                if (i == boxes.Count - 1 && IsPartialShipmentMode && CanPartialShip)
+                {
+                    quantityToShip = ShipQuantity;
+                    // ✅ Флаг полной отгрузки = клиент забирает ВСЁ количество
+                    isFullShipment = quantityToShip >= box.CurrentQuantity;
+                }
+                else
+                {
+                    // Для всех остальных коробок - клиент забирает всё
+                    quantityToShip = box.CurrentQuantity;
+                    isFullShipment = true;
+                }
+
+                if (quantityToShip <= 0)
+                    continue;
+
+                // ✅ Нельзя отгрузить больше, чем есть
+                if (quantityToShip > box.CurrentQuantity)
+                    quantityToShip = box.CurrentQuantity;
+
+                int newQuantity = box.CurrentQuantity - quantityToShip;
+                totalShippedQuantity += quantityToShip;
+
+                // ============================================================
+                // ✅ ПРАВИЛЬНАЯ ЛОГИКА ОТГРУЗКИ
+                // ============================================================
+                if (IsOnline && !box.Id.StartsWith("local_"))
+                {
+                    try
+                    {
+                        if (isFullShipment)
+                        {
+                            // ✅ ПОЛНАЯ ОТГРУЗКА (клиент забирает коробку целиком)
+                            // → ShipBox → статус Shipped (3)
+                            var shipResult = await _apiService.ShipBox(
+                                boxId: box.Id,
+                                comment: $"Полная отгрузка через ТСД"
+                            );
+
+                            if (shipResult.TryGetValue("success", out var success) && success is bool s && s)
+                            {
+                                var updatedBox = await _apiService.GetBoxByBarcode(box.Barcode);
+                                if (updatedBox != null)
+                                {
+                                    updatedBox.Status = 3; // Shipped
+                                    await UpdateLocalBox(updatedBox);
+                                    shippedCount++;
+                                }
+                            }
+                            else
+                            {
+                                var errorMsg = shipResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                                throw new Exception(errorMsg);
+                            }
+                        }
+                        else
+                        {
+                            // ✅ ЧАСТИЧНАЯ ОТГРУЗКА (клиент забирает часть, коробка остается на складе)
+                            // → ConsumeBox → статус зависит от остатка
+                            var consumeResult = await _apiService.ConsumeBox(
+                                boxId: box.Id,
+                                quantity: quantityToShip,
+                                comment: $"Частичная отгрузка, остаток: {newQuantity} шт."
+                            );
+
+                            if (consumeResult.TryGetValue("success", out var success) && success is bool s && s)
+                            {
+                                var updatedBox = await _apiService.GetBoxByBarcode(box.Barcode);
+                                if (updatedBox != null)
+                                {
+                                    // ✅ После Consume статус определяется автоматически:
+                                    // - Active (1) если остаток > 0
+                                    // - Empty (2) если остаток = 0
+                                    updatedBox.Status = newQuantity > 0 ? 1 : 2;
+                                    await UpdateLocalBox(updatedBox);
+                                    
+                                    if (newQuantity == 0)
+                                        emptyCount++;  // Коробка пуста, но на складе
+                                    else
+                                        partialCount++; // Частично отгружена
+                                }
+                            }
+                            else
+                            {
+                                var errorMsg = consumeResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                                throw new Exception(errorMsg);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"❌ Ошибка отгрузки: {ex.Message}");
+                        await SaveLocalShipment(box, quantityToShip, isFullShipment);
+                        localCount++;
+                    }
+                }
+                else
+                {
+                    // Офлайн-режим
+                    await SaveLocalShipment(box, quantityToShip, isFullShipment);
+                    localCount++;
+                }
+            }
+
+            // ============================================================
+            // ✅ ПОКАЗЫВАЕМ РЕЗУЛЬТАТ
+            // ============================================================
+            var hasInternet = await _syncService.CheckInternetManual();
+            var totalCount = shippedCount + emptyCount + partialCount + localCount;
+            
+            var message = $"Обработано {totalCount} коробок.\n";
+            message += $"📦 Всего отгружено: {totalShippedQuantity} шт.\n\n";
+            
+            if (shippedCount > 0)
+                message += $"✅ Полностью отгружено (Shipped): {shippedCount}\n";
+            if (partialCount > 0)
+                message += $"📦 Частично отгружено (Active): {partialCount}\n";
+            if (emptyCount > 0)
+                message += $"📭 Остаток 0 (Empty): {emptyCount}\n";
+            if (localCount > 0)
+                message += $"📴 Сохранено локально: {localCount}\n";
+            
+            if (localCount == 0 && hasInternet)
+                message += "\n✅ Данные синхронизированы с сервером.";
+            else if (localCount > 0 && hasInternet)
+                message += "\n⚠️ Часть данных будет синхронизирована позже.";
+            else
+                message += "\n📴 Данные сохранены локально и будут синхронизированы при подключении.";
+
+            await Application.Current?.MainPage?.DisplayAlert(
+                localCount == 0 ? "✅ Успешно" : "⚠️ Внимание",
+                message,
+                "OK"
+            );
+            
+            ClearSession();
+            OperationCompleted?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            await Application.Current?.MainPage?.DisplayAlert(
+                "❌ Ошибка",
+                $"Не удалось выполнить отгрузку: {ex.Message}",
+                "OK"
+            );
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    // ============================================================
+    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    // ============================================================
+
+    private async Task UpdateLocalBox(Box updatedBox)
+    {
+        var boxCache = new BoxCache
+        {
+            barcode = updatedBox.Barcode,
+            box_id = updatedBox.Id,
+            box_number = updatedBox.BoxNumber,
+            grade = updatedBox.Grade,
+            initial_quantity = updatedBox.InitialQuantity,
+            current_quantity = updatedBox.CurrentQuantity,
+            product_id = updatedBox.ProductId,
+            product_name = updatedBox.ProductName,
+            product_ean13 = updatedBox.ProductEan13,
+            location_code = updatedBox.LocationCode ?? "UNKNOWN",
+            status = updatedBox.Status,
+            created_at = updatedBox.CreatedAt,
+            updated_at = updatedBox.UpdatedAt
+        };
+        await _dbHelper.SaveBox(boxCache);
+    }
+
+    private async Task SaveLocalShipment(Box box, int quantityToShip, bool isFullShipment)
+    {
+        int newQuantity = box.CurrentQuantity - quantityToShip;
+        
+        // ✅ Правильное определение статуса для локального сохранения
+        int newStatus;
+        if (isFullShipment)
+        {
+            // Полная отгрузка - коробка покидает склад
+            newStatus = 3; // Shipped
+        }
+        else if (newQuantity == 0)
+        {
+            // Частичная отгрузка, но остаток 0 - коробка пуста, но на складе
+            newStatus = 2; // Empty
+        }
+        else
+        {
+            // Частичная отгрузка, остаток > 0 - коробка активна
+            newStatus = 1; // Active
+        }
+        
+        await SaveBoxOperation(
+            box, 
+            isFullShipment ? "Ship" : "PartialShip",
+            $"Отгружено локально: {quantityToShip} шт. Остаток: {newQuantity} шт."
+        );
+        
+        var boxCache = new BoxCache
+        {
+            barcode = box.Barcode,
+            box_id = box.Id,
+            box_number = box.BoxNumber,
+            grade = box.Grade,
+            initial_quantity = box.InitialQuantity,
+            current_quantity = newQuantity,
+            product_id = box.ProductId,
+            product_name = box.ProductName,
+            product_ean13 = box.ProductEan13,
+            location_code = box.LocationCode ?? "UNKNOWN",
+            status = newStatus,
+            created_at = box.CreatedAt,
+            updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+        await _dbHelper.SaveBox(boxCache);
+        
+        var payload = new
+        {
+            boxId = box.Id,
+            barcode = box.Barcode,
+            boxNumber = box.BoxNumber,
+            quantity = quantityToShip,
+            newQuantity = newQuantity,
+            status = newStatus,
+            isFullShipment = isFullShipment,
+            operationType = "Shipping",
+            timestamp = DateTime.UtcNow
+        };
+        
+        await _syncQueueService.EnqueueAsync(
+            operationType: "Shipping",
+            barcode: box.Barcode,
+            payload: payload,
+            deviceId: Constants.DeviceId
+        );
+        
+        string statusText = newStatus switch
+        {
+            1 => "Active",
+            2 => "Empty",
+            3 => "Shipped",
+            _ => "Unknown"
+        };
+        
+        System.Diagnostics.Debug.WriteLine($"📴 Коробка сохранена локально: #{box.BoxNumber}, остаток: {newQuantity}, статус: {statusText}");
+}
+
+    private async Task SaveBoxOperation(Box box, string operationType, string comment)
+    {
+        try
+        {
+            var operation = new BoxOperationCache
+            {
+                operation_id = $"op_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString().Substring(0, 8)}",
+                box_id = box.Id,
+                box_barcode = box.Barcode,
+                operation_type = operationType,
+                quantity = box.CurrentQuantity,
+                from_location_code = box.LocationCode,
+                to_location_code = operationType == "Ship" || operationType == "PartialShip" ? "SHIPPED" : null,
+                device_id = Constants.DeviceId,
+                comment = comment,
+                created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                is_synced = IsOnline ? 1 : 0
+            };
+            
+            await _dbHelper.SaveBoxOperation(operation);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения операции: {ex.Message}");
+        }
+    }
+
+    private void ClearSession()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            ScannedBoxes.Clear();
+            ScannedCount = 0;
+            LastScannedBarcode = null;
+            IsBoxScanned = false;
+            ScanStatusText = "Отсканируйте штрихкод коробки";
+            ScanStatusColor = Colors.Gray;
+            BoxInfoText = string.Empty;
+            BoxNumberDisplay = string.Empty;
+            ScanStatusIcon = "📷";
+            _currentSelectedBox = null;
+            ShipQuantity = 0;
+            MaxQuantity = 0;
+            IsFullShipmentMode = true;
+            IsPartialShipmentMode = false;
+            CanPartialShip = false;
+            ShipQuantityDisplay = "0";
+        });
+    }
+
+    [RelayCommand]
+    public async Task CancelOperation()
+    {
+        if (ScannedBoxes.Count > 0)
+        {
+            var confirm = await Application.Current?.MainPage?.DisplayAlert(
+                "Выход",
+                $"Вы отсканировали {ScannedBoxes.Count} коробок. Выйти без сохранения?",
+                "Да",
+                "Нет"
+            );
+            
+            if (confirm == false) return;
+        }
+        
+        StopScanner();
+        OperationCancelled?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    public void RemoveBox(object parameter)
+    {
+        if (parameter is Box box && ScannedBoxes.Contains(box))
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                ScannedBoxes.Remove(box);
+                ScannedCount = ScannedBoxes.Count;
+                
+                if (ScannedBoxes.Count == 0)
+                {
+                    IsBoxScanned = false;
+                    ScanStatusText = "Отсканируйте штрихкод коробки";
+                    ScanStatusColor = Colors.Gray;
+                    BoxInfoText = string.Empty;
+                    LastScannedBarcode = null;
+                    _currentSelectedBox = null;
+                    CanPartialShip = false;
+                }
+                else if (ScannedBoxes.Count == 1)
+                {
+                    _currentSelectedBox = ScannedBoxes.First();
+                    MaxQuantity = _currentSelectedBox.CurrentQuantity;
+                    UpdateModes();
+                }
+                else
+                {
+                    // Несколько коробок - только полная отгрузка
+                    CanPartialShip = false;
+                    IsFullShipmentMode = true;
+                    IsPartialShipmentMode = false;
+                    ShipQuantity = ScannedBoxes.Sum(b => b.CurrentQuantity);
+                    ShipQuantityDisplay = ShipQuantity.ToString();
+                }
+            });
         }
     }
 
@@ -434,7 +948,6 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             ScanStatusColor = Colors.Blue;
             ScanStatusText = $"📍 Локация: {locationCode} ({location.name})";
             
-            // Устанавливаем локацию для всех отсканированных коробок
             foreach (var box in ScannedBoxes)
             {
                 box.LocationCode = locationCode;
@@ -457,321 +970,6 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public async Task SelectOrder()
-    {
-        await Application.Current?.MainPage?.DisplayAlert(
-            "📋 Выбор заказа",
-            "Функция выбора заказа будет доступна в следующей версии.\nПока вы можете сканировать коробки для отгрузки.",
-            "OK"
-        );
-    }
-
-    [RelayCommand]
-    public async Task ConfirmOperation()
-    {
-        if (ScannedBoxes.Count == 0)
-        {
-            await Application.Current?.MainPage?.DisplayAlert(
-                "Внимание",
-                "Нет коробок для отгрузки",
-                "OK"
-            );
-            return;
-        }
-
-        IsLoading = true;
-        var boxes = ScannedBoxes.ToList();
-        int shippedCount = 0;
-        int reservedCount = 0;
-        int localCount = 0;
-        
-        try
-        {
-            foreach (var box in boxes)
-            {
-                // ============================================================
-                // ✅ РЕЗЕРВИРОВАНИЕ КОРОБКИ
-                // ============================================================
-                if (IsOnline && !box.Id.StartsWith("local_"))
-                {
-                    try
-                    {
-                        // 1. Резервируем коробку
-                        var reserveResult = await _apiService.ReserveBox(box.Id);
-                        
-                        if (reserveResult.TryGetValue("success", out var reserveSuccess) && reserveSuccess is bool rs && rs)
-                        {
-                            reservedCount++;
-                            
-                            // Сохраняем операцию резервирования в локальную БД
-                            await SaveBoxOperation(box, "Reserve", $"Резервирование через ТСД, заказ: {OrderNumber ?? "Без заказа"}");
-                            
-                            // 2. Отгружаем коробку
-                            var shipResult = await _apiService.ShipBox(
-                                box.Id,
-                                comment: $"Отгрузка через ТСД, заказ: {OrderNumber ?? "Без заказа"}"
-                            );
-                            
-                            if (shipResult.TryGetValue("success", out var shipSuccess) && shipSuccess is bool ss && ss)
-                            {
-                                shippedCount++;
-                                
-                                // Сохраняем операцию отгрузки в локальную БД
-                                await SaveBoxOperation(box, "Ship", $"Отгружено через ТСД, заказ: {OrderNumber ?? "Без заказа"}");
-                                
-                                // Обновляем локальный кэш
-                                var boxCache = new BoxCache
-                                {
-                                    barcode = box.Barcode,
-                                    box_id = box.Id,
-                                    box_number = box.BoxNumber,
-                                    grade = box.Grade,
-                                    initial_quantity = box.InitialQuantity,
-                                    current_quantity = box.CurrentQuantity,
-                                    product_id = box.ProductId,
-                                    product_name = box.ProductName,
-                                    product_ean13 = box.ProductEan13,
-                                    location_code = box.LocationCode ?? "UNKNOWN",
-                                    status = 3, // Shipped
-                                    created_at = box.CreatedAt,
-                                    updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                                };
-                                await _dbHelper.SaveBox(boxCache);
-                                
-                                System.Diagnostics.Debug.WriteLine($"✅ Коробка отгружена: #{box.BoxNumber}");
-                            }
-                            else
-                            {
-                                var errorMsg = shipResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
-                                throw new Exception($"Ошибка отгрузки: {errorMsg}");
-                            }
-                        }
-                        else
-                        {
-                            var errorMsg = reserveResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
-                            throw new Exception($"Ошибка резервирования: {errorMsg}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"❌ Ошибка отгрузки: {ex.Message}");
-                        
-                        // Если не удалось отгрузить — сохраняем локально
-                        await SaveLocalShipping(box);
-                        localCount++;
-                    }
-                }
-                else
-                {
-                    // Офлайн-режим или локальная коробка
-                    await SaveLocalShipping(box);
-                    localCount++;
-                }
-            }
-
-            // ============================================================
-            // ✅ ПОКАЗЫВАЕМ РЕЗУЛЬТАТ
-            // ============================================================
-            var hasInternet = await _syncService.CheckInternetManual();
-            var totalCount = shippedCount + reservedCount + localCount;
-            
-            var message = $"Обработано {totalCount} коробок.\n";
-            if (shippedCount > 0)
-                message += $"✅ Отгружено: {shippedCount}\n";
-            if (reservedCount > 0)
-                message += $"🔒 Зарезервировано: {reservedCount}\n";
-            if (localCount > 0)
-                message += $"📴 Сохранено локально: {localCount}\n";
-            
-            if (localCount == 0 && hasInternet)
-                message += "Данные синхронизированы с сервером.";
-            else if (localCount > 0 && hasInternet)
-                message += "Часть данных будет синхронизирована позже.";
-            else
-                message += "Данные сохранены локально и будут синхронизированы при подключении.";
-
-            await Application.Current?.MainPage?.DisplayAlert(
-                localCount == 0 ? "✅ Успешно" : "⚠️ Внимание",
-                message,
-                "OK"
-            );
-            
-            ClearSession();
-            OperationCompleted?.Invoke(this, EventArgs.Empty);
-        }
-        catch (Exception ex)
-        {
-            await Application.Current?.MainPage?.DisplayAlert(
-                "❌ Ошибка",
-                $"Не удалось выполнить отгрузку: {ex.Message}",
-                "OK"
-            );
-        }
-        finally
-        {
-            IsLoading = false;
-        }
-    }
-
-    private async Task SaveLocalShipping(Box box)
-    {
-        // Сохраняем операцию в локальную БД
-        await SaveBoxOperation(box, "Ship", $"Отгружено локально, заказ: {OrderNumber ?? "Без заказа"}");
-        
-        // Обновляем кэш
-        var boxCache = new BoxCache
-        {
-            barcode = box.Barcode,
-            box_id = box.Id,
-            box_number = box.BoxNumber,
-            grade = box.Grade,
-            initial_quantity = box.InitialQuantity,
-            current_quantity = box.CurrentQuantity,
-            product_id = box.ProductId,
-            product_name = box.ProductName,
-            product_ean13 = box.ProductEan13,
-            location_code = box.LocationCode ?? "UNKNOWN",
-            status = 3, // Shipped
-            created_at = box.CreatedAt,
-            updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-        };
-        await _dbHelper.SaveBox(boxCache);
-        
-        // Добавляем в очередь синхронизации
-        var payload = new
-        {
-            boxes = new[]
-            {
-                new
-                {
-                    id = box.Id,
-                    barcode = box.Barcode,
-                    boxNumber = box.BoxNumber,
-                    productName = box.ProductName,
-                    productEan13 = box.ProductEan13,
-                    quantity = box.CurrentQuantity,
-                    grade = GetGradeCode(box.Grade),
-                    locationCode = box.LocationCode ?? "UNKNOWN",
-                    status = 3
-                }
-            },
-            orderNumber = OrderNumber ?? "Без заказа",
-            operationType = "Shipping",
-            timestamp = DateTime.UtcNow
-        };
-        
-        await _syncQueueService.EnqueueAsync(
-            operationType: "Shipping",
-            barcode: box.Barcode,
-            payload: payload,
-            deviceId: Constants.DeviceId
-        );
-        
-        System.Diagnostics.Debug.WriteLine($"📴 Коробка сохранена локально: #{box.BoxNumber}");
-    }
-
-    private async Task SaveBoxOperation(Box box, string operationType, string comment)
-    {
-        try
-        {
-            var operation = new BoxOperationCache
-            {
-                operation_id = $"op_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString().Substring(0, 8)}",
-                box_id = box.Id,
-                box_barcode = box.Barcode,
-                operation_type = operationType,
-                quantity = box.CurrentQuantity,
-                from_location_code = box.LocationCode,
-                to_location_code = operationType == "Ship" ? "SHIPPED" : null,
-                device_id = Constants.DeviceId,
-                comment = comment,
-                created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                is_synced = IsOnline ? 1 : 0
-            };
-            
-            await _dbHelper.SaveBoxOperation(operation);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения операции: {ex.Message}");
-        }
-    }
-
-    private void ClearSession()
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            ScannedBoxes.Clear();
-            ScannedCount = 0;
-            LastScannedBarcode = null;
-            IsBoxScanned = false;
-            ScanStatusText = "Отсканируйте штрихкод коробки";
-            ScanStatusColor = Colors.Gray;
-            BoxInfoText = string.Empty;
-            BoxNumberDisplay = string.Empty;
-            ScanStatusIcon = "📷";
-            OrderNumber = null;
-        });
-    }
-
-    [RelayCommand]
-    public async Task CancelOperation()
-    {
-        if (ScannedBoxes.Count > 0)
-        {
-            var confirm = await Application.Current?.MainPage?.DisplayAlert(
-                "Выход",
-                $"Вы отсканировали {ScannedBoxes.Count} коробок. Выйти без сохранения?",
-                "Да",
-                "Нет"
-            );
-            
-            if (confirm == false) return;
-        }
-        
-        StopScanner();
-        OperationCancelled?.Invoke(this, EventArgs.Empty);
-    }
-
-    [RelayCommand]
-    public void RemoveBox(object parameter)
-    {
-        if (parameter is Box box && ScannedBoxes.Contains(box))
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                ScannedBoxes.Remove(box);
-                ScannedCount = ScannedBoxes.Count;
-                
-                if (ScannedBoxes.Count == 0)
-                {
-                    IsBoxScanned = false;
-                    ScanStatusText = "Отсканируйте штрихкод коробки";
-                    ScanStatusColor = Colors.Gray;
-                    BoxInfoText = string.Empty;
-                    LastScannedBarcode = null;
-                }
-            });
-        }
-    }
-
-    [RelayCommand]
-    public async Task ShowLocationInput()
-    {
-        var result = await Application.Current?.MainPage?.DisplayPromptAsync(
-            "Введите код локации",
-            "Например: A-01, B-02-03",
-            "Подтвердить",
-            "Отмена"
-        );
-
-        if (!string.IsNullOrEmpty(result))
-        {
-            await ScanLocation(result);
-        }
-    }
-
-    [RelayCommand]
     public async Task ShowBoxesList()
     {
         if (ScannedBoxes.Count == 0)
@@ -785,7 +983,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         }
 
         var boxList = string.Join("\n", ScannedBoxes.Select((b, i) => 
-            $"{i + 1}. #{b.BoxNumber} | {b.ProductName} | {b.CurrentQuantity} шт. | {b.Grade} | {(b.Status == 5 ? "🔒" : "📦")}")
+            $"{i + 1}. #{b.BoxNumber} | {b.ProductName} | {b.CurrentQuantity} шт. | {b.Grade} | {(b.Status == 1 ? "✅" : "📭")}")
         );
 
         await Application.Current?.MainPage?.DisplayAlert(
@@ -802,8 +1000,9 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         {
             try
             {
-                // Пробуем получить историю с сервера
-                string historyText = $"📋 История коробки #{box.BoxNumber}\n\n";
+                string historyText = $"📋 История коробки #{box.BoxNumber}\n" +
+                                    $"📦 Остаток: {box.CurrentQuantity} шт.\n" +
+                                    $"📅 Поступление: {DateTimeOffset.FromUnixTimeMilliseconds(box.CreatedAt).LocalDateTime:dd.MM.yyyy HH:mm}\n\n";
                 
                 if (IsOnline)
                 {
@@ -831,13 +1030,13 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                                 foreach (var op in history)
                                 {
                                     var type = op.GetValueOrDefault("operationType", "")?.ToString() ?? "Unknown";
-                                    var quantity = op.GetValueOrDefault("quantity", 0);
+                                    var qty = op.GetValueOrDefault("quantity", 0);
                                     var comment = op.GetValueOrDefault("comment", "")?.ToString() ?? "";
                                     var createdAt = op.GetValueOrDefault("createdAt", 0) is long ts ? 
                                         DateTimeOffset.FromUnixTimeMilliseconds(ts).LocalDateTime.ToString("dd.MM.yy HH:mm") : 
                                         "Неизвестно";
                                     
-                                    historyText += $"🕐 {createdAt} | {type} | {quantity} шт.";
+                                    historyText += $"🕐 {createdAt} | {type} | {qty} шт.";
                                     if (!string.IsNullOrEmpty(comment))
                                         historyText += $" | {comment}";
                                     historyText += "\n";
@@ -845,7 +1044,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                             }
                             else
                             {
-                                historyText += "Нет операций в истории на сервере.\n";
+                                historyText += "📭 Нет операций в истории на сервере.\n";
                             }
                         }
                     }
@@ -856,7 +1055,6 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                     }
                 }
                 
-                // Добавляем локальные операции
                 var localOps = await _dbHelper.GetBoxOperationsByBarcode(box.Barcode);
                 if (localOps.Any())
                 {

@@ -588,6 +588,18 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                         {
                             activatedCount++;
                             
+                            // ✅ ПОЛУЧАЕМ ОБНОВЛЕННЫЕ ДАННЫЕ КОРОБКИ С СЕРВЕРА
+                            // (чтобы получить правильный CreatedAt и UpdatedAt)
+                            var updatedBox = await _apiService.GetBoxByBarcode(box.Barcode);
+                            if (updatedBox != null)
+                            {
+                                box.CreatedAt = updatedBox.CreatedAt;
+                                box.UpdatedAt = updatedBox.UpdatedAt;
+                                box.Status = updatedBox.Status;
+                                
+                                System.Diagnostics.Debug.WriteLine($"✅ Коробка активирована: #{box.BoxNumber}, CreatedAt: {box.CreatedAt}");
+                            }
+                            
                             // Обновляем локальный кэш
                             var boxCache = new BoxCache
                             {
@@ -602,8 +614,8 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                                 product_ean13 = box.ProductEan13,
                                 location_code = box.LocationCode ?? CurrentLocation,
                                 status = 1, // Active
-                                created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                                updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                created_at = box.CreatedAt, // ✅ БЕРЕМ С СЕРВЕРА
+                                updated_at = box.UpdatedAt  // ✅ БЕРЕМ С СЕРВЕРА
                             };
                             await _dbHelper.SaveBox(boxCache);
                             

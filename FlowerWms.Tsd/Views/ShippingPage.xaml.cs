@@ -8,7 +8,6 @@ public partial class ShippingPage : BasePage
     private ShippingViewModel? _viewModel;
     private readonly IBarcodeService? _barcodeService;
 
-    // ✅ Конструктор с IBarcodeService (как в ReceivingPage)
     public ShippingPage(IBarcodeService barcodeService)
     {
         InitializeComponent();
@@ -22,7 +21,6 @@ public partial class ShippingPage : BasePage
     {
         try
         {
-            // ✅ Создаём ViewModel с сервисом
             _viewModel = new ShippingViewModel(_barcodeService);
             BindingContext = _viewModel;
             
