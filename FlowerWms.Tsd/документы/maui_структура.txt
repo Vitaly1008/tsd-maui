@@ -1,23 +1,26 @@
 F:\alphaWMS\mobile\FlowerWms.Tsd\
 │
-├───Converters/                   # XAML конвертеры
-│   ├── BoolConverters.cs            # InverseBoolean, GreaterThanZero, IsNotNull, StringNotEmpty
-│   ├── ConnectionIconConverter.cs   # 📶/📴 иконка статуса
-│   ├── ExpandIconConverter.cs       # ▶/▼ для раскрытия списков
-│   ├── ModeConverters.cs            # ModeBackground, ModeTextColor, ModeLabel
-│   ├── ScanStatusConverters.cs      # ScanStatusBackground, Border, Icon, Text, Color
-│   ├── SearchButtonConverter.cs     # Поиск сервера
-│   └── StatusBarPaddingConverter.cs # Отступ под статус-бар Android
+├───Converters/
+│   ├── BaseConverters.cs           # Базовые классы для конвертеров
+│   ├── BoxStatusConverters.cs      # Все конвертеры статуса коробки
+│   ├── BoolConverters.cs           # Булевы конвертеры
+│   ├── ConnectionIconConverter.cs  # Иконки сети
+│   ├── ExpandIconConverter.cs      # Иконки раскрытия
+│   ├── ModeConverters.cs           # Конвертеры режимов
+│   ├── ScanStatusConverters.cs     # Конвертеры статуса сканирования
+│   ├── SearchButtonConverter.cs    # Конвертер кнопки поиска
+│   └── StatusBarPaddingConverter.cs # Отступ под статус-бар
 │
 ├───Helpers/                      # Вспомогательные классы
-│   ├── Constants.cs                 # ApiBaseUrl, DeviceId, ApiEndpoints
+│   ├── Constants.cs                 # ApiBaseUrl, DeviceId, ApiEndpoints (BoxByBarcode исправлен)
 │   ├── DatabaseHelper.cs            # SQLite операции (SaveBox, GetBox, SyncProducts, SyncLocations)
 │   ├── DatabaseModels.cs            # Модели SQLite (OfflineTransaction, BoxCache, LocationCache, ProductCache)
+│   │                                # ✅ BoxCache добавлено поле is_dirty
 │   └── StatusBarHelper.cs           # Высота статус-бара Android
 │
 ├───Models/                       # Модели данных (для UI и API)
 │   ├── Auth.cs                      # LoginRequest, LoginResponse
-│   ├── Box.cs                       # Коробка (Id, Barcode, BoxNumber, Grade, Quantity, Status, LocationCode)
+│   ├── Box.cs                       # Коробка (Id, Barcode, BoxNumber, Grade, Quantity, Status, LocationCode, IsDirty) ✅ ДОБАВЛЕНО
 │   ├── BoxOperation.cs              # Операция коробки (Id, BoxId, OperationType, Quantity, Comment)
 │   ├── Location.cs                  # Локация (Id, Code, Name, IsActive)
 │   ├── Operation.cs                 # Enum: OperationType, SyncStatus
@@ -25,6 +28,8 @@ F:\alphaWMS\mobile\FlowerWms.Tsd\
 │
 ├───Services/                     # Сервисы
 │   ├── ApiService.cs                # HTTP запросы к бэкенду (Login, Scan, Sync, CreateDraftBox, ActivateBox, ShipBox)
+│   │                                # ✅ Добавлен метод GetAllBoxes()
+│   │                                # ✅ Исправлен дублирующийся метод GetBoxByBarcode
 │   ├── AuthService.cs               # Аутентификация (Login, Logout, ValidateToken)
 │   ├── IBarcodeService.cs           # Интерфейс сканера
 │   ├── NetworkService.cs            # Мониторинг сети, авто-поиск сервера
@@ -33,20 +38,26 @@ F:\alphaWMS\mobile\FlowerWms.Tsd\
 │   ├── ServerDiscoveryService.cs    # Поиск сервера в сети (Ping, DiscoverServer)
 │   ├── SyncQueueService.cs          # Очередь синхронизации (Enqueue, ProcessQueue, AutoSync)
 │   └── SyncService.cs               # Синхронизация (SyncAll, CheckInternet, GetPendingCount)
+│                                    # ✅ Добавлено поле _dbHelper
+│                                    # ✅ Исправлен SyncBoxesOnLogin() с загрузкой Empty-коробок
 │
 ├───ViewModels/                   # MVVM ViewModels
 │   ├── HomeViewModel.cs             # Главный экран (меню, статус сети, синхронизация)
 │   ├── LoginViewModel.cs            # Экран входа (логин, поиск сервера)
 │   ├── ReceivingViewModel.cs        # Приемка (сканирование, создание Draft, активация)
 │   ├── ShippingViewModel.cs         # Отгрузка (поиск коробок, резервирование, отгрузка)
+│   │                                # ✅ Добавлена проверка IsDirty
+│   │                                # ✅ Исправлена логика статусов (Empty, Shipped)
 │   └── InventoryViewModel.cs        # Инвентаризация (просмотр локации, перемещение коробок)
 │
 ├───Views/                        # XAML страницы
+│   ├── Behaviors/                   # ✅ НОВАЯ ПАПКА
+│   │   └── NumericValidationBehavior.cs  # ✅ НОВЫЙ ФАЙЛ: валидация числового ввода
 │   ├── BasePage.xaml                # Базовая страница (отступ под статус-бар)
 │   ├── LoginPage.xaml               # Экран входа
 │   ├── HomePage.xaml                # Главный экран
 │   ├── ReceivingPage.xaml           # Приемка
-│   ├── ShippingPage.xaml            # Отгрузка
+│   ├── ShippingPage.xaml            # Отгрузка (обновлен с использованием NumericValidationBehavior)
 │   ├── InventoryPage.xaml           # Инвентаризация
 │   └── AboutPage.xaml               # О программе
 │
@@ -56,5 +67,6 @@ F:\alphaWMS\mobile\FlowerWms.Tsd\
 │
 ├── App.xaml                       # Ресурсы (стили, конвертеры, цвета)
 ├── App.xaml.cs                    # Точка входа (MainPage = LoginPage)
+│                                  # ✅ Зарегистрированы все конвертеры (StatusTextConverter, StatusColorConverter, ModeBorderConverter)
 ├── MauiProgram.cs                 # DI регистрация (ApiService, AuthService, SyncService, BarcodeService)
 └── FlowerWms.Tsd.csproj          # Зависимости (CommunityToolkit.Mvvm, SQLite)

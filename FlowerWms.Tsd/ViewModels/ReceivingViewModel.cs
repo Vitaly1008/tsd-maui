@@ -59,7 +59,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
     private int _scannedCount;
 
     [ObservableProperty]
-    private bool _isBoxListExpanded = true;
+    private bool _isBoxListExpanded = false;
 
     public ObservableCollection<Box> ScannedBoxes { get; } = new();
 
@@ -162,12 +162,38 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
     {
         var parts = barcode.Split('-');
         
-        string ean13 = parts.Length > 0 ? parts[0] : "0000000000000";
-        int quantity = parts.Length > 1 && int.TryParse(parts[1], out var q) ? q : 0;
+        // Проверяем корректность формата
+        if (parts.Length != 4)
+        {
+            System.Diagnostics.Debug.WriteLine($"⚠️ Некорректный формат штрихкода: {barcode}");
+            return ("", 0, "", 0);
+        }
+
+        // Проверяем EAN13
+        if (!IsValidEan13(parts[0]))
+        {
+            System.Diagnostics.Debug.WriteLine($"⚠️ Некорректный EAN13: {parts[0]}");
+            return ("", 0, "", 0);
+        }
+
+        string ean13 = parts[0];
+        int quantity = int.TryParse(parts[1], out var q) ? q : 0;
         string grade = parts.Length > 2 ? GetGradeName(parts[2]) : "Premium";
         int boxNumber = parts.Length > 3 && int.TryParse(parts[3], out var n) ? n : 0;
 
+        // Проверяем, что номер коробки > 0
+        if (boxNumber <= 0)
+        {
+            System.Diagnostics.Debug.WriteLine($"⚠️ Некорректный номер коробки: {boxNumber}");
+            return (ean13, quantity, grade, 0);
+        }
+
         return (ean13, quantity, grade, boxNumber);
+    }
+
+    private bool IsValidEan13(string code)
+    {
+        return !string.IsNullOrEmpty(code) && code.Length == 13 && code.All(char.IsDigit);
     }
 
     private string GetGradeName(string gradeCode)
@@ -198,14 +224,19 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
 
     private async Task<string> GetProductName(string ean13)
     {
+        if (string.IsNullOrEmpty(ean13))
+            return "Неизвестный продукт";
+
         try
         {
+            // Сначала проверяем локальный кэш
             var product = await _dbHelper.GetProductByEan13(ean13);
             if (product != null && !string.IsNullOrEmpty(product.name))
             {
                 return product.name;
             }
             
+            // Если нет локально и есть интернет — синхронизируем
             if (IsOnline)
             {
                 var synced = await _apiService.SyncProducts();
@@ -227,6 +258,34 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
         return "Неизвестный продукт";
     }
 
+    private bool IsLocationBarcode(string barcode)
+    {
+        if (string.IsNullOrEmpty(barcode)) return false;
+        
+        // Если это EAN13-формат коробки (13 цифр) — не локация
+        if (IsValidEan13(barcode)) return false;
+        
+        // Проверяем формат коробки: EAN13-Кол-Сорт-Номер
+        var parts = barcode.Split('-');
+        if (parts.Length == 4)
+        {
+            // Если первая часть — EAN13 и последняя — число, это коробка
+            if (IsValidEan13(parts[0]) && int.TryParse(parts[3], out _))
+            {
+                return false;
+            }
+        }
+        
+        // Если это чисто число — не локация
+        if (int.TryParse(barcode, out _))
+        {
+            return false;
+        }
+        
+        // В остальных случаях считаем локацией
+        return true;
+    }
+
     [RelayCommand]
     public async Task ScanBox(string barcode)
     {
@@ -246,7 +305,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
         
         try
         {
-            // Проверка на дубликат в текущей сессии
+            // 1. Проверка на дубликат в текущей сессии
             if (ScannedBoxes.Any(b => b.Barcode == barcode))
             {
                 HasError = true;
@@ -261,16 +320,11 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             // Парсим штрихкод
             var (ean13, quantity, grade, boxNumber) = ParseBarcode(barcode);
 
-            // ============================================================
-            // ✅ ПРОВЕРЯЕМ, СУЩЕСТВУЕТ ЛИ УЖЕ КОРОБКА С ТАКИМ НОМЕРОМ
-            // ============================================================
-            
-            // 1. Проверяем в локальном кэше (все статусы)
-            var existsInCache = await _dbHelper.IsBoxExistsByBarcode(barcode);
-            if (existsInCache)
+            // Проверяем валидность парсинга
+            if (string.IsNullOrEmpty(ean13) || boxNumber <= 0)
             {
                 HasError = true;
-                ErrorMessage = $"⚠️ Коробка №{boxNumber} уже существует на складе!";
+                ErrorMessage = "⚠️ Некорректный формат штрихкода";
                 ScanStatusIcon = "❌";
                 ScanStatusColor = Colors.Red;
                 ScanStatusText = ErrorMessage;
@@ -278,64 +332,95 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            // 2. Если есть интернет — проверяем на сервере
-            if (IsOnline)
+            // 2. Проверяем локальный кэш (всегда сначала)
+            var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
+            if (cachedBox != null)
             {
-                try
+                // Проверяем статус в кэше
+                if (cachedBox.status == 1) // Active
                 {
-                    var checkResult = await _apiService.CheckBoxNumber(boxNumber);
-                    if (checkResult.TryGetValue("success", out var success) && success is bool s && s)
-                    {
-                        var data = checkResult.GetValueOrDefault("data") as Dictionary<string, object>;
-                        if (data != null && data.GetValueOrDefault("isFree") is bool isFree && !isFree)
-                        {
-                            HasError = true;
-                            ErrorMessage = $"⚠️ Номер {boxNumber} уже занят на сервере!";
-                            ScanStatusIcon = "❌";
-                            ScanStatusColor = Colors.Red;
-                            ScanStatusText = ErrorMessage;
-                            Vibration.Vibrate(200);
-                            return;
-                        }
-                    }
+                    HasError = true;
+                    ErrorMessage = $"⚠️ Коробка №{cachedBox.box_number} уже активирована локально!";
+                    ScanStatusIcon = "⚠️";
+                    ScanStatusColor = Colors.Orange;
+                    ScanStatusText = ErrorMessage;
+                    Vibration.Vibrate(200);
+                    return;
                 }
-                catch (Exception ex)
+                else
                 {
-                    System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка проверки номера: {ex.Message}");
+                    // Если статус не Active, обновляем его
+                    System.Diagnostics.Debug.WriteLine($"⚠️ Коробка найдена в кэше со статусом {cachedBox.status}, обновляем...");
                 }
             }
 
             // Получаем информацию о продукте
             var productName = await GetProductName(ean13);
 
-            // ============================================================
-            // ✅ СОЗДАЕМ DRAFT-КОРОБКУ НА СЕРВЕРЕ
-            // ============================================================
             Box box;
-            bool isDraftCreated = false;
+            bool isActivated = false;
 
             if (IsOnline)
             {
+                // 3. Проверяем на сервере
+                var existingBox = await _apiService.GetBoxByBarcode(barcode);
+                
+                if (existingBox == null)
+                {
+                    HasError = true;
+                    ErrorMessage = $"⚠️ Коробка №{boxNumber} не найдена на сервере! Сначала напечатайте штрихкод.";
+                    ScanStatusIcon = "❌";
+                    ScanStatusColor = Colors.Red;
+                    ScanStatusText = ErrorMessage;
+                    Vibration.Vibrate(200);
+                    return;
+                }
+
+                // Проверяем статус
+                if (existingBox.Status == 1) // Active
+                {
+                    HasError = true;
+                    ErrorMessage = $"⚠️ Коробка №{boxNumber} уже активирована!";
+                    ScanStatusIcon = "⚠️";
+                    ScanStatusColor = Colors.Orange;
+                    ScanStatusText = ErrorMessage;
+                    Vibration.Vibrate(200);
+                    return;
+                }
+
+                if (existingBox.Status != 0) // Не Draft
+                {
+                    HasError = true;
+                    ErrorMessage = $"⚠️ Коробка №{boxNumber} имеет статус {existingBox.Status}, активация невозможна";
+                    ScanStatusIcon = "❌";
+                    ScanStatusColor = Colors.Red;
+                    ScanStatusText = ErrorMessage;
+                    Vibration.Vibrate(200);
+                    return;
+                }
+
+                // 4. Активируем коробку
                 try
                 {
-                    var gradeCode = GetGradeCode(grade);
-                    var draftResult = await _apiService.CreateDraftBox(
-                        ean13: ean13,
-                        quantity: quantity > 0 ? quantity : 100,
-                        grade: gradeCode,
-                        boxNumber: boxNumber
+                    var activateResult = await _apiService.ActivateBox(
+                        boxId: existingBox.Id,
+                        locationCode: CurrentLocation,
+                        comment: $"Приемка через ТСД, локация: {CurrentLocation}"
                     );
 
-                    if (draftResult.TryGetValue("success", out var draftSuccess) && draftSuccess is bool ds && ds)
+                    if (activateResult.TryGetValue("success", out var success) && success is bool s && s)
                     {
-                        var data = draftResult.GetValueOrDefault("data") as Dictionary<string, object>;
+                        var data = activateResult.GetValueOrDefault("data") as Dictionary<string, object>;
                         if (data != null)
                         {
                             box = Box.FromJson(data);
                             box.LocationCode = CurrentLocation;
-                            isDraftCreated = true;
+                            isActivated = true;
                             
-                            System.Diagnostics.Debug.WriteLine($"✅ Draft-коробка создана: #{box.BoxNumber}");
+                            // ✅ Сохраняем в локальный кэш (обновляем или создаем)
+                            await SaveBoxToCache(box, isLocal: false);
+                            
+                            System.Diagnostics.Debug.WriteLine($"✅ Коробка активирована: #{box.BoxNumber}");
                         }
                         else
                         {
@@ -344,30 +429,67 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                     }
                     else
                     {
-                        var errorMsg = draftResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                        var errorMsg = activateResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
                         throw new Exception(errorMsg);
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"❌ Ошибка создания Draft: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"❌ Ошибка активации: {ex.Message}");
                     
-                    // Если не удалось создать на сервере — создаем локально
-                    box = await CreateLocalBox(ean13, quantity, grade, boxNumber, productName);
-                    isDraftCreated = false;
+                    // Если не удалось активировать — пробуем сохранить локально для офлайн-синхронизации
+                    box = CreateLocalBoxFromExisting(existingBox, productName);
+                    isActivated = false;
+                    
+                    await AddToOfflineQueue(box);
+                    await SaveBoxToCache(box, isLocal: true);
                     
                     await Application.Current?.MainPage?.DisplayAlert(
                         "⚠️ Внимание",
-                        $"Коробка создана локально. Будет синхронизирована позже.\n{ex.Message}",
+                        $"Коробка сохранена локально для синхронизации.\n{ex.Message}",
                         "OK"
                     );
                 }
             }
             else
             {
-                // Офлайн-режим — создаем локально
-                box = await CreateLocalBox(ean13, quantity, grade, boxNumber, productName);
-                isDraftCreated = false;
+                // Офлайн-режим
+                // Если коробка уже есть в кэше, используем её
+                if (cachedBox != null)
+                {
+                    box = new Box
+                    {
+                        Id = cachedBox.box_id,
+                        Barcode = cachedBox.barcode,
+                        BoxNumber = cachedBox.box_number,
+                        ProductName = cachedBox.product_name ?? productName,
+                        ProductEan13 = cachedBox.product_ean13 ?? ean13,
+                        Quantity = cachedBox.current_quantity,
+                        Grade = cachedBox.grade ?? grade,
+                        LocationCode = CurrentLocation,
+                        Status = 1, // Active
+                        CreatedAt = cachedBox.created_at,
+                        UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    };
+                    
+                    // Обновляем статус в кэше
+                    await SaveBoxToCache(box, isLocal: true);
+                }
+                else
+                {
+                    // Создаем новую локальную запись
+                    box = CreateLocalBox(ean13, quantity, grade, boxNumber, productName);
+                    await AddToOfflineQueue(box);
+                    await SaveBoxToCache(box, isLocal: true);
+                }
+                
+                isActivated = false;
+                
+                await Application.Current?.MainPage?.DisplayAlert(
+                    "📴 Офлайн-режим",
+                    $"Коробка №{boxNumber} сохранена локально. Будет активирована при синхронизации.",
+                    "OK"
+                );
             }
 
             // Добавляем в список
@@ -380,11 +502,11 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                 IsBoxScanned = true;
                 HasError = false;
                 ErrorMessage = string.Empty;
-                ScanStatusIcon = isDraftCreated ? "✅" : "📴";
-                ScanStatusColor = isDraftCreated ? Colors.Green : Colors.Orange;
-                ScanStatusText = isDraftCreated 
-                    ? $"✅ Создан Draft: {barcode}" 
-                    : $"📴 Локально: {barcode}";
+                ScanStatusIcon = isActivated ? "✅" : "📴";
+                ScanStatusColor = isActivated ? Colors.Green : Colors.Orange;
+                ScanStatusText = isActivated 
+                    ? $"✅ Активирована: #{box.BoxNumber}" 
+                    : $"📴 Локально: #{box.BoxNumber}";
                 
                 BoxInfoText = $"{productName} | {box.Quantity} шт. | {grade} | №{boxNumber}";
                 BoxNumberDisplay = $"№{boxNumber}";
@@ -399,6 +521,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             ScanStatusIcon = "❌";
             ScanStatusColor = Colors.Red;
             ScanStatusText = ErrorMessage;
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сканирования: {ex.Message}");
         }
         finally
         {
@@ -406,11 +529,29 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task<Box> CreateLocalBox(string ean13, int quantity, string grade, int boxNumber, string productName)
+    private Box CreateLocalBoxFromExisting(Box existingBox, string productName)
     {
         return new Box
         {
-            Id = $"local_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+            Id = existingBox.Id,
+            Barcode = existingBox.Barcode,
+            BoxNumber = existingBox.BoxNumber,
+            ProductName = productName,
+            ProductEan13 = existingBox.ProductEan13,
+            Quantity = existingBox.Quantity,
+            Grade = existingBox.Grade,
+            LocationCode = CurrentLocation,
+            Status = 1, // Active
+            CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+    }
+
+    private Box CreateLocalBox(string ean13, int quantity, string grade, int boxNumber, string productName)
+    {
+        return new Box
+        {
+            Id = $"local_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString().Substring(0, 8)}",
             Barcode = $"{ean13}-{quantity}-{GetGradeCode(grade)}-{boxNumber}",
             BoxNumber = boxNumber,
             ProductName = productName,
@@ -418,8 +559,57 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             Quantity = quantity > 0 ? quantity : 100,
             Grade = grade,
             LocationCode = CurrentLocation,
-            Status = 0 // Draft!
+            Status = 1, // Active
+            CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
+    }
+
+    private async Task SaveBoxToCache(Box box, bool isLocal)
+    {
+        var boxCache = new BoxCache
+        {
+            barcode = box.Barcode,
+            box_id = box.Id,
+            box_number = box.BoxNumber,
+            grade = box.Grade,
+            initial_quantity = box.Quantity,
+            current_quantity = box.Quantity,
+            product_id = box.ProductId,
+            product_name = box.ProductName,
+            product_ean13 = box.ProductEan13,
+            location_code = box.LocationCode ?? CurrentLocation,
+            status = 1, // Active
+            created_at = box.CreatedAt,
+            updated_at = box.UpdatedAt,
+            is_dirty = isLocal ? 1 : 0
+        };
+        await _dbHelper.SaveBox(boxCache);
+        System.Diagnostics.Debug.WriteLine($"✅ Коробка сохранена в кэш: #{box.BoxNumber}, статус=1, is_dirty={isLocal}");
+    }
+
+    private async Task AddToOfflineQueue(Box box)
+    {
+        var payload = new
+        {
+            boxId = box.Id,
+            barcode = box.Barcode,
+            boxNumber = box.BoxNumber,
+            ean13 = box.ProductEan13,
+            quantity = box.Quantity,
+            grade = GetGradeCode(box.Grade),
+            locationCode = box.LocationCode ?? CurrentLocation,
+            operationType = "Receiving"
+        };
+        
+        await _syncQueueService.EnqueueAsync(
+            operationType: "Receiving",
+            barcode: box.Barcode,
+            payload: payload,
+            deviceId: Constants.DeviceId
+        );
+        
+        System.Diagnostics.Debug.WriteLine($"📴 Коробка добавлена в офлайн-очередь: #{box.BoxNumber}");
     }
 
     [RelayCommand]
@@ -431,8 +621,10 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
         
         try
         {
+            // Сначала проверяем локальную БД
             var location = await _dbHelper.GetLocationByCode(locationCode);
             
+            // Если нет локально и есть интернет — синхронизируем
             if (location == null && IsOnline)
             {
                 var synced = await _apiService.SyncLocations();
@@ -464,6 +656,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                 return;
             }
             
+            // Устанавливаем локацию для новых коробок
             CurrentLocation = locationCode;
             LastScannedBarcode = locationCode;
             HasError = false;
@@ -471,11 +664,6 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             ScanStatusIcon = "📍";
             ScanStatusColor = Colors.Blue;
             ScanStatusText = $"📍 Локация: {locationCode} ({location.name})";
-            
-            foreach (var box in ScannedBoxes)
-            {
-                box.LocationCode = locationCode;
-            }
             
             System.Diagnostics.Debug.WriteLine($"✅ Локация установлена: {locationCode}");
         }
@@ -486,6 +674,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             ScanStatusIcon = "❌";
             ScanStatusColor = Colors.Red;
             ScanStatusText = ErrorMessage;
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка установки локации: {ex.Message}");
         }
         finally
         {
@@ -508,263 +697,74 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
 
         IsLoading = true;
         var boxes = ScannedBoxes.ToList();
-        int activatedCount = 0;
+        int onlineCount = 0;
         int localCount = 0;
         
         try
         {
-            // ============================================================
-            // ✅ АКТИВАЦИЯ КОРОБОК НА СЕРВЕРЕ
-            // ============================================================
-            foreach (var box in boxes)
+            // Подсчитываем локальные коробки
+            var localBoxes = boxes.Where(b => b.Id.StartsWith("local_")).ToList();
+            localCount = localBoxes.Count;
+            onlineCount = boxes.Count - localCount;
+            
+            if (localBoxes.Any())
             {
-                // Если коробка локальная (не Draft на сервере)
-                if (box.Id.StartsWith("local_"))
-                {
-                    // Сохраняем в локальный кэш
-                    var boxCache = new BoxCache
-                    {
-                        barcode = box.Barcode,
-                        box_id = box.Id,
-                        box_number = box.BoxNumber,
-                        grade = box.Grade,
-                        initial_quantity = box.Quantity,
-                        current_quantity = box.Quantity,
-                        product_id = box.ProductId,
-                        product_name = box.ProductName,
-                        product_ean13 = box.ProductEan13,
-                        location_code = box.LocationCode ?? CurrentLocation,
-                        status = 0, // Draft
-                        created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                        updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                    };
-                    await _dbHelper.SaveBox(boxCache);
-                    
-                    // Добавляем в очередь синхронизации
-                    var payload = new
-                    {
-                        boxes = new[]
-                        {
-                            new
-                            {
-                                id = box.Id,
-                                barcode = box.Barcode,
-                                boxNumber = box.BoxNumber,
-                                productName = box.ProductName,
-                                productEan13 = box.ProductEan13,
-                                quantity = box.Quantity,
-                                grade = GetGradeCode(box.Grade),
-                                locationCode = box.LocationCode ?? CurrentLocation,
-                                status = 0 // Draft
-                            }
-                        },
-                        locationCode = CurrentLocation,
-                        operationType = "Receiving",
-                        timestamp = DateTime.UtcNow
-                    };
-                    
-                    await _syncQueueService.EnqueueAsync(
-                        operationType: "Receiving",
-                        barcode: box.Barcode,
-                        payload: payload,
-                        deviceId: Constants.DeviceId
-                    );
-                    
-                    localCount++;
-                    continue;
-                }
-
-                // Если коробка создана как Draft на сервере
                 if (IsOnline)
                 {
-                    try
+                    // Показываем прогресс
+                    await Application.Current?.MainPage?.DisplayAlert(
+                        "Синхронизация",
+                        $"Найдено {localCount} локальных коробок. Синхронизация...",
+                        "OK"
+                    );
+                    
+                    // Синхронизируем
+                    await _syncQueueService.ProcessQueueAsync();
+                    
+                    // Проверяем результат
+                    var pending = await _syncQueueService.GetPendingCount();
+                    if (pending == 0)
                     {
-                        var activateResult = await _apiService.ActivateBox(
-                            box.Id,
-                            comment: $"Приемка через ТСД, локация: {CurrentLocation}"
+                        await Application.Current?.MainPage?.DisplayAlert(
+                            "✅ Успешно",
+                            $"Все {localCount} коробок синхронизированы с сервером.",
+                            "OK"
                         );
-
-                        if (activateResult.TryGetValue("success", out var success) && success is bool s && s)
-                        {
-                            activatedCount++;
-                            
-                            // ✅ ПОЛУЧАЕМ ОБНОВЛЕННЫЕ ДАННЫЕ КОРОБКИ С СЕРВЕРА
-                            // (чтобы получить правильный CreatedAt и UpdatedAt)
-                            var updatedBox = await _apiService.GetBoxByBarcode(box.Barcode);
-                            if (updatedBox != null)
-                            {
-                                box.CreatedAt = updatedBox.CreatedAt;
-                                box.UpdatedAt = updatedBox.UpdatedAt;
-                                box.Status = updatedBox.Status;
-                                
-                                System.Diagnostics.Debug.WriteLine($"✅ Коробка активирована: #{box.BoxNumber}, CreatedAt: {box.CreatedAt}");
-                            }
-                            
-                            // Обновляем локальный кэш
-                            var boxCache = new BoxCache
-                            {
-                                barcode = box.Barcode,
-                                box_id = box.Id,
-                                box_number = box.BoxNumber,
-                                grade = box.Grade,
-                                initial_quantity = box.Quantity,
-                                current_quantity = box.Quantity,
-                                product_id = box.ProductId,
-                                product_name = box.ProductName,
-                                product_ean13 = box.ProductEan13,
-                                location_code = box.LocationCode ?? CurrentLocation,
-                                status = 1, // Active
-                                created_at = box.CreatedAt, // ✅ БЕРЕМ С СЕРВЕРА
-                                updated_at = box.UpdatedAt  // ✅ БЕРЕМ С СЕРВЕРА
-                            };
-                            await _dbHelper.SaveBox(boxCache);
-                            
-                            System.Diagnostics.Debug.WriteLine($"✅ Коробка активирована: #{box.BoxNumber}");
-                        }
-                        else
-                        {
-                            var errorMsg = activateResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
-                            throw new Exception(errorMsg);
-                        }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ Ошибка активации: {ex.Message}");
-                        // Если не удалось активировать — сохраняем локально
-                        var boxCache = new BoxCache
-                        {
-                            barcode = box.Barcode,
-                            box_id = box.Id,
-                            box_number = box.BoxNumber,
-                            grade = box.Grade,
-                            initial_quantity = box.Quantity,
-                            current_quantity = box.Quantity,
-                            product_id = box.ProductId,
-                            product_name = box.ProductName,
-                            product_ean13 = box.ProductEan13,
-                            location_code = box.LocationCode ?? CurrentLocation,
-                            status = 0, // Draft
-                            created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                            updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                        };
-                        await _dbHelper.SaveBox(boxCache);
-                        
-                        // Добавляем в очередь синхронизации
-                        var payload = new
-                        {
-                            boxes = new[]
-                            {
-                                new
-                                {
-                                    id = box.Id,
-                                    barcode = box.Barcode,
-                                    boxNumber = box.BoxNumber,
-                                    productName = box.ProductName,
-                                    productEan13 = box.ProductEan13,
-                                    quantity = box.Quantity,
-                                    grade = GetGradeCode(box.Grade),
-                                    locationCode = box.LocationCode ?? CurrentLocation,
-                                    status = 0
-                                }
-                            },
-                            locationCode = CurrentLocation,
-                            operationType = "Receiving",
-                            timestamp = DateTime.UtcNow
-                        };
-                        
-                        await _syncQueueService.EnqueueAsync(
-                            operationType: "Receiving",
-                            barcode: box.Barcode,
-                            payload: payload,
-                            deviceId: Constants.DeviceId
+                        await Application.Current?.MainPage?.DisplayAlert(
+                            "⚠️ Внимание",
+                            $"Синхронизировано {localCount - pending} из {localCount} коробок.\n{pending} ожидают синхронизации.",
+                            "OK"
                         );
-                        
-                        localCount++;
                     }
                 }
                 else
                 {
-                    // Офлайн — сохраняем локально
-                    var boxCache = new BoxCache
-                    {
-                        barcode = box.Barcode,
-                        box_id = box.Id,
-                        box_number = box.BoxNumber,
-                        grade = box.Grade,
-                        initial_quantity = box.Quantity,
-                        current_quantity = box.Quantity,
-                        product_id = box.ProductId,
-                        product_name = box.ProductName,
-                        product_ean13 = box.ProductEan13,
-                        location_code = box.LocationCode ?? CurrentLocation,
-                        status = 0,
-                        created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                        updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                    };
-                    await _dbHelper.SaveBox(boxCache);
-                    
-                    var payload = new
-                    {
-                        boxes = new[]
-                        {
-                            new
-                            {
-                                id = box.Id,
-                                barcode = box.Barcode,
-                                boxNumber = box.BoxNumber,
-                                productName = box.ProductName,
-                                productEan13 = box.ProductEan13,
-                                quantity = box.Quantity,
-                                grade = GetGradeCode(box.Grade),
-                                locationCode = box.LocationCode ?? CurrentLocation,
-                                status = 0
-                            }
-                        },
-                        locationCode = CurrentLocation,
-                        operationType = "Receiving",
-                        timestamp = DateTime.UtcNow
-                    };
-                    
-                    await _syncQueueService.EnqueueAsync(
-                        operationType: "Receiving",
-                        barcode: box.Barcode,
-                        payload: payload,
-                        deviceId: Constants.DeviceId
+                    await Application.Current?.MainPage?.DisplayAlert(
+                        "📴 Офлайн-режим",
+                        $"{localCount} коробок сохранены локально и будут синхронизированы при подключении.",
+                        "OK"
                     );
-                    
-                    localCount++;
                 }
             }
-
-            // ============================================================
-            // ✅ ПОКАЗЫВАЕМ РЕЗУЛЬТАТ
-            // ============================================================
-            var hasInternet = await _syncService.CheckInternetManual();
-            var totalCount = activatedCount + localCount;
-            
-            var message = $"Принято {totalCount} коробок.\n";
-            if (activatedCount > 0)
-                message += $"✅ Активировано: {activatedCount}\n";
-            if (localCount > 0)
-                message += $"📴 Сохранено локально: {localCount}\n";
-            if (hasInternet && localCount == 0)
-                message += "Данные синхронизированы с сервером.";
-            else if (hasInternet && localCount > 0)
-                message += "Часть данных будет синхронизирована позже.";
             else
-                message += "Данные сохранены локально и будут синхронизированы при подключении.";
-
-            await Application.Current?.MainPage?.DisplayAlert(
-                localCount == 0 ? "✅ Успешно" : "⚠️ Внимание",
-                message,
-                "OK"
-            );
+            {
+                // Все коробки уже синхронизированы
+                await Application.Current?.MainPage?.DisplayAlert(
+                    "✅ Успешно",
+                    $"Принято {onlineCount} коробок.",
+                    "OK"
+                );
+            }
             
             ClearSession();
             OperationCompleted?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка подтверждения операции: {ex.Message}");
             await Application.Current?.MainPage?.DisplayAlert(
                 "❌ Ошибка",
                 $"Не удалось сохранить операцию: {ex.Message}",
@@ -783,7 +783,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
         {
             ScannedBoxes.Clear();
             ScannedCount = 0;
-            CurrentLocation = "UNKNOWN";
+            // Не сбрасываем CurrentLocation при очистке сессии
             LastScannedBarcode = null;
             IsBoxScanned = false;
             ScanStatusText = "Отсканируйте штрихкод коробки";
@@ -791,32 +791,24 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             BoxInfoText = string.Empty;
             BoxNumberDisplay = string.Empty;
             ScanStatusIcon = "📷";
+            HasError = false;
+            ErrorMessage = string.Empty;
         });
     }
 
     [RelayCommand]
     public async Task CancelOperation()
     {
-        // Если есть Draft-коробки — пробуем их удалить
-        var draftBoxes = ScannedBoxes.Where(b => !b.Id.StartsWith("local_")).ToList();
-        if (draftBoxes.Any() && IsOnline)
-        {
-            try
-            {
-                foreach (var box in draftBoxes)
-                {
-                    await _apiService.DeleteDraftBox(box.Id);
-                }
-                System.Diagnostics.Debug.WriteLine($"✅ Удалено {draftBoxes.Count} Draft-коробок");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка удаления Draft: {ex.Message}");
-            }
-        }
-
         if (ScannedBoxes.Count > 0)
         {
+            // Удаляем только локальные коробки из кэша
+            var localBoxes = ScannedBoxes.Where(b => b.Id.StartsWith("local_")).ToList();
+            foreach (var box in localBoxes)
+            {
+                await _dbHelper.DeleteBoxByBarcode(box.Barcode);
+                System.Diagnostics.Debug.WriteLine($"🗑️ Удалена локальная коробка: #{box.BoxNumber}");
+            }
+            
             var confirm = await Application.Current?.MainPage?.DisplayAlert(
                 "Выход",
                 $"Вы отсканировали {ScannedBoxes.Count} коробок. Выйти без сохранения?",
@@ -828,6 +820,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
         }
         
         StopScanner();
+        ClearSession();
         OperationCancelled?.Invoke(this, EventArgs.Empty);
     }
 
@@ -836,20 +829,13 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
     {
         if (parameter is Box box && ScannedBoxes.Contains(box))
         {
-            // Если это Draft-коробка — удаляем с сервера
-            if (!box.Id.StartsWith("local_") && IsOnline)
+            // Если коробка локальная — удаляем из кэша
+            if (box.Id.StartsWith("local_"))
             {
                 _ = Task.Run(async () =>
                 {
-                    try
-                    {
-                        await _apiService.DeleteDraftBox(box.Id);
-                        System.Diagnostics.Debug.WriteLine($"✅ Draft удален: #{box.BoxNumber}");
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка удаления Draft: {ex.Message}");
-                    }
+                    await _dbHelper.DeleteBoxByBarcode(box.Barcode);
+                    System.Diagnostics.Debug.WriteLine($"🗑️ Удалена локальная коробка из кэша: #{box.BoxNumber}");
                 });
             }
             
@@ -909,31 +895,6 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             boxList,
             "OK"
         );
-    }
-
-    private bool IsLocationBarcode(string barcode)
-    {
-        var hasEan13 = System.Text.RegularExpressions.Regex.IsMatch(barcode, @"^\d{13}");
-        if (hasEan13) return false;
-        
-        var parts = barcode.Split('-');
-        if (parts.Length == 4)
-        {
-            if (parts[0].Length == 13 && System.Text.RegularExpressions.Regex.IsMatch(parts[0], @"^\d{13}"))
-            {
-                if (int.TryParse(parts[3], out _))
-                {
-                    return false;
-                }
-            }
-        }
-        
-        if (int.TryParse(barcode, out _))
-        {
-            return false;
-        }
-        
-        return true;
     }
 
     [RelayCommand]

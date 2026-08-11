@@ -459,12 +459,8 @@ public partial class OperationViewModel : ObservableObject, IDisposable
         try
         {
             var dbHelper = new DatabaseHelper();
-            var db = await dbHelper.GetDatabaseAsync();
-            var result = await db.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM boxes_cache WHERE box_number = ?",
-                boxNumber
-            );
-            return result > 0;
+            // ✅ Используем правильный метод
+            return await dbHelper.IsActiveBoxNumberExists(boxNumber);
         }
         catch (Exception ex)
         {

@@ -50,6 +50,10 @@ public partial class App : Application
         Resources.Add("BoxStatusColorConverter", new BoxStatusColorConverter());
         Resources.Add("LocationDisplayConverter", new LocationDisplayConverter());
 
+        Resources.Add("StatusTextConverter", new StatusTextConverter());
+        Resources.Add("StatusColorConverter", new StatusColorConverter());
+        Resources.Add("ModeBorderConverter", new ModeBorderConverter());
+
         // Цвета
         Resources.Add("PrimaryColor", Color.FromArgb("#2E7D32"));
         Resources.Add("PrimaryDark", Color.FromArgb("#1B5E20"));

@@ -3,85 +3,78 @@ using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Converters;
 
-public class InverseBooleanConverter : IValueConverter
+/// <summary>
+/// Конвертер для инвертирования булевого значения
+/// </summary>
+/// <example>
+/// <Label IsVisible="{Binding IsLoading, Converter={StaticResource InverseBool}}" />
+/// </example>
+public class InverseBooleanConverter : BooleanConverter<bool>
 {
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is bool b)
-            return !b;
-        return true;
-    }
-
-    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is bool b)
-            return !b;
-        return false;
-    }
+    protected override bool TrueValue => false;
+    protected override bool FalseValue => true;
 }
 
+/// <summary>
+/// Конвертер для проверки, что значение больше нуля
+/// </summary>
+/// <remarks>
+/// Поддерживает: int, double, float, long, decimal, ICollection
+/// </remarks>
 public class GreaterThanZeroConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        if (value is int i)
-            return i > 0;
-        if (value is double d)
-            return d > 0;
-        if (value is float f)
-            return f > 0;
-        if (value is long l)
-            return l > 0;
-        if (value is decimal dec)
-            return dec > 0;
-        // ✅ Добавляем поддержку коллекций
-        if (value is System.Collections.ICollection collection)
-            return collection.Count > 0;
-        return false;
+        return value switch
+        {
+            int intValue => intValue > 0,
+            double doubleValue => doubleValue > 0,
+            float floatValue => floatValue > 0,
+            long longValue => longValue > 0,
+            decimal decimalValue => decimalValue > 0,
+            System.Collections.ICollection collection => collection.Count > 0,
+            _ => false
+        };
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        return false;
-    }
+        => false;
 }
 
-public class IsNotNullConverter : IValueConverter
+/// <summary>
+/// Конвертер для проверки, что значение не равно null и не пустое
+/// </summary>
+/// <remarks>
+/// Поддерживает параметр "invert" для инвертирования результата
+/// </remarks>
+public class IsNotNullOrEmptyConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        // ✅ Поддержка параметра для инвертирования
         var invert = parameter?.ToString()?.ToLower() == "invert";
-        
-        if (value == null)
-            return invert ? true : false;
-        
-        if (value is string str)
+        var hasValue = value switch
         {
-            var hasValue = !string.IsNullOrEmpty(str);
-            return invert ? !hasValue : hasValue;
-        }
-            
-        return invert ? false : true;
+            null => false,
+            string stringValue => !string.IsNullOrEmpty(stringValue),
+            _ => true
+        };
+
+        return invert ? !hasValue : hasValue;
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        return false;
-    }
+        => false;
 }
 
+/// <summary>
+/// [УСТАРЕЛ] Используйте IsNotNullOrEmptyConverter
+/// </summary>
+[Obsolete("Используйте IsNotNullOrEmptyConverter")]
 public class StringNotEmptyConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is string s)
-            return !string.IsNullOrEmpty(s);
-        return false;
-    }
+        => value is string stringValue && !string.IsNullOrEmpty(stringValue);
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        return false;
-    }
+        => false;
 }

@@ -9,12 +9,14 @@ public class AuthService
     private readonly ApiService _api;
     private readonly SecureStorageService _secureStorage;
     private readonly ServerDiscoveryService _discoveryService;
+    private readonly ApiService _apiService;
 
     public AuthService()
     {
         _api = new ApiService();
         _secureStorage = new SecureStorageService();
         _discoveryService = new ServerDiscoveryService();
+        _apiService = new ApiService();
     }
 
     public async Task<LoginResponse> Login(string username, string password)
@@ -81,30 +83,20 @@ public class AuthService
         }
     }
 
-    public async Task<bool> ValidateToken(string token)
+    public async Task<bool> ValidateToken()
     {
         try
         {
-            var client = new HttpClient();
-            client.DefaultRequestHeaders.Authorization = 
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/auth/me");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                return true;
-            }
-
-            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            {
+            var token = await _secureStorage.GetToken();
+            if (string.IsNullOrEmpty(token))
                 return false;
-            }
-            return true;
+            
+            // Проверка через API
+            return await _apiService.PingServer();
         }
         catch
         {
-            return true;
+            return false;
         }
     }
 

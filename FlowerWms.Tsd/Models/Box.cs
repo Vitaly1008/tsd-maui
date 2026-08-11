@@ -27,29 +27,182 @@ public class Box
         set => CurrentQuantity = value;
     }
 
+    public bool IsDirty { get; set; }
+
     public static Box FromJson(Dictionary<string, object> json)
     {
+        // Получаем Id (может быть Guid или string)
+        string id = "";
+        var idObj = json.GetValueOrDefault("id", "");
+        if (idObj is Guid guid)
+            id = guid.ToString();
+        else
+            id = idObj?.ToString() ?? "";
+        
+        string barcode = json.GetValueOrDefault("barcode", "")?.ToString() ?? "";
+        
+        // Получаем номер коробки (может быть в поле boxNumber или номер может быть в штрихкоде)
+        int boxNumber = 0;
+        var boxNumberObj = json.GetValueOrDefault("boxNumber", 0);
+        if (boxNumberObj is int i)
+            boxNumber = i;
+        else if (boxNumberObj is long l)
+            boxNumber = (int)l;
+        else if (boxNumberObj is string s && int.TryParse(s, out var n))
+            boxNumber = n;
+        else if (boxNumberObj is double d)
+            boxNumber = (int)d;
+        
+        // Если boxNumber не пришел, пытаемся извлечь из штрихкода
+        if (boxNumber == 0 && !string.IsNullOrEmpty(barcode))
+        {
+            var parts = barcode.Split('-');
+            if (parts.Length == 4 && int.TryParse(parts[3], out var n))
+                boxNumber = n;
+        }
+        
+        // Получаем сорт (FlowerGrade - это ENUM, может быть числом или строкой)
+        string grade = "Premium";
+        var gradeObj = json.GetValueOrDefault("grade", 9);
+        
+        if (gradeObj is int gradeInt)
+        {
+            grade = gradeInt switch
+            {
+                9 => "Premium",
+                1 => "First",
+                2 => "Second",
+                3 => "Decorated",
+                5 => "Rejected",
+                _ => gradeObj?.ToString() ?? "Premium"
+            };
+        }
+        else if (gradeObj is long gradeLong)
+        {
+            grade = ((int)gradeLong) switch
+            {
+                9 => "Premium",
+                1 => "First",
+                2 => "Second",
+                3 => "Decorated",
+                5 => "Rejected",
+                _ => gradeObj?.ToString() ?? "Premium"
+            };
+        }
+        else if (gradeObj is string gradeStr)
+        {
+            // Если пришла строка, пробуем распарсить
+            if (int.TryParse(gradeStr, out var g))
+            {
+                grade = g switch
+                {
+                    9 => "Premium",
+                    1 => "First",
+                    2 => "Second",
+                    3 => "Decorated",
+                    5 => "Rejected",
+                    _ => gradeStr
+                };
+            }
+            else
+            {
+                grade = gradeStr;
+            }
+        }
+        
+        // Получаем количество (текущее и начальное)
+        int currentQuantity = 0;
+        int initialQuantity = 0;
+        
+        // Пробуем получить CurrentQuantity
+        var currentQtyObj = json.GetValueOrDefault("currentQuantity", 0);
+        if (currentQtyObj is int cqi)
+            currentQuantity = cqi;
+        else if (currentQtyObj is long cql)
+            currentQuantity = (int)cql;
+        else if (currentQtyObj is string cqs && int.TryParse(cqs, out var cqn))
+            currentQuantity = cqn;
+        else if (currentQtyObj is double cqd)
+            currentQuantity = (int)cqd;
+        
+        // Пробуем получить InitialQuantity
+        var initialQtyObj = json.GetValueOrDefault("initialQuantity", currentQuantity);
+        if (initialQtyObj is int iqi)
+            initialQuantity = iqi;
+        else if (initialQtyObj is long iql)
+            initialQuantity = (int)iql;
+        else if (initialQtyObj is string iqs && int.TryParse(iqs, out var iqn))
+            initialQuantity = iqn;
+        else if (initialQtyObj is double iqd)
+            initialQuantity = (int)iqd;
+        
+        // Если currentQuantity не найден, пробуем получить из штрихкода
+        if (currentQuantity == 0 && !string.IsNullOrEmpty(barcode))
+        {
+            var parts = barcode.Split('-');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var q))
+                currentQuantity = q;
+        }
+        if (initialQuantity == 0)
+            initialQuantity = currentQuantity;
+        
+        // Получаем статус
+        int status = 1;
+        var statusObj = json.GetValueOrDefault("status", 1);
+        if (statusObj is int si)
+            status = si;
+        else if (statusObj is long sl)
+            status = (int)sl;
+        else if (statusObj is string ss && int.TryParse(ss, out var sn))
+            status = sn;
+        
+        // Получаем даты
+        long createdAt = 0;
+        var createdAtObj = json.GetValueOrDefault("createdAt", 0);
+        if (createdAtObj is long cal)
+            createdAt = cal;
+        else if (createdAtObj is DateTime dt)
+            createdAt = new DateTimeOffset(dt).ToUnixTimeMilliseconds();
+        
+        long updatedAt = 0;
+        var updatedAtObj = json.GetValueOrDefault("updatedAt", 0);
+        if (updatedAtObj is long ual)
+            updatedAt = ual;
+        else if (updatedAtObj is DateTime udt)
+            updatedAt = new DateTimeOffset(udt).ToUnixTimeMilliseconds();
+        
+        // Получаем ProductId
+        string productId = json.GetValueOrDefault("productId", "")?.ToString() ?? "";
+        
+        // Получаем ProductName (может быть в productName или name)
+        string productName = json.GetValueOrDefault("productName", "")?.ToString() ?? "";
+        if (string.IsNullOrEmpty(productName))
+            productName = json.GetValueOrDefault("name", "Неизвестный продукт")?.ToString() ?? "Неизвестный продукт";
+        
+        // Получаем Ean13
+        string productEan13 = json.GetValueOrDefault("ean13", json.GetValueOrDefault("Ean13", ""))?.ToString() ?? "";
+        
+        // Получаем LocationCode
+        string locationCode = json.GetValueOrDefault("locationCode", "")?.ToString() ?? "";
+        string locationId = json.GetValueOrDefault("locationId", "")?.ToString() ?? "";
+        
         return new Box
         {
-            Id = json.GetValueOrDefault("id", json.GetValueOrDefault("boxId", ""))?.ToString() ?? "",
-            Barcode = json.GetValueOrDefault("barcode", "")?.ToString() ?? "",
-            BoxNumber = json.GetValueOrDefault("boxNumber", 0) is int i ? i : 
-                        int.TryParse(json.GetValueOrDefault("boxNumber", "0")?.ToString(), out var n) ? n : 0,
-            Grade = json.GetValueOrDefault("grade", "Unknown")?.ToString() ?? "Unknown",
-            InitialQuantity = json.GetValueOrDefault("initialQuantity", 0) is int iq ? iq :
-                              int.TryParse(json.GetValueOrDefault("initialQuantity", "0")?.ToString(), out var iqn) ? iqn : 0,
-            CurrentQuantity = json.GetValueOrDefault("currentQuantity", json.GetValueOrDefault("quantity", 0)) is int cq ? cq :
-                              int.TryParse(json.GetValueOrDefault("currentQuantity", "0")?.ToString(), out var cqn) ? cqn : 0,
-            ProductId = json.GetValueOrDefault("productId", "")?.ToString() ?? "",
-            LocationId = json.GetValueOrDefault("locationId", "")?.ToString(),
-            Status = json.GetValueOrDefault("status", 1) is int s ? s : 1,
-            CreatedAt = json.GetValueOrDefault("createdAt", 0) is long ca ? ca : 0,
-            UpdatedAt = json.GetValueOrDefault("updatedAt", 0) is long ua ? ua : 0,
+            Id = id,
+            Barcode = barcode,
+            BoxNumber = boxNumber,
+            Grade = grade,
+            InitialQuantity = initialQuantity,
+            CurrentQuantity = currentQuantity,
+            ProductId = productId,
+            LocationId = locationId,
+            Status = status,
+            CreatedAt = createdAt,
+            UpdatedAt = updatedAt,
             OrderId = json.GetValueOrDefault("orderId", "")?.ToString(),
-            
-            ProductName = json.GetValueOrDefault("productName", json.GetValueOrDefault("name", "Неизвестный продукт"))?.ToString() ?? "Неизвестный продукт",
-            ProductEan13 = json.GetValueOrDefault("productEan13", json.GetValueOrDefault("ean13", ""))?.ToString() ?? "",
-            LocationCode = json.GetValueOrDefault("locationCode", json.GetValueOrDefault("code", ""))?.ToString()
+            ProductName = productName,
+            ProductEan13 = productEan13,
+            LocationCode = locationCode
         };
     }
 

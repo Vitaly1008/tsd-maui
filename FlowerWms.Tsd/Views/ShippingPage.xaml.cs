@@ -1,5 +1,6 @@
 using FlowerWms.Tsd.Services;
 using FlowerWms.Tsd.ViewModels;
+using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Views;
 
@@ -62,5 +63,25 @@ public partial class ShippingPage : BasePage
         base.OnDisappearing();
         _viewModel?.StopScanner();
         _viewModel?.Dispose();
+    }
+
+    // ⭐ Обработчик ввода количества (по нажатию Enter)
+    private void OnQuantityEntryCompleted(object sender, EventArgs e)
+    {
+        if (sender is Entry entry && _viewModel != null)
+        {
+            if (int.TryParse(entry.Text, out int value))
+            {
+                _viewModel.ShipQuantity = Math.Clamp(value, 1, _viewModel.MaxQuantity);
+                _viewModel.ShipQuantityDisplay = _viewModel.ShipQuantity.ToString();
+            }
+            else
+            {
+                _viewModel.ShipQuantityDisplay = _viewModel.ShipQuantity.ToString();
+            }
+            
+            // Скрываем клавиатуру
+            entry.Unfocus();
+        }
     }
 }

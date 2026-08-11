@@ -157,6 +157,26 @@ public partial class HomeViewModel : ObservableObject
             
             ServerAddress = Constants.ApiBaseUrl;
             
+            // Если есть интернет — делаем фоновую синхронизацию
+            if (IsOnline && PendingCount > 0)
+            {
+                System.Diagnostics.Debug.WriteLine("🔄 Фоновая синхронизация при загрузке...");
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // ✅ Только обновление кэша, без обработки очереди (она обрабатывается отдельно)
+                        await _syncService.SyncAllData();
+                        await _syncQueueService.ProcessQueueAsync();
+                        await RefreshPendingCount();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"⚠️ Фоновая синхронизация: {ex.Message}");
+                    }
+                });
+            }
+            
             _isInitialized = true;
             
             System.Diagnostics.Debug.WriteLine($"✅ HomePage инициализирован. Счетчик: {PendingCount}");
@@ -187,6 +207,10 @@ public partial class HomeViewModel : ObservableObject
         }
     }
 
+    // ============================================================
+    // ✅ ИСПРАВЛЕННЫЙ МЕТОД СИНХРОНИЗАЦИИ
+    // ============================================================
+
     [RelayCommand]
     private async Task Sync()
     {
@@ -196,9 +220,108 @@ public partial class HomeViewModel : ObservableObject
             return;
         }
         
-        System.Diagnostics.Debug.WriteLine("🔄 Запуск синхронизации");
-        await _syncQueueService.ProcessQueueAsync();
-        await RefreshPendingCount();
+        System.Diagnostics.Debug.WriteLine("🔄 Запуск ручной синхронизации");
+        
+        try
+        {
+            IsSyncing = true;
+            SyncStatusMessage = "🔄 Проверка подключения...";
+            
+            // ✅ Проверяем интернет
+            var hasInternet = await _syncService.CheckInternetManual();
+            if (!hasInternet)
+            {
+                await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
+                    "📴 Нет интернета",
+                    "Нет подключения к серверу. Синхронизация недоступна.",
+                    "OK"
+                );
+                return;
+            }
+            
+            // ✅ Проверяем авторизацию
+            var isAuthenticated = await _authService.ValidateToken();
+            if (!isAuthenticated)
+            {
+                await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
+                    "⚠️ Требуется авторизация",
+                    "Сессия истекла. Пожалуйста, войдите заново.",
+                    "OK"
+                );
+                await _authService.Logout();
+                LogoutRequested?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+            
+            // ✅ Синхронизация с индикацией прогресса
+            SyncStatusMessage = "🔄 Синхронизация справочников...";
+            await _syncService.SyncProducts();
+            
+            SyncStatusMessage = "🔄 Синхронизация локаций...";
+            await _syncService.SyncLocations();
+            
+            SyncStatusMessage = "🔄 Синхронизация коробок...";
+            await _syncService.SyncBoxes();
+            
+            // ✅ Обработка офлайн-транзакций (только один раз!)
+            SyncStatusMessage = $"🔄 Обработка офлайн-транзакций...";
+            await _syncQueueService.ProcessQueueAsync();
+            
+            // ✅ Обновляем счетчик
+            await RefreshPendingCount();
+            
+            // ✅ Обновляем статус
+            if (PendingCount == 0)
+            {
+                SyncStatusMessage = "✅ Все данные синхронизированы";
+                
+                await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
+                    "✅ Синхронизация завершена",
+                    "Все данные успешно синхронизированы.",
+                    "OK"
+                );
+            }
+            else
+            {
+                SyncStatusMessage = $"⏳ Ожидает синхронизации: {PendingCount}";
+                
+                await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
+                    "⚠️ Частичная синхронизация",
+                    $"Осталось {PendingCount} операций для синхронизации.\nПроверьте подключение и попробуйте снова.",
+                    "OK"
+                );
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"✅ Синхронизация завершена. Осталось транзакций: {PendingCount}");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            SyncStatusMessage = "❌ Ошибка авторизации";
+            
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
+                "⚠️ Требуется авторизация",
+                "Сессия истекла. Пожалуйста, войдите заново.",
+                "OK"
+            );
+            
+            await _authService.Logout();
+            LogoutRequested?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации: {ex.Message}");
+            SyncStatusMessage = $"❌ Ошибка: {ex.Message}";
+            
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
+                "❌ Ошибка синхронизации",
+                $"Не удалось выполнить синхронизацию:\n{ex.Message}",
+                "OK"
+            );
+        }
+        finally
+        {
+            IsSyncing = false;
+        }
     }
 
     [RelayCommand]

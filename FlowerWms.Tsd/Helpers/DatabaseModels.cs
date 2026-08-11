@@ -43,6 +43,8 @@ public class BoxCache
     public int status { get; set; } = 0; // По умолчанию Draft
     public long created_at { get; set; }
     public long updated_at { get; set; }
+
+    public int is_dirty { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
 }
 
 [Table("locations_cache")]
@@ -75,6 +77,8 @@ public class ProductCache
     public string? barcode { get; set; }
     public long created_at { get; set; }
     public long updated_at { get; set; }
+    // ⭐ НОВОЕ ПОЛЕ: флаг, что коробка была изменена локально
+    public int is_dirty { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
 }
 
 [Table("box_operations_cache")]

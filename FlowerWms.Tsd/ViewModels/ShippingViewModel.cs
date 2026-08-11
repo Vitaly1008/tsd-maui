@@ -21,7 +21,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     private Box? _currentSelectedBox;
 
     // ============================================================
-    // ОСНОВНЫЕ СВОЙСТВА (как в ReceivingViewModel)
+    // ОСНОВНЫЕ СВОЙСТВА
     // ============================================================
 
     [ObservableProperty]
@@ -61,7 +61,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     private int _scannedCount;
 
     [ObservableProperty]
-    private bool _isBoxListExpanded = true;
+    private bool _isBoxListExpanded = false;
 
     // ============================================================
     // СВОЙСТВА ДЛЯ УПРАВЛЕНИЯ ОТГРУЗКОЙ
@@ -74,7 +74,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     private int _maxQuantity;
 
     [ObservableProperty]
-    private bool _isFullShipmentMode = true;  // По умолчанию - полная отгрузка
+    private bool _isFullShipmentMode = true;
 
     [ObservableProperty]
     private bool _isPartialShipmentMode;
@@ -84,6 +84,24 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string _shipQuantityDisplay = "0";
+
+    [ObservableProperty]
+    private string _shipModeDescription = "📦 Полная отгрузка (вся коробка)";
+
+    [ObservableProperty]
+    private bool _isQuantityExceeded;
+
+    [ObservableProperty]
+    private bool _hasAvailabilityWarning;
+
+    [ObservableProperty]
+    private string _availabilityWarning = string.Empty;
+
+    [ObservableProperty]
+    private string _shipModeText = "📦 Полная";
+
+    [ObservableProperty]
+    private Color _shipModeColor = Colors.Green;
 
     public ObservableCollection<Box> ScannedBoxes { get; } = new();
 
@@ -262,11 +280,36 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             var (ean13, quantity, grade, boxNumber) = ParseBarcode(barcode);
 
             // ============================================================
-            // ✅ ПОЛУЧАЕМ КОРОБКУ С СЕРВЕРА ИЛИ ИЗ КЭША
+            // ✅ ПОЛУЧАЕМ КОРОБКУ ИЗ ЛОКАЛЬНОГО КЭША (СНАЧАЛА!)
             // ============================================================
             Box? box = null;
 
-            if (IsOnline)
+            // 1. Проверяем локальный кэш
+            var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
+            if (cachedBox != null)
+            {
+                box = new Box
+                {
+                    Id = cachedBox.box_id,
+                    Barcode = cachedBox.barcode,
+                    BoxNumber = cachedBox.box_number,
+                    Grade = cachedBox.grade,
+                    CurrentQuantity = cachedBox.current_quantity,
+                    InitialQuantity = cachedBox.initial_quantity,
+                    ProductId = cachedBox.product_id,
+                    ProductName = cachedBox.product_name,
+                    ProductEan13 = cachedBox.product_ean13,
+                    LocationCode = cachedBox.location_code,
+                    Status = cachedBox.status,
+                    CreatedAt = cachedBox.created_at,
+                    UpdatedAt = cachedBox.updated_at,
+                    IsDirty = cachedBox.is_dirty == 1
+                };
+                System.Diagnostics.Debug.WriteLine($"📦 Коробка найдена в кэше: #{box.BoxNumber}, остаток: {box.CurrentQuantity}");
+            }
+
+            // 2. Если не нашли в кэше и есть интернет — ищем на сервере
+            if (box == null && IsOnline)
             {
                 try
                 {
@@ -275,37 +318,14 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                     {
                         box = serverBox;
                         System.Diagnostics.Debug.WriteLine($"✅ Коробка найдена на сервере: #{box.BoxNumber}");
+                        
+                        // Сохраняем в кэш для будущих операций
+                        await UpdateLocalBox(box);
                     }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка получения коробки с сервера: {ex.Message}");
-                }
-            }
-
-            // Если не нашли на сервере — ищем в локальном кэше
-            if (box == null)
-            {
-                var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
-                if (cachedBox != null)
-                {
-                    box = new Box
-                    {
-                        Id = cachedBox.box_id,
-                        Barcode = cachedBox.barcode,
-                        BoxNumber = cachedBox.box_number,
-                        Grade = cachedBox.grade,
-                        CurrentQuantity = cachedBox.current_quantity,
-                        InitialQuantity = cachedBox.initial_quantity,
-                        ProductId = cachedBox.product_id,
-                        ProductName = cachedBox.product_name,
-                        ProductEan13 = cachedBox.product_ean13,
-                        LocationCode = cachedBox.location_code,
-                        Status = cachedBox.status,
-                        CreatedAt = cachedBox.created_at,
-                        UpdatedAt = cachedBox.updated_at
-                    };
-                    System.Diagnostics.Debug.WriteLine($"📦 Коробка найдена в кэше: #{box.BoxNumber}");
                 }
             }
 
@@ -335,7 +355,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             if (box.Status == 2) // Empty
             {
                 HasError = true;
-                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} пуста!";
+                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} пуста (остаток: 0)!";
                 ScanStatusIcon = "📭";
                 ScanStatusColor = Colors.Orange;
                 ScanStatusText = ErrorMessage;
@@ -343,11 +363,11 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            if (box.Status == 5) // Reserved
+            if (box.CurrentQuantity <= 0)
             {
                 HasError = true;
-                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} зарезервирована!";
-                ScanStatusIcon = "🔒";
+                ErrorMessage = $"⚠️ Коробка №{box.BoxNumber} пуста (остаток: 0)!";
+                ScanStatusIcon = "📭";
                 ScanStatusColor = Colors.Orange;
                 ScanStatusText = ErrorMessage;
                 Vibration.Vibrate(200);
@@ -387,6 +407,9 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 // Автоматически устанавливаем количество
                 ShipQuantity = box.CurrentQuantity;
                 ShipQuantityDisplay = ShipQuantity.ToString();
+                
+                // ✅ ВАЖНО: Обновляем режимы ПОСЛЕ добавления коробки
+                UpdateModes();
             });
             
             Vibration.Vibrate(100);
@@ -419,23 +442,23 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             IsPartialShipmentMode = false;
             ShipQuantity = ScannedBoxes.Sum(b => b.CurrentQuantity);
             ShipQuantityDisplay = ShipQuantity.ToString();
+            ShipModeDescription = "📦 Полная отгрузка (все коробки)";
+            ShipModeText = "📦 Полная";
+            ShipModeColor = Colors.Green;
         }
         else if (ScannedBoxes.Count == 1)
         {
             // Одна коробка - можно выбрать режим
             CanPartialShip = true;
             
-            // Если частичная отгрузка уже была включена, оставляем
             if (!IsPartialShipmentMode)
             {
                 IsFullShipmentMode = true;
                 ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
                 ShipQuantityDisplay = ShipQuantity.ToString();
-            }
-            else
-            {
-                IsFullShipmentMode = false;
-                // Количество уже установлено
+                ShipModeDescription = "📦 Полная отгрузка (вся коробка)";
+                ShipModeText = "📦 Полная";
+                ShipModeColor = Colors.Green;
             }
         }
         else
@@ -445,6 +468,9 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             IsPartialShipmentMode = false;
             ShipQuantity = 0;
             ShipQuantityDisplay = "0";
+            ShipModeDescription = "📦 Полная отгрузка";
+            ShipModeText = "📦 Полная";
+            ShipModeColor = Colors.Green;
         }
     }
 
@@ -458,8 +484,16 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
 
         IsFullShipmentMode = true;
         IsPartialShipmentMode = false;
-        ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
+        ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? ScannedBoxes.Sum(b => b.CurrentQuantity);
         ShipQuantityDisplay = ShipQuantity.ToString();
+        ShipModeDescription = ScannedBoxes.Count > 1 
+            ? "📦 Полная отгрузка (все коробки)" 
+            : "📦 Полная отгрузка (вся коробка)";
+        ShipModeText = "📦 Полная";
+        ShipModeColor = Colors.Green;
+        IsQuantityExceeded = false;
+        HasAvailabilityWarning = false;
+        AvailabilityWarning = string.Empty;
     }
 
     [RelayCommand]
@@ -479,6 +513,10 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         IsPartialShipmentMode = true;
         ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
         ShipQuantityDisplay = ShipQuantity.ToString();
+        ShipModeDescription = "✂️ Частичная отгрузка (укажите количество)";
+        ShipModeText = "✂️ Частичная";
+        ShipModeColor = Colors.Orange;
+        ValidateQuantity();
     }
 
     [RelayCommand]
@@ -489,6 +527,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         {
             ShipQuantity++;
             ShipQuantityDisplay = ShipQuantity.ToString();
+            ValidateQuantity();
         }
     }
 
@@ -500,6 +539,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         {
             ShipQuantity--;
             ShipQuantityDisplay = ShipQuantity.ToString();
+            ValidateQuantity();
         }
     }
 
@@ -522,10 +562,9 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
 
         IsLoading = true;
         var boxes = ScannedBoxes.ToList();
-        int shippedCount = 0;      // Полностью отгружены (Shipped)
-        int emptyCount = 0;        // Стали пустыми (Empty)
-        int partialCount = 0;      // Частично отгружены (Active)
-        int localCount = 0;        // Сохранены локально
+        int shippedCount = 0;
+        int partialCount = 0;
+        int localCount = 0;
         int totalShippedQuantity = 0;
         
         try
@@ -534,20 +573,17 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             {
                 var box = boxes[i];
                 
-                // ✅ Определяем количество для отгрузки
                 int quantityToShip;
-                bool isFullShipment; // true = клиент забирает всю коробку
+                bool isFullShipment;
                 
-                // Если это последняя коробка и включен режим частичной отгрузки
+                // Определяем количество для отгрузки
                 if (i == boxes.Count - 1 && IsPartialShipmentMode && CanPartialShip)
                 {
                     quantityToShip = ShipQuantity;
-                    // ✅ Флаг полной отгрузки = клиент забирает ВСЁ количество
                     isFullShipment = quantityToShip >= box.CurrentQuantity;
                 }
                 else
                 {
-                    // Для всех остальных коробок - клиент забирает всё
                     quantityToShip = box.CurrentQuantity;
                     isFullShipment = true;
                 }
@@ -555,7 +591,6 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 if (quantityToShip <= 0)
                     continue;
 
-                // ✅ Нельзя отгрузить больше, чем есть
                 if (quantityToShip > box.CurrentQuantity)
                     quantityToShip = box.CurrentQuantity;
 
@@ -563,7 +598,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 totalShippedQuantity += quantityToShip;
 
                 // ============================================================
-                // ✅ ПРАВИЛЬНАЯ ЛОГИКА ОТГРУЗКИ
+                // ✅ ОНЛАЙН — ОТГРУЖАЕМ НА СЕРВЕРЕ
                 // ============================================================
                 if (IsOnline && !box.Id.StartsWith("local_"))
                 {
@@ -571,8 +606,6 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                     {
                         if (isFullShipment)
                         {
-                            // ✅ ПОЛНАЯ ОТГРУЗКА (клиент забирает коробку целиком)
-                            // → ShipBox → статус Shipped (3)
                             var shipResult = await _apiService.ShipBox(
                                 boxId: box.Id,
                                 comment: $"Полная отгрузка через ТСД"
@@ -580,12 +613,18 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
 
                             if (shipResult.TryGetValue("success", out var success) && success is bool s && s)
                             {
+                                shippedCount++;
+                                
+                                // Обновляем локальный кэш
                                 var updatedBox = await _apiService.GetBoxByBarcode(box.Barcode);
                                 if (updatedBox != null)
                                 {
-                                    updatedBox.Status = 3; // Shipped
                                     await UpdateLocalBox(updatedBox);
-                                    shippedCount++;
+                                }
+                                else
+                                {
+                                    // Коробка удалена с сервера - удаляем из кэша
+                                    await _dbHelper.DeleteBoxByBarcode(box.Barcode);
                                 }
                             }
                             else
@@ -596,8 +635,6 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                         }
                         else
                         {
-                            // ✅ ЧАСТИЧНАЯ ОТГРУЗКА (клиент забирает часть, коробка остается на складе)
-                            // → ConsumeBox → статус зависит от остатка
                             var consumeResult = await _apiService.ConsumeBox(
                                 boxId: box.Id,
                                 quantity: quantityToShip,
@@ -609,16 +646,8 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                                 var updatedBox = await _apiService.GetBoxByBarcode(box.Barcode);
                                 if (updatedBox != null)
                                 {
-                                    // ✅ После Consume статус определяется автоматически:
-                                    // - Active (1) если остаток > 0
-                                    // - Empty (2) если остаток = 0
-                                    updatedBox.Status = newQuantity > 0 ? 1 : 2;
                                     await UpdateLocalBox(updatedBox);
-                                    
-                                    if (newQuantity == 0)
-                                        emptyCount++;  // Коробка пуста, но на складе
-                                    else
-                                        partialCount++; // Частично отгружена
+                                    partialCount++;
                                 }
                             }
                             else
@@ -630,14 +659,15 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"❌ Ошибка отгрузки: {ex.Message}");
+                        // ✅ Если онлайн-запрос не удался - сохраняем локально
+                        System.Diagnostics.Debug.WriteLine($"❌ Ошибка отгрузки, сохраняем локально: {ex.Message}");
                         await SaveLocalShipment(box, quantityToShip, isFullShipment);
                         localCount++;
                     }
                 }
                 else
                 {
-                    // Офлайн-режим
+                    // ✅ Офлайн-режим - сохраняем локально
                     await SaveLocalShipment(box, quantityToShip, isFullShipment);
                     localCount++;
                 }
@@ -647,24 +677,22 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             // ✅ ПОКАЗЫВАЕМ РЕЗУЛЬТАТ
             // ============================================================
             var hasInternet = await _syncService.CheckInternetManual();
-            var totalCount = shippedCount + emptyCount + partialCount + localCount;
+            var totalCount = shippedCount + partialCount + localCount;
             
             var message = $"Обработано {totalCount} коробок.\n";
             message += $"📦 Всего отгружено: {totalShippedQuantity} шт.\n\n";
             
             if (shippedCount > 0)
-                message += $"✅ Полностью отгружено (Shipped): {shippedCount}\n";
+                message += $"✅ Полностью отгружено: {shippedCount}\n";
             if (partialCount > 0)
-                message += $"📦 Частично отгружено (Active): {partialCount}\n";
-            if (emptyCount > 0)
-                message += $"📭 Остаток 0 (Empty): {emptyCount}\n";
+                message += $"📦 Частично отгружено: {partialCount}\n";
             if (localCount > 0)
                 message += $"📴 Сохранено локально: {localCount}\n";
             
             if (localCount == 0 && hasInternet)
                 message += "\n✅ Данные синхронизированы с сервером.";
             else if (localCount > 0 && hasInternet)
-                message += "\n⚠️ Часть данных будет синхронизирована позже.";
+                message += "\n⚠️ Часть данных сохранена локально и будет синхронизирована позже.";
             else
                 message += "\n📴 Данные сохранены локально и будут синхронизированы при подключении.";
 
@@ -711,7 +739,8 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             location_code = updatedBox.LocationCode ?? "UNKNOWN",
             status = updatedBox.Status,
             created_at = updatedBox.CreatedAt,
-            updated_at = updatedBox.UpdatedAt
+            updated_at = updatedBox.UpdatedAt,
+            is_dirty = 0
         };
         await _dbHelper.SaveBox(boxCache);
     }
@@ -720,30 +749,29 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
     {
         int newQuantity = box.CurrentQuantity - quantityToShip;
         
-        // ✅ Правильное определение статуса для локального сохранения
+        // ✅ Определяем новый статус
         int newStatus;
         if (isFullShipment)
         {
-            // Полная отгрузка - коробка покидает склад
             newStatus = 3; // Shipped
         }
         else if (newQuantity == 0)
         {
-            // Частичная отгрузка, но остаток 0 - коробка пуста, но на складе
             newStatus = 2; // Empty
         }
         else
         {
-            // Частичная отгрузка, остаток > 0 - коробка активна
             newStatus = 1; // Active
         }
         
+        // Сохраняем операцию в историю
         await SaveBoxOperation(
             box, 
             isFullShipment ? "Ship" : "PartialShip",
             $"Отгружено локально: {quantityToShip} шт. Остаток: {newQuantity} шт."
         );
         
+        // Обновляем кэш
         var boxCache = new BoxCache
         {
             barcode = box.Barcode,
@@ -758,10 +786,12 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             location_code = box.LocationCode ?? "UNKNOWN",
             status = newStatus,
             created_at = box.CreatedAt,
-            updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            is_dirty = 1
         };
         await _dbHelper.SaveBox(boxCache);
         
+        // Добавляем в офлайн-очередь
         var payload = new
         {
             boxId = box.Id,
@@ -771,8 +801,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             newQuantity = newQuantity,
             status = newStatus,
             isFullShipment = isFullShipment,
-            operationType = "Shipping",
-            timestamp = DateTime.UtcNow
+            operationType = "Shipping"
         };
         
         await _syncQueueService.EnqueueAsync(
@@ -791,7 +820,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         };
         
         System.Diagnostics.Debug.WriteLine($"📴 Коробка сохранена локально: #{box.BoxNumber}, остаток: {newQuantity}, статус: {statusText}");
-}
+    }
 
     private async Task SaveBoxOperation(Box box, string operationType, string comment)
     {
@@ -840,6 +869,12 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             IsPartialShipmentMode = false;
             CanPartialShip = false;
             ShipQuantityDisplay = "0";
+            ShipModeDescription = "📦 Полная отгрузка (вся коробка)";
+            ShipModeText = "📦 Полная";
+            ShipModeColor = Colors.Green;
+            IsQuantityExceeded = false;
+            HasAvailabilityWarning = false;
+            AvailabilityWarning = string.Empty;
         });
     }
 
@@ -881,6 +916,8 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                     LastScannedBarcode = null;
                     _currentSelectedBox = null;
                     CanPartialShip = false;
+                    ShipQuantity = 0;
+                    ShipQuantityDisplay = "0";
                 }
                 else if (ScannedBoxes.Count == 1)
                 {
@@ -890,12 +927,14 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 }
                 else
                 {
-                    // Несколько коробок - только полная отгрузка
                     CanPartialShip = false;
                     IsFullShipmentMode = true;
                     IsPartialShipmentMode = false;
                     ShipQuantity = ScannedBoxes.Sum(b => b.CurrentQuantity);
                     ShipQuantityDisplay = ShipQuantity.ToString();
+                    ShipModeDescription = "📦 Полная отгрузка (все коробки)";
+                    ShipModeText = "📦 Полная";
+                    ShipModeColor = Colors.Green;
                 }
             });
         }
@@ -1115,6 +1154,22 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         }
         
         return true;
+    }
+
+    private void ValidateQuantity()
+    {
+        if (ShipQuantity > MaxQuantity && MaxQuantity > 0)
+        {
+            IsQuantityExceeded = true;
+            HasAvailabilityWarning = true;
+            AvailabilityWarning = $"⚠️ Указано {ShipQuantity} шт., доступно {MaxQuantity} шт.";
+        }
+        else
+        {
+            IsQuantityExceeded = false;
+            HasAvailabilityWarning = false;
+            AvailabilityWarning = string.Empty;
+        }
     }
 
     public void Dispose()

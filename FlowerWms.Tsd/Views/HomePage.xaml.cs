@@ -73,7 +73,6 @@ public partial class HomePage : BasePage
     {
         try
         {
-            // ✅ Получаем сервис сканера (как в ReceivingPage)
             var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
             if (barcodeService == null)
             {
@@ -81,7 +80,6 @@ public partial class HomePage : BasePage
                 return;
             }
             
-            // ✅ Создаём страницу с передачей сервиса
             var shippingPage = new ShippingPage(barcodeService);
             await Navigation.PushAsync(shippingPage);
         }
@@ -93,8 +91,22 @@ public partial class HomePage : BasePage
 
     private async void OnNavigateToInventory(object? sender, EventArgs e)
     {
-        // TODO: Аналогично добавить передачу IBarcodeService
-        await Navigation.PushAsync(new InventoryPage());
+        try
+        {
+            var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
+            if (barcodeService == null)
+            {
+                await DisplayAlertAsync("Ошибка", "Сервис сканера недоступен", "OK");
+                return;
+            }
+            
+            var inventoryPage = new InventoryPage(barcodeService);
+            await Navigation.PushAsync(inventoryPage);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("Ошибка", $"Не удалось открыть инвентаризацию: {ex.Message}", "OK");
+        }
     }
 
     private async void OnNavigateToPending(object? sender, EventArgs e)

@@ -99,7 +99,7 @@ public static class Constants
         public const string SyncBox = "/api/barcodes/sync-box";
         public const string Products = "/api/products";
         public const string BoxesByLocation = "/api/boxes/location";  // НОВЫЙ
-        public const string BoxByBarcode = "/api/boxes/barcode";      // НОВЫЙ
+        public const string BoxByBarcode = "/api/boxes/by-barcode/{barcode}";
         public const string MoveBox = "/api/boxes/move";              // НОВЫЙ
         public const string UpdateBoxQuantity = "/api/boxes/quantity"; // НОВЫЙ
         public const string CreateDraftBox = "/api/barcodes/create-draft-box";

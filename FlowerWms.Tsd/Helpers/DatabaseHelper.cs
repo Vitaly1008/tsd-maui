@@ -141,7 +141,7 @@ public class DatabaseHelper
     }
 
     // ============================================================
-    // ✅ МЕТОДЫ ДЛЯ РАБОТЫ С КОРОБКАМИ
+    // МЕТОДЫ ДЛЯ РАБОТЫ С КОРОБКАМИ
     // ============================================================
 
     public async Task SaveBox(BoxCache box)
@@ -150,12 +150,8 @@ public class DatabaseHelper
         {
             var db = await GetDatabaseAsync();
             
-            // Принудительно проверяем статус
-            if (box.status == 0)
-            {
-                System.Diagnostics.Debug.WriteLine($"⚠️ Статус 0, меняем на 1 для коробки {box.barcode}");
-                box.status = 1;
-            }
+            // ✅ НЕ меняем статус принудительно!
+            // Сохраняем как есть (0 - Draft, 1 - Active, 2 - Empty, 3 - Shipped)
             
             box.updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             
@@ -181,7 +177,6 @@ public class DatabaseHelper
         try
         {
             var db = await GetDatabaseAsync();
-            // ✅ Используем FirstOrDefaultAsync вместо FindAsync
             return await db.Table<BoxCache>().FirstOrDefaultAsync(b => b.barcode == barcode);
         }
         catch (Exception ex)
@@ -232,13 +227,6 @@ public class DatabaseHelper
         {
             var db = await GetDatabaseAsync();
             
-            // ✅ Если статус 0, меняем на 1
-            if (newStatus == 0)
-            {
-                System.Diagnostics.Debug.WriteLine($"⚠️ Попытка установить статус 0 для коробки {boxId}, меняем на 1");
-                newStatus = 1;
-            }
-            
             await db.ExecuteAsync(
                 "UPDATE boxes_cache SET status = ?, updated_at = ? WHERE box_id = ?",
                 newStatus,
@@ -254,9 +242,46 @@ public class DatabaseHelper
         }
     }
 
+    public async Task UpdateBoxQuantity(string barcode, int newQuantity)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            await db.ExecuteAsync(
+                "UPDATE boxes_cache SET current_quantity = ?, updated_at = ? WHERE barcode = ?",
+                newQuantity,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                barcode
+            );
+            
+            System.Diagnostics.Debug.WriteLine($"✅ Количество коробки {barcode} обновлено на {newQuantity}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления количества: {ex.Message}");
+        }
+    }
+
     /// <summary>
-    /// Проверка существования АКТИВНОЙ коробки по штрихкоду в кэше
+    /// Удалить коробку из кэша по штрихкоду
     /// </summary>
+    public async Task DeleteBoxByBarcode(string barcode)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            await db.ExecuteAsync(
+                "DELETE FROM boxes_cache WHERE barcode = ?",
+                barcode
+            );
+            System.Diagnostics.Debug.WriteLine($"✅ Коробка удалена из кэша: {barcode}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка удаления коробки: {ex.Message}");
+        }
+    }
+
     public async Task<bool> IsActiveBoxExistsByBarcode(string barcode)
     {
         try
@@ -273,27 +298,6 @@ public class DatabaseHelper
         }
     }
 
-    /// <summary>
-    /// Проверка существования ЛЮБОЙ коробки по штрихкоду в кэше (включая Draft)
-    /// </summary>
-    public async Task<bool> IsBoxExistsByBarcode(string barcode)
-    {
-        try
-        {
-            var db = await GetDatabaseAsync();
-            var box = await db.Table<BoxCache>().FirstOrDefaultAsync(b => b.barcode == barcode);
-            return box != null;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка проверки существования коробки: {ex.Message}");
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Проверка существования АКТИВНОЙ коробки по номеру
-    /// </summary>
     public async Task<bool> IsActiveBoxNumberExists(int boxNumber)
     {
         try
@@ -319,12 +323,7 @@ public class DatabaseHelper
             var db = await GetDatabaseAsync();
             foreach (var box in boxes)
             {
-                if (box.status == 0)
-                {
-                    System.Diagnostics.Debug.WriteLine($"⚠️ Статус 0, меняем на 1 для коробки {box.barcode}");
-                    box.status = 1;
-                }
-                
+                // ✅ НЕ меняем статус принудительно!
                 box.updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 await db.InsertOrReplaceAsync(box);
             }
@@ -394,9 +393,6 @@ public class DatabaseHelper
     // МЕТОДЫ ДЛЯ РАБОТЫ С ЛОКАЦИЯМИ
     // ============================================================
 
-    /// <summary>
-    /// Получить локацию по коду
-    /// </summary>
     public async Task<LocationCache?> GetLocationByCode(string code)
     {
         try
@@ -411,9 +407,6 @@ public class DatabaseHelper
         }
     }
 
-    /// <summary>
-    /// Проверить существование локации
-    /// </summary>
     public async Task<bool> IsLocationExists(string code)
     {
         try
@@ -429,9 +422,6 @@ public class DatabaseHelper
         }
     }
 
-    /// <summary>
-    /// Сохранить локацию в кэш
-    /// </summary>
     public async Task SaveLocation(LocationCache location)
     {
         try
@@ -446,9 +436,6 @@ public class DatabaseHelper
         }
     }
 
-    /// <summary>
-    /// Синхронизировать список локаций
-    /// </summary>
     public async Task SyncLocations(List<LocationCache> locations)
     {
         try
@@ -470,16 +457,12 @@ public class DatabaseHelper
     // МЕТОДЫ ДЛЯ РАБОТЫ С ИСТОРИЕЙ ОПЕРАЦИЙ
     // ============================================================
 
-    /// <summary>
-    /// Сохранить операцию коробки в локальную БД
-    /// </summary>
     public async Task SaveBoxOperation(BoxOperationCache operation)
     {
         try
         {
             var db = await GetDatabaseAsync();
             
-            // Проверяем, существует ли таблица
             var tableExists = await TableExists("box_operations_cache");
             if (!tableExists)
             {
@@ -497,9 +480,6 @@ public class DatabaseHelper
         }
     }
 
-    /// <summary>
-    /// Получить историю операций для коробки по штрихкоду
-    /// </summary>
     public async Task<List<BoxOperationCache>> GetBoxOperationsByBarcode(string barcode)
     {
         try
@@ -524,9 +504,6 @@ public class DatabaseHelper
         }
     }
 
-    /// <summary>
-    /// Получить историю операций для коробки по ID
-    /// </summary>
     public async Task<List<BoxOperationCache>> GetBoxOperationsByBoxId(string boxId)
     {
         try
@@ -551,9 +528,38 @@ public class DatabaseHelper
         }
     }
 
-    /// <summary>
-    /// Отметить операцию как синхронизированную
-    /// </summary>
+    // ============================================================
+    // МЕТОДЫ ДЛЯ РАБОТЫ С НЕСИНХРОНИЗИРОВАННЫМИ ОПЕРАЦИЯМИ
+    // ============================================================
+
+    public async Task<List<BoxOperationCache>> GetUnsyncedOperations(string? operationType = null)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var tableExists = await TableExists("box_operations_cache");
+            if (!tableExists)
+            {
+                await db.CreateTableAsync<BoxOperationCache>();
+                return new List<BoxOperationCache>();
+            }
+            
+            var query = "SELECT * FROM box_operations_cache WHERE is_synced = 0";
+            if (!string.IsNullOrEmpty(operationType))
+            {
+                query += $" AND operation_type = '{operationType}'";
+            }
+            query += " ORDER BY created_at ASC LIMIT 100";
+            
+            return await db.QueryAsync<BoxOperationCache>(query);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения операций: {ex.Message}");
+            return new List<BoxOperationCache>();
+        }
+    }
+
     public async Task MarkOperationSynced(string operationId)
     {
         try
@@ -568,6 +574,142 @@ public class DatabaseHelper
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка отметки операции: {ex.Message}");
+        }
+    }
+
+    public async Task CleanOldBoxes(int daysToKeep = 30)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var cutoff = DateTimeOffset.UtcNow.AddDays(-daysToKeep).ToUnixTimeMilliseconds();
+            
+            var deleted = await db.ExecuteAsync(
+                "DELETE FROM boxes_cache WHERE status = 3 AND updated_at < ?",
+                cutoff
+            );
+            
+            System.Diagnostics.Debug.WriteLine($"✅ Удалено {deleted} старых коробок из кэша");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка очистки кэша: {ex.Message}");
+        }
+    }
+
+    public async Task<List<BoxCache>> GetDirtyBoxes()
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var tableInfo = await db.QueryAsync<TableInfo>("PRAGMA table_info(boxes_cache)");
+            var hasDirtyColumn = tableInfo.Any(c => c.name == "is_dirty");
+            
+            if (!hasDirtyColumn)
+            {
+                await db.ExecuteAsync("ALTER TABLE boxes_cache ADD COLUMN is_dirty INTEGER DEFAULT 0");
+            }
+            
+            return await db.Table<BoxCache>()
+                .Where(b => b.is_dirty == 1)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения dirty коробок: {ex.Message}");
+            return new List<BoxCache>();
+        }
+    }
+
+    public async Task MarkBoxSynced(string barcode)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            await db.ExecuteAsync(
+                "UPDATE boxes_cache SET is_dirty = 0 WHERE barcode = ?",
+                barcode
+            );
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка отметки коробки: {ex.Message}");
+        }
+    }
+
+    // Вспомогательный класс для PRAGMA table_info
+    public class TableInfo
+    {
+        public string name { get; set; } = string.Empty;
+    }
+
+    public async Task<List<BoxCache>> GetAllBoxes()
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            return await db.Table<BoxCache>().ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения всех коробок: {ex.Message}");
+            return new List<BoxCache>();
+        }
+    }
+
+    public async Task<List<BoxCache>> GetBoxesByStatus(int status)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            return await db.Table<BoxCache>()
+                .Where(b => b.status == status)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробок по статусу: {ex.Message}");
+            return new List<BoxCache>();
+        }
+    }
+
+    // ============================================================
+    // ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ПРОВЕРКИ СУЩЕСТВОВАНИЯ КОРОБОК
+    // ============================================================
+
+    /// <summary>
+    /// Проверка существования АКТИВНОЙ коробки по штрихкоду в кэше
+    /// </summary>
+    public async Task<bool> IsBoxExistsByBarcode(string barcode)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var box = await db.Table<BoxCache>().FirstOrDefaultAsync(b => b.barcode == barcode);
+            return box != null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка проверки существования коробки: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Проверка существования ЛЮБОЙ коробки по штрихкоду в кэше (включая Draft и Empty)
+    /// </summary>
+    public async Task<bool> IsAnyBoxExistsByBarcode(string barcode)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var box = await db.Table<BoxCache>().FirstOrDefaultAsync(b => b.barcode == barcode);
+            return box != null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка проверки существования коробки: {ex.Message}");
+            return false;
         }
     }
 }
