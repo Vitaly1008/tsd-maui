@@ -3,30 +3,15 @@ using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Converters;
 
-/// <summary>
-/// Базовый абстрактный класс для конвертеров с поддержкой преобразования значений
-/// </summary>
-/// <typeparam name="TFrom">Исходный тип данных</typeparam>
-/// <typeparam name="TTo">Целевой тип данных</typeparam>
-/// <remarks>
-/// Предоставляет шаблон для Convert с проверкой типов и обработкой ошибок
-/// </remarks>
+#region Базовые абстрактные конвертеры
+
+// Базовый абстрактный класс для конвертеров с поддержкой преобразования значений
 public abstract class BaseConverter<TFrom, TTo> : IValueConverter
 {
-    /// <summary>
-    /// Преобразует значение из TFrom в TTo
-    /// </summary>
-    /// <param name="value">Исходное значение</param>
-    /// <param name="parameter">Дополнительный параметр</param>
-    /// <returns>Преобразованное значение или default(TTo)</returns>
+    // Преобразует значение из TFrom в TTo
     protected abstract TTo ConvertValue(TFrom value, object? parameter);
 
-    /// <summary>
-    /// Преобразует значение из TTo в TFrom (обратное преобразование)
-    /// </summary>
-    /// <param name="value">Исходное значение</param>
-    /// <param name="parameter">Дополнительный параметр</param>
-    /// <returns>Преобразованное значение или default(TFrom)</returns>
+    // Преобразует значение из TTo в TFrom (обратное преобразование)
     protected abstract TFrom ConvertBackValue(TTo value, object? parameter);
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -36,26 +21,14 @@ public abstract class BaseConverter<TFrom, TTo> : IValueConverter
             if (value is TFrom typedValue)
                 return ConvertValue(typedValue, parameter);
 
-            // Попытка преобразовать через TypeConverter
-            if (value != null && value is IConvertible convertible)
-            {
-                try
-                {
-                    var converted = (TFrom)System.Convert.ChangeType(value, typeof(TFrom));
-                    return ConvertValue(converted, parameter);
-                }
-                catch
-                {
-                    // Игнорируем ошибки конвертации
-                }
-            }
+            if (TryConvertToTFrom(value, out var converted))
+                return ConvertValue(converted, parameter);
 
             return default(TTo);
         }
         catch (Exception ex)
         {
-            // Логирование ошибки в будущем
-            System.Diagnostics.Debug.WriteLine($"Ошибка в конвертере {GetType().Name}: {ex.Message}");
+            LogError($"Ошибка в конвертере {GetType().Name}: {ex.Message}");
             return default(TTo);
         }
     }
@@ -67,43 +40,68 @@ public abstract class BaseConverter<TFrom, TTo> : IValueConverter
             if (value is TTo typedValue)
                 return ConvertBackValue(typedValue, parameter);
 
-            if (value != null && value is IConvertible convertible)
-            {
-                try
-                {
-                    var converted = (TTo)System.Convert.ChangeType(value, typeof(TTo));
-                    return ConvertBackValue(converted, parameter);
-                }
-                catch
-                {
-                    // Игнорируем ошибки конвертации
-                }
-            }
+            if (TryConvertToTTo(value, out var converted))
+                return ConvertBackValue(converted, parameter);
 
             return default(TFrom);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка в обратном преобразовании {GetType().Name}: {ex.Message}");
+            LogError($"Ошибка в обратном преобразовании {GetType().Name}: {ex.Message}");
             return default(TFrom);
         }
     }
+
+    // Пытается преобразовать значение в тип TFrom через IConvertible
+    private bool TryConvertToTFrom(object? value, out TFrom result)
+    {
+        result = default!;
+        if (value is not IConvertible)
+            return false;
+
+        try
+        {
+            result = (TFrom)System.Convert.ChangeType(value, typeof(TFrom));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Пытается преобразовать значение в тип TTo через IConvertible
+    private bool TryConvertToTTo(object? value, out TTo result)
+    {
+        result = default!;
+        if (value is not IConvertible)
+            return false;
+
+        try
+        {
+            result = (TTo)System.Convert.ChangeType(value, typeof(TTo));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Логирование ошибок
+    private static void LogError(string message)
+    {
+        System.Diagnostics.Debug.WriteLine(message);
+    }
 }
 
-/// <summary>
-/// Базовый конвертер для преобразования boolean в другие типы
-/// </summary>
-/// <typeparam name="TResult">Целевой тип</typeparam>
+// Базовый конвертер для преобразования boolean в другие типы
 public abstract class BooleanConverter<TResult> : BaseConverter<bool, TResult>
 {
-    /// <summary>
-    /// Значение для true
-    /// </summary>
+    // Значение для true
     protected abstract TResult TrueValue { get; }
 
-    /// <summary>
     /// Значение для false
-    /// </summary>
     protected abstract TResult FalseValue { get; }
 
     protected override TResult ConvertValue(bool value, object? parameter)
@@ -113,26 +111,16 @@ public abstract class BooleanConverter<TResult> : BaseConverter<bool, TResult>
         => Equals(value, TrueValue);
 }
 
-/// <summary>
-/// Конвертер для отображения значения в зависимости от условия
-/// </summary>
-/// <typeparam name="TValue">Тип проверяемого значения</typeparam>
-/// <typeparam name="TResult">Тип результата</typeparam>
+// Конвертер для отображения значения в зависимости от условия
 public abstract class ConditionalConverter<TValue, TResult> : BaseConverter<TValue, TResult>
 {
-    /// <summary>
-    /// Проверяет условие для значения
-    /// </summary>
+    // Проверяет условие для значения
     protected abstract bool IsConditionMet(TValue value, object? parameter);
 
-    /// <summary>
-    /// Значение при выполнении условия
-    /// </summary>
+    // Значение при выполнении условия
     protected abstract TResult ValueIfTrue { get; }
 
-    /// <summary>
-    /// Значение при невыполнении условия
-    /// </summary>
+    // Значение при невыполнении условия
     protected abstract TResult ValueIfFalse { get; }
 
     protected override TResult ConvertValue(TValue value, object? parameter)
@@ -142,12 +130,11 @@ public abstract class ConditionalConverter<TValue, TResult> : BaseConverter<TVal
         => throw new NotSupportedException($"Обратное преобразование не поддерживается в {GetType().Name}");
 }
 
-/// <summary>
-/// Конвертер для проверки, что значение равно null
-/// </summary>
-/// <example>
-/// <Label IsVisible="{Binding Items, Converter={StaticResource IsNull}}" />
-/// </example>
+#endregion
+
+#region Конкретные реализации конвертеров
+
+// Конвертер для проверки, что значение равно null
 public class IsNullConverter : ConditionalConverter<object?, bool>
 {
     protected override bool IsConditionMet(object? value, object? parameter)
@@ -157,12 +144,7 @@ public class IsNullConverter : ConditionalConverter<object?, bool>
     protected override bool ValueIfFalse => false;
 }
 
-/// <summary>
-/// Конвертер для проверки, что коллекция не пуста
-/// </summary>
-/// <example>
-/// <Label IsVisible="{Binding Items, Converter={StaticResource CollectionNotEmpty}}" />
-/// </example>
+// Конвертер для проверки, что коллекция не пуста
 public class CollectionNotEmptyConverter : ConditionalConverter<System.Collections.ICollection?, bool>
 {
     protected override bool IsConditionMet(System.Collections.ICollection? value, object? parameter)
@@ -172,12 +154,7 @@ public class CollectionNotEmptyConverter : ConditionalConverter<System.Collectio
     protected override bool ValueIfFalse => false;
 }
 
-/// <summary>
-/// Конвертер для сравнения значения с константой
-/// </summary>
-/// <example>
-/// <Label IsVisible="{Binding Status, Converter={StaticResource EqualsValue}, ConverterParameter=1}" />
-/// </example>
+// Конвертер для сравнения значения с константой
 public class EqualsValueConverter : BaseConverter<object?, bool>
 {
     protected override bool ConvertValue(object? value, object? parameter)
@@ -214,11 +191,11 @@ public class EqualsValueConverter : BaseConverter<object?, bool>
         => throw new NotSupportedException("Обратное преобразование не поддерживается");
 }
 
-/// <summary>
-/// Конвертер для инвертирования булевого значения (обертка над InverseBooleanConverter)
-/// </summary>
+// Конвертер для инвертирования булевого значения
 public class InvertBooleanConverter : BooleanConverter<bool>
 {
     protected override bool TrueValue => false;
     protected override bool FalseValue => true;
 }
+
+#endregion

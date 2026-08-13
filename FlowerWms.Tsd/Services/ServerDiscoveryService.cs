@@ -5,15 +5,15 @@ using System.Text.Json;
 
 namespace FlowerWms.Tsd.Services;
 
+// Поиск сервера в локальной сети
 public class ServerDiscoveryService
 {
     private readonly SecureStorageService _secureStorage;
     private const string STORAGE_KEY = "server_address";
     private const int DEFAULT_PORT = 5152;
-    private const int TIMEOUT_MS = 1200;        // 1200 мс на один запрос
-    private const int MAX_PARALLEL = 20;        // 30 параллельных запросов
+    private const int TIMEOUT_MS = 1200;
+    private const int MAX_PARALLEL = 20;
 
-    // Событие для уведомления о прогрессе поиска
     public event EventHandler<string>? ScanProgressChanged;
 
     public ServerDiscoveryService()
@@ -21,29 +21,38 @@ public class ServerDiscoveryService
         _secureStorage = new SecureStorageService();
     }
 
+    // Возвращает сохраненный адрес сервера
     public async Task<string?> GetSavedServerAddress()
     {
         try
         {
-            var address = await _secureStorage.GetAsync(STORAGE_KEY);
+            var address = await _secureStorage.GetServerAdress(STORAGE_KEY);
             if (!string.IsNullOrEmpty(address))
             {
                 return address;
             }
         }
-        catch (Exception ex) { }
+        catch
+        {
+            // Игнорируем ошибки
+        }
         return null;
     }
 
+    // Сохраняет адрес сервера
     public async Task SaveServerAddress(string address)
     {
         try
         {
-            await _secureStorage.SaveAsync(STORAGE_KEY, address);
+            await _secureStorage.SaveServerAdress(STORAGE_KEY, address);
         }
-        catch (Exception ex) { }
+        catch
+        {
+            // Игнорируем ошибки
+        }
     }
 
+    // Проверяет доступность сервера по адресу
     public async Task<bool> PingServer(string address)
     {
         try
@@ -86,6 +95,7 @@ public class ServerDiscoveryService
         }
     }
 
+    // Возвращает локальный IP-адрес устройства
     public string? GetLocalIpAddress()
     {
         try
@@ -103,7 +113,10 @@ public class ServerDiscoveryService
                 }
             }
         }
-        catch (Exception ex) { }
+        catch
+        {
+            // Игнорируем ошибки
+        }
 
         try
         {
@@ -125,7 +138,10 @@ public class ServerDiscoveryService
                 }
             }
         }
-        catch (Exception ex) { }
+        catch
+        {
+            // Игнорируем ошибки
+        }
 
         try
         {
@@ -138,14 +154,17 @@ public class ServerDiscoveryService
                 return ip;
             }
         }
-        catch (Exception ex) { }
+        catch
+        {
+            // Игнорируем ошибки
+        }
 
         return null;
     }
 
+    // Выполняет поиск сервера в локальной сети
     public async Task<string?> DiscoverServer()
     {
-        // 1. Проверяем сохраненный адрес
         var savedAddress = await GetSavedServerAddress();
         if (!string.IsNullOrEmpty(savedAddress))
         {
@@ -155,7 +174,6 @@ public class ServerDiscoveryService
             }
         }
 
-        // 2. Получаем локальный IP
         var localIp = GetLocalIpAddress();
         if (string.IsNullOrEmpty(localIp) || !localIp.Contains('.'))
         {
@@ -165,10 +183,9 @@ public class ServerDiscoveryService
         var lastDotIndex = localIp.LastIndexOf('.');
         var baseIp = localIp.Substring(0, lastDotIndex + 1);
 
-        var scanRange = $"🔍 Сканирование: {baseIp}1-254";
+        var scanRange = $"Сканирование: {baseIp}1-254";
         ScanProgressChanged?.Invoke(this, scanRange);
 
-        // 3. Формируем список адресов
         var candidates = new List<string>();
         for (int i = 1; i <= 254; i++)
         {
@@ -179,7 +196,6 @@ public class ServerDiscoveryService
             }
         }
 
-        // 4. Параллельный поиск — БЕЗ ОБЩЕГО ТАЙМАУТА!
         string? foundAddress = null;
         int checkedCount = 0;
         int totalCount = candidates.Count;
@@ -187,7 +203,6 @@ public class ServerDiscoveryService
         var parallelOptions = new ParallelOptions
         {
             MaxDegreeOfParallelism = MAX_PARALLEL
-            // ❌ Убираем CancellationTokenSource с таймаутом
         };
 
         try
@@ -199,7 +214,7 @@ public class ServerDiscoveryService
                 var current = Interlocked.Increment(ref checkedCount);
                 if (current % 10 == 0 || current == totalCount)
                 {
-                    var progress = $"🔍 Сканирование: {current}/{totalCount}";
+                    var progress = $"Сканирование: {current}/{totalCount}";
                     ScanProgressChanged?.Invoke(this, progress);
                 }
 
@@ -209,23 +224,23 @@ public class ServerDiscoveryService
                 }
             });
         }
-        catch (Exception ex)
+        catch
         {
             // Игнорируем ошибки
         }
 
-        // 5. Обработка результата
         if (!string.IsNullOrEmpty(foundAddress))
         {
-            ScanProgressChanged?.Invoke(this, $"✅ Сервер найден: {foundAddress}");
+            ScanProgressChanged?.Invoke(this, $"Сервер найден: {foundAddress}");
             await SaveServerAddress(foundAddress);
             return foundAddress;
         }
 
-        ScanProgressChanged?.Invoke(this, "❌ Сервер не найден");
+        ScanProgressChanged?.Invoke(this, "Сервер не найден");
         return null;
     }
 
+    // Возвращает адрес сервера (с проверкой сохраненного или поиском)
     public async Task<string?> GetServerAddress()
     {
         var saved = await GetSavedServerAddress();

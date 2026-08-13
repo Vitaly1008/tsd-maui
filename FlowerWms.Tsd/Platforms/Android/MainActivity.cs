@@ -18,12 +18,13 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
         
-        // ✅ Сохраняем контекст для BarcodeService
+        // Сохраняет контекст для BarcodeService
         AndroidContext.Current = this.ApplicationContext;
         
         EnableDataWedge();
     }
 
+    // Включает DataWedge для сканера Symbol/Zebra
     private void EnableDataWedge()
     {
         try
@@ -36,11 +37,11 @@ public class MainActivity : MauiAppCompatActivity
                 }
             }");
             Android.App.Application.Context.SendBroadcast(intent);
-            System.Diagnostics.Debug.WriteLine("✅ DataWedge включен");
+            System.Diagnostics.Debug.WriteLine("DataWedge включен");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ DataWedge ошибка: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"DataWedge ошибка: {ex.Message}");
         }
     }
 }

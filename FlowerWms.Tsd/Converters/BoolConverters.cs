@@ -3,24 +3,9 @@ using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Converters;
 
-/// <summary>
-/// Конвертер для инвертирования булевого значения
-/// </summary>
-/// <example>
-/// <Label IsVisible="{Binding IsLoading, Converter={StaticResource InverseBool}}" />
-/// </example>
-public class InverseBooleanConverter : BooleanConverter<bool>
-{
-    protected override bool TrueValue => false;
-    protected override bool FalseValue => true;
-}
+#region Конвертеры булевых значений
 
-/// <summary>
-/// Конвертер для проверки, что значение больше нуля
-/// </summary>
-/// <remarks>
-/// Поддерживает: int, double, float, long, decimal, ICollection
-/// </remarks>
+// Конвертер для проверки, что значение больше нуля (поддерживает int, double, float, long, decimal, ICollection)
 public class GreaterThanZeroConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -41,12 +26,7 @@ public class GreaterThanZeroConverter : IValueConverter
         => false;
 }
 
-/// <summary>
-/// Конвертер для проверки, что значение не равно null и не пустое
-/// </summary>
-/// <remarks>
-/// Поддерживает параметр "invert" для инвертирования результата
-/// </remarks>
+// Конвертер для проверки, что значение не равно null и не пустое (параметр "invert" для инвертирования)
 public class IsNotNullOrEmptyConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -66,15 +46,4 @@ public class IsNotNullOrEmptyConverter : IValueConverter
         => false;
 }
 
-/// <summary>
-/// [УСТАРЕЛ] Используйте IsNotNullOrEmptyConverter
-/// </summary>
-[Obsolete("Используйте IsNotNullOrEmptyConverter")]
-public class StringNotEmptyConverter : IValueConverter
-{
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is string stringValue && !string.IsNullOrEmpty(stringValue);
-
-    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => false;
-}
+#endregion

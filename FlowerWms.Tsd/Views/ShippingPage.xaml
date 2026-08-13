@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
+<!-- Страница отгрузки коробок -->
 <views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
                 xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
                 xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
@@ -12,9 +13,7 @@
 
     <Grid RowDefinitions="Auto, *">
 
-        <!-- ============================================================ -->
-        <!-- ВЕРХНЯЯ ПАНЕЛЬ (как в ReceivingPage) -->
-        <!-- ============================================================ -->
+        <!-- Верхняя панель -->
         <Grid Grid.Row="0" 
               Padding="16,12" 
               BackgroundColor="{StaticResource PrimaryColor}"
@@ -44,23 +43,17 @@
             </HorizontalStackLayout>
         </Grid>
 
-        <!-- ============================================================ -->
-        <!-- ОСНОВНОЙ КОНТЕНТ -->
-        <!-- ============================================================ -->
+        <!-- Основной контент -->
         <ScrollView Grid.Row="1" Padding="16">
             <VerticalStackLayout Spacing="16">
 
-                <!-- ============================================================ -->
-                <!-- КНОПКА "ОТГРУЗИТЬ" - НАВЕРХУ (как в ReceivingPage) -->
-                <!-- ============================================================ -->
+                <!-- Кнопка "Отгрузить" -->
                 <Button Text="✅ Отгрузить коробки" 
                         Command="{Binding ConfirmOperationCommand}"
                         IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
                         Style="{StaticResource PrimaryButton}" />
 
-                <!-- ============================================================ -->
-                <!-- СТАТУС СКАНИРОВАНИЯ -->
-                <!-- ============================================================ -->
+                <!-- Статус сканирования -->
                 <Frame Padding="16" 
                        CornerRadius="12" 
                        BackgroundColor="{Binding ScanStatusColor, Converter={StaticResource ScanStatusBackgroundConverter}}"
@@ -88,9 +81,7 @@
                     </Grid>
                 </Frame>
 
-                <!-- ============================================================ -->
-                <!-- ИНФОРМАЦИЯ О КОРОБКЕ (при сканировании) -->
-                <!-- ============================================================ -->
+                <!-- Информация о коробке -->
                 <Frame IsVisible="{Binding IsBoxScanned}" 
                        Padding="16" 
                        CornerRadius="12" 
@@ -120,9 +111,7 @@
                     </VerticalStackLayout>
                 </Frame>
 
-                <!-- ============================================================ -->
-                <!-- УПРАВЛЕНИЕ РЕЖИМАМИ ОТГРУЗКИ -->
-                <!-- ============================================================ -->
+                <!-- Управление режимами отгрузки -->
                 <VerticalStackLayout IsVisible="{Binding IsBoxScanned}" Spacing="8">
                     
                     <!-- Переключатель режимов -->
@@ -165,7 +154,7 @@
                            HorizontalOptions="Center"
                            IsVisible="{Binding CanPartialShip}"/>
 
-                    <!-- Управление количеством (для частичной отгрузки) -->
+                    <!-- Управление количеством -->
                     <Frame IsVisible="{Binding IsPartialShipmentMode}" 
                            Padding="12" 
                            CornerRadius="10" 
@@ -190,6 +179,7 @@
                                         Padding="0"/>
                                 
                                 <Entry Grid.Column="1" 
+                                       x:Name="QuantityEntry"
                                        Text="{Binding ShipQuantityDisplay}"
                                        Keyboard="Numeric"
                                        HorizontalTextAlignment="Center"
@@ -199,8 +189,7 @@
                                        BackgroundColor="White"
                                        Placeholder="0"
                                        PlaceholderColor="LightGray"
-                                       MaxLength="6"
-                                       Completed="OnQuantityEntryCompleted">
+                                       MaxLength="6">
                                     <Entry.Behaviors>
                                         <behaviors:NumericValidationBehavior />
                                     </Entry.Behaviors>
@@ -232,9 +221,7 @@
                     </Frame>
                 </VerticalStackLayout>
 
-                <!-- ============================================================ -->
-                <!-- СПИСОК ОТСКАНИРОВАННЫХ КОРОБОК - ВЫПАДАЮЩИЙ (как в ReceivingPage) -->
-                <!-- ============================================================ -->
+                <!-- Список отсканированных коробок -->
                 <Frame Padding="0" CornerRadius="12" HasShadow="True" BackgroundColor="White">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -242,7 +229,7 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         
-                        <!-- Заголовок с возможностью сворачивания -->
+                        <!-- Заголовок списка -->
                         <Frame Grid.Row="0" 
                                Padding="16,12" 
                                BackgroundColor="{StaticResource PrimaryColor}"
@@ -276,7 +263,7 @@
                             </Grid>
                         </Frame>
 
-                        <!-- Список - отображается только если развернут -->
+                        <!-- Список коробок -->
                         <CollectionView Grid.Row="1"
                                         IsVisible="{Binding IsBoxListExpanded}"
                                         ItemsSource="{Binding ScannedBoxes}"
@@ -307,7 +294,6 @@
                                                        TextColor="{Binding Status, Converter={StaticResource StatusColorConverter}}" />
                                             </HorizontalStackLayout>
                                         </VerticalStackLayout>
-                                        <!-- Крестик для удаления -->
                                         <Button Grid.Column="2"
                                                 Text="✕"
                                                 Command="{Binding BindingContext.RemoveBoxCommand, Source={RelativeSource AncestorType={x:Type views:ShippingPage}}}"
@@ -323,10 +309,7 @@
                     </Grid>
                 </Frame>
 
-                <!-- ============================================================ -->
-                <!-- Индикатор работы приложения -->
-                <!-- ============================================================ -->
-
+                <!-- Индикатор работы -->
                 <ActivityIndicator IsRunning="{Binding IsLoading}" 
                                    Color="{StaticResource PrimaryColor}" 
                                    HorizontalOptions="Center" />
@@ -336,7 +319,7 @@
                        FontSize="11" 
                        TextColor="Orange"
                        HorizontalOptions="Center"
-                       IsVisible="{Binding IsOnline, Converter={StaticResource InverseBooleanConverter}}"/>
+                       IsVisible="{Binding IsOnline, Converter={StaticResource InvertBooleanConverter}}"/>
 
             </VerticalStackLayout>
         </ScrollView>

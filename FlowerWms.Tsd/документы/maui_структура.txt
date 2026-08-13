@@ -1,72 +1,80 @@
-F:\alphaWMS\mobile\FlowerWms.Tsd\
+F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │
 ├───Converters/
-│   ├── BaseConverters.cs           # Базовые классы для конвертеров
-│   ├── BoxStatusConverters.cs      # Все конвертеры статуса коробки
-│   ├── BoolConverters.cs           # Булевы конвертеры
-│   ├── ConnectionIconConverter.cs  # Иконки сети
-│   ├── ExpandIconConverter.cs      # Иконки раскрытия
-│   ├── ModeConverters.cs           # Конвертеры режимов
-│   ├── ScanStatusConverters.cs     # Конвертеры статуса сканирования
-│   ├── SearchButtonConverter.cs    # Конвертер кнопки поиска
-│   └── StatusBarPaddingConverter.cs # Отступ под статус-бар
+│   ├── BaseConverters.cs           # Базовые абстрактные классы для всех конвертеров
+│   ├── BoxStatusConverters.cs      # Конвертеры статуса коробки
+│   ├── BoolConverters.cs           # Конвертеры булевых значений
+│   ├── ConnectionIconConverter.cs  # Конвертер статуса подключения в иконку сети (📶/📴) и синхронизации (🔄/📶)
+│   ├── ExpandIconConverter.cs      # Конвертер состояния раскрытия в иконку (▼/▶)
+│   ├── LocationConverters.cs       # Конвертеры для работы с локациями
+│   ├── ModeConverters.cs           # Конвертеры цветов для активного/неактивного режима: фон, текст, граница, подпись
+│   ├── ScanStatusConverters.cs     # Конвертеры статуса сканирования: фон, граница, иконка, текст, цвет, подсказка
+│   ├── SearchButtonConverter.cs    # Конвертер текста кнопки поиска сервера ("⏳ Поиск..." / "🔍 Поиск сервера")
+│   └── StatusBarPaddingConverter.cs # Конвертер добавления отступа под статус-бар Android
 │
-├───Helpers/                      # Вспомогательные классы
-│   ├── Constants.cs                 # ApiBaseUrl, DeviceId, ApiEndpoints (BoxByBarcode исправлен)
-│   ├── DatabaseHelper.cs            # SQLite операции (SaveBox, GetBox, SyncProducts, SyncLocations)
-│   ├── DatabaseModels.cs            # Модели SQLite (OfflineTransaction, BoxCache, LocationCache, ProductCache)
-│   │                                # ✅ BoxCache добавлено поле is_dirty
-│   └── StatusBarHelper.cs           # Высота статус-бара Android
+├───Helpers/
+│   ├── Constants.cs                 # Хранение глобальных констант
+│   ├── DatabaseHelper.cs            # Работа с локальной SQLite БД
+│   ├── DatabaseModels.cs            # Модели данных для SQLite
+│   └── StatusBarHelper.cs           # Получение высоты статус-бара на Android для корректных отступов в UI
 │
-├───Models/                       # Модели данных (для UI и API)
-│   ├── Auth.cs                      # LoginRequest, LoginResponse
-│   ├── Box.cs                       # Коробка (Id, Barcode, BoxNumber, Grade, Quantity, Status, LocationCode, IsDirty) ✅ ДОБАВЛЕНО
-│   ├── BoxOperation.cs              # Операция коробки (Id, BoxId, OperationType, Quantity, Comment)
-│   ├── Location.cs                  # Локация (Id, Code, Name, IsActive)
-│   ├── Operation.cs                 # Enum: OperationType, SyncStatus
-│   └── Product.cs                   # Товар (Id, Ean13, Name, ShortName)
+├───Models/
+│   ├── Auth.cs                      # Модели для аутентификации
+│   ├── Box.cs                       # Модель коробки
+│   ├── BoxOperation.cs              # Модель операции с коробкой
+│   ├── BoxStatus.cs                 # Статусы коробки
+│   ├── Location.cs                  # Модель локации
+│   ├── Operation.cs                 # Перечисления
+│   └── Product.cs                   # Модель товара
 │
-├───Services/                     # Сервисы
-│   ├── ApiService.cs                # HTTP запросы к бэкенду (Login, Scan, Sync, CreateDraftBox, ActivateBox, ShipBox)
-│   │                                # ✅ Добавлен метод GetAllBoxes()
-│   │                                # ✅ Исправлен дублирующийся метод GetBoxByBarcode
-│   ├── AuthService.cs               # Аутентификация (Login, Logout, ValidateToken)
-│   ├── IBarcodeService.cs           # Интерфейс сканера
-│   ├── NetworkService.cs            # Мониторинг сети, авто-поиск сервера
-│   ├── OfflineService.cs            # Работа с офлайн-транзакциями (Save, GetUnsynced, MarkAsSynced)
-│   ├── SecureStorageService.cs      # Безопасное хранение (Token, User)
-│   ├── ServerDiscoveryService.cs    # Поиск сервера в сети (Ping, DiscoverServer)
-│   ├── SyncQueueService.cs          # Очередь синхронизации (Enqueue, ProcessQueue, AutoSync)
-│   └── SyncService.cs               # Синхронизация (SyncAll, CheckInternet, GetPendingCount)
-│                                    # ✅ Добавлено поле _dbHelper
-│                                    # ✅ Исправлен SyncBoxesOnLogin() с загрузкой Empty-коробок
+├───Platforms/Android/
+│   ├── AndroidManifest.xml           # Манифест Android: разрешенияи и настройки приложения
+│   ├── BarcodeService.Android.cs     # Реализация IBarcodeService для Android
+│   ├── BarcodeServiceRegistration.cs # Регистрация BarcodeService: статический контекст Android, обертка над UrovoScannerService с событиями
+│   ├── MainActivity.cs               # Главная Activity: инициализация приложения, сохранение контекста для BarcodeService, включение DataWedge
+│   ├── MainApplication.cs            # Точка входа приложения
+│   └── UrovoScannerService.cs        # Сервис сканера Urovo
+├───Properties/
+│   ├── launchSettings.json           # Настройки профилей запуска для отладки
 │
-├───ViewModels/                   # MVVM ViewModels
-│   ├── HomeViewModel.cs             # Главный экран (меню, статус сети, синхронизация)
-│   ├── LoginViewModel.cs            # Экран входа (логин, поиск сервера)
-│   ├── ReceivingViewModel.cs        # Приемка (сканирование, создание Draft, активация)
-│   ├── ShippingViewModel.cs         # Отгрузка (поиск коробок, резервирование, отгрузка)
-│   │                                # ✅ Добавлена проверка IsDirty
-│   │                                # ✅ Исправлена логика статусов (Empty, Shipped)
-│   └── InventoryViewModel.cs        # Инвентаризация (просмотр локации, перемещение коробок)
+├───Services/
+│   ├── ApiService.cs                # HTTP-запросы к бэкенду
+│   ├── AuthService.cs               # Аутентификация
+│   ├── IBarcodeService.cs           # Интерфейс сканера штрихкодов
+│   ├── NetworkService.cs            # Мониторинг состояния сети
+│   ├── OfflineService.cs            # Работа с офлайн-транзакциями
+│   ├── SecureStorageService.cs      # Безопасное хранение данных
+│   ├── ServerDiscoveryService.cs    # Поиск сервера в локальной сети
+│   ├── SyncQueueService.cs          # Очередь синхронизации
+│   └── SyncService.cs               # Основной сервис синхронизации
 │
-├───Views/                        # XAML страницы
-│   ├── Behaviors/                   # ✅ НОВАЯ ПАПКА
-│   │   └── NumericValidationBehavior.cs  # ✅ НОВЫЙ ФАЙЛ: валидация числового ввода
-│   ├── BasePage.xaml                # Базовая страница (отступ под статус-бар)
+├───ViewModels/
+│   ├── HomeViewModel.cs             # Главный экран
+│   ├── LoginViewModel.cs            # Экран входа
+│   ├── OperationViewModel.cs        # Базовый ViewModel для операций (приемка/отгрузка)
+│   ├── ReceivingViewModel.cs        # Приемка коробок
+│   ├── ShippingViewModel.cs         # Отгрузка коробок
+│   └── InventoryViewModel.cs        # Инвентаризация
+│
+├───Views/
+│   ├───Behaviors/
+│   │   └── NumericValidationBehavior.cs  # Поведение для валидации числового ввода в Entry
+│   ├── BasePage.xaml                # Базовая страница
+│   ├── BasePage.xaml.cs             # Логика BasePage
 │   ├── LoginPage.xaml               # Экран входа
+│   ├── LoginPage.xaml.cs            # Логика LoginPage
 │   ├── HomePage.xaml                # Главный экран
-│   ├── ReceivingPage.xaml           # Приемка
-│   ├── ShippingPage.xaml            # Отгрузка (обновлен с использованием NumericValidationBehavior)
-│   ├── InventoryPage.xaml           # Инвентаризация
-│   └── AboutPage.xaml               # О программе
+│   ├── HomePage.xaml.cs             # Логика HomePage
+│   ├── ReceivingPage.xaml           # Страница приемки
+│   ├── ReceivingPage.xaml.cs        # Логика ReceivingPage
+│   ├── ShippingPage.xaml            # Страница отгрузки
+│   ├── ShippingPage.xaml.cs         # Логика ShippingPage
+│   ├── InventoryPage.xaml           # Страница инвентаризации
+│   ├── InventoryPage.xaml.cs        # Логика InventoryPage
+│   ├── AboutPage.xaml               # Страница "О программе"
+│   └── AboutPage.xaml.cs            # Логика AboutPage
 │
-├───Platforms/                    # Платформозависимый код
-│   └───Android/
-│       └── BarcodeService.cs        # Реализация сканера штрихкодов (Zebra/DataLogic/камера)
-│
-├── App.xaml                       # Ресурсы (стили, конвертеры, цвета)
-├── App.xaml.cs                    # Точка входа (MainPage = LoginPage)
-│                                  # ✅ Зарегистрированы все конвертеры (StatusTextConverter, StatusColorConverter, ModeBorderConverter)
-├── MauiProgram.cs                 # DI регистрация (ApiService, AuthService, SyncService, BarcodeService)
-└── FlowerWms.Tsd.csproj          # Зависимости (CommunityToolkit.Mvvm, SQLite)
+├── App.xaml                       # Ресурсы приложения
+├── App.xaml.cs                    # Точка входа приложения
+├── MauiProgram.cs                 # Конфигурация приложения
+└── FlowerWms.Tsd.csproj          # Файл проекта

@@ -4,6 +4,7 @@ using FlowerWms.Tsd.Platforms.Android;
 
 namespace FlowerWms.Tsd;
 
+// Конфигурация приложения
 public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
@@ -21,16 +22,17 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
-        // ✅ Регистрируем сервисы как Singleton
+        // Регистрация сервисов как Singleton
         builder.Services.AddSingleton<ApiService>();
         builder.Services.AddSingleton<AuthService>();
         builder.Services.AddSingleton<OfflineService>();
         builder.Services.AddSingleton<SyncService>();
+        builder.Services.AddSingleton<SyncQueueService>();
         builder.Services.AddSingleton<SecureStorageService>();
         builder.Services.AddSingleton<NetworkService>();
         builder.Services.AddSingleton<ServerDiscoveryService>();
         
-        // ✅ Регистрируем IBarcodeService как Singleton
+        // Регистрация IBarcodeService как Singleton
         builder.Services.AddSingleton<IBarcodeService, BarcodeService>();
 
         return builder.Build();

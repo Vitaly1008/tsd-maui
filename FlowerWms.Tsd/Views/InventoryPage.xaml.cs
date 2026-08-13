@@ -3,6 +3,7 @@ using FlowerWms.Tsd.Services;
 
 namespace FlowerWms.Tsd.Views;
 
+// Страница инвентаризации
 public partial class InventoryPage : BasePage
 {
     private InventoryViewModel? _viewModel;
@@ -17,6 +18,7 @@ public partial class InventoryPage : BasePage
         Unloaded += OnPageUnloaded;
     }
 
+    // Выполняется при загрузке страницы
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
         try
@@ -24,34 +26,40 @@ public partial class InventoryPage : BasePage
             _viewModel = new InventoryViewModel(_barcodeService);
             BindingContext = _viewModel;
             
-            if (_viewModel != null)
-            {
-                _viewModel.OperationCancelled += OnOperationCancelled;
-                await _viewModel.Initialize();
-            }
+            _viewModel.OperationCancelled += OnOperationCancelled;
+            await _viewModel.Initialize();
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка загрузки InventoryPage: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка загрузки InventoryPage: {ex.Message}");
             await DisplayAlertAsync("Ошибка", $"Не удалось загрузить страницу: {ex.Message}", "OK");
             await Navigation.PopAsync();
         }
     }
 
+    // Выполняется при выгрузке страницы
     private void OnPageUnloaded(object? sender, EventArgs e)
     {
-        _viewModel?.StopScanner();
+        StopScannerAndDispose();
     }
 
+    // Обработчик отмены операции
     private async void OnOperationCancelled(object? sender, EventArgs e)
     {
-        _viewModel?.StopScanner();
+        StopScannerAndDispose();
         await Navigation.PopAsync();
     }
 
+    // Выполняется при исчезновении страницы
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        StopScannerAndDispose();
+    }
+
+    // Останавливает сканер и освобождает ресурсы
+    private void StopScannerAndDispose()
+    {
         _viewModel?.StopScanner();
         _viewModel?.Dispose();
     }

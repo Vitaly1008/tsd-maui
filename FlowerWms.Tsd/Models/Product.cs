@@ -1,5 +1,6 @@
 namespace FlowerWms.Tsd.Models;
 
+// Модель товара
 public class Product
 {
     public string Id { get; set; } = string.Empty;
@@ -11,6 +12,7 @@ public class Product
     public long CreatedAt { get; set; }
     public long UpdatedAt { get; set; }
 
+    // Создает модель из JSON-словаря
     public static Product FromJson(Dictionary<string, object> json)
     {
         return new Product
@@ -26,6 +28,7 @@ public class Product
         };
     }
 
+    // Преобразует модель в словарь для отправки на сервер
     public Dictionary<string, object> ToDictionary()
     {
         return new Dictionary<string, object>

@@ -3,9 +3,9 @@ using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Converters;
 
-/// <summary>
-/// Статические цвета для единообразия
-/// </summary>
+#region Статические цвета для конвертеров режимов
+
+// Статические цвета для единообразия
 internal static class ModeColors
 {
     public static readonly Color ActiveBackground = Color.FromArgb("#2E7D32");
@@ -16,9 +16,11 @@ internal static class ModeColors
     public static readonly Color InactiveBorder = Color.FromArgb("#BDBDBD");
 }
 
-/// <summary>
-/// Конвертер цвета фона для активного/неактивного режима
-/// </summary>
+#endregion
+
+#region Конвертеры цветов для активного/неактивного режима
+
+// Конвертер цвета фона для активного/неактивного режима
 public class ModeBackgroundConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -30,9 +32,7 @@ public class ModeBackgroundConverter : IValueConverter
         => false;
 }
 
-/// <summary>
-/// Конвертер цвета текста для активного/неактивного режима
-/// </summary>
+// Конвертер цвета текста для активного/неактивного режима
 public class ModeTextColorConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -44,9 +44,23 @@ public class ModeTextColorConverter : IValueConverter
         => false;
 }
 
-/// <summary>
-/// Конвертер подписи для режимов перемещения/количества
-/// </summary>
+// Конвертер цвета границы для активного/неактивного режима
+public class ModeBorderConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        return value is true ? ModeColors.ActiveBorder : ModeColors.InactiveBorder;
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => false;
+}
+
+#endregion
+
+#region Конвертер подписи для режимов
+
+// Конвертер подписи для режимов перемещения/количества
 public class ModeLabelConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -58,16 +72,4 @@ public class ModeLabelConverter : IValueConverter
         => null;
 }
 
-/// <summary>
-/// Конвертер цвета границы для активного/неактивного режима
-/// </summary>
-public class ModeBorderConverter : IValueConverter
-{
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        return value is true ? ModeColors.ActiveBorder : ModeColors.InactiveBorder;
-    }
-
-    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => false;
-}
+#endregion

@@ -3,6 +3,7 @@ using FlowerWms.Tsd.Helpers;
 
 namespace FlowerWms.Tsd.Services;
 
+// Работа с офлайн-транзакциями
 public class OfflineService
 {
     private readonly DatabaseHelper _dbHelper;
@@ -12,6 +13,7 @@ public class OfflineService
         _dbHelper = new DatabaseHelper();
     }
 
+    // Сохраняет транзакцию в офлайн-хранилище
     public async Task<string> SaveTransaction(
         string operationType,
         string barcode,
@@ -40,11 +42,12 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения транзакции: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка сохранения транзакции: {ex.Message}");
             throw;
         }
     }
 
+    // Возвращает несинхронизированные транзакции
     public async Task<List<OfflineTransaction>> GetUnsyncedTransactions()
     {
         try
@@ -56,11 +59,12 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения транзакций: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка получения транзакций: {ex.Message}");
             return new List<OfflineTransaction>();
         }
     }
 
+    // Возвращает количество ожидающих синхронизации транзакций
     public async Task<int> GetPendingCount()
     {
         try
@@ -72,11 +76,12 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка подсчета: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка подсчета: {ex.Message}");
             return 0;
         }
     }
 
+    // Отмечает транзакцию как синхронизированную
     public async Task MarkAsSynced(string transactionId)
     {
         try
@@ -90,10 +95,11 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка обновления: {ex.Message}");
         }
     }
 
+    // Отмечает транзакцию с ошибкой и увеличивает счетчик попыток
     public async Task MarkAsError(string transactionId, string error)
     {
         try
@@ -107,10 +113,11 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка обновления: {ex.Message}");
         }
     }
 
+    // Удаляет транзакцию
     public async Task DeleteTransaction(string transactionId)
     {
         try
@@ -123,17 +130,18 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка удаления: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка удаления: {ex.Message}");
             throw;
         }
     }
 
+    // Очищает старые синхронизированные транзакции
     public async Task CleanOldSynced(int olderThanDays = 30)
     {
         await _dbHelper.CleanOldData(olderThanDays);
     }
 
-    // ✅ Добавляем метод для получения всех транзакций с пагинацией
+    // Возвращает транзакции с пагинацией
     public async Task<List<OfflineTransaction>> GetTransactions(int limit = 50, int offset = 0)
     {
         try
@@ -146,7 +154,7 @@ public class OfflineService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения транзакций: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка получения транзакций: {ex.Message}");
             return new List<OfflineTransaction>();
         }
     }

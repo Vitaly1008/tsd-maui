@@ -2,9 +2,7 @@ using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Views.Behaviors;
 
-/// <summary>
-/// Поведение для валидации числового ввода
-/// </summary>
+// Поведение для валидации числового ввода в Entry
 public class NumericValidationBehavior : Behavior<Entry>
 {
     protected override void OnAttachedTo(Entry entry)
@@ -19,6 +17,7 @@ public class NumericValidationBehavior : Behavior<Entry>
         base.OnDetachingFrom(entry);
     }
 
+    // Проверяет, что введенное значение является числом
     private void OnEntryTextChanged(object sender, TextChangedEventArgs e)
     {
         if (sender is Entry entry)

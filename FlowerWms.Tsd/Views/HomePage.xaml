@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
+<!-- Главная страница -->
 <views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
                 xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
                 xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
@@ -61,7 +62,7 @@
                    FontSize="18" />
         </Grid>
 
-        <!-- ✅ Индикатор синхронизации -->
+        <!-- Индикатор синхронизации -->
         <Grid Grid.Row="1" 
               IsVisible="{Binding IsSyncing}"
               BackgroundColor="#F5F5F5"
@@ -165,7 +166,7 @@
             <Button Grid.Column="0"
                     Text="🔄 Синхр."
                     Command="{Binding SyncCommand}"
-                    IsEnabled="{Binding IsSyncing, Converter={StaticResource InverseBooleanConverter}}"
+                    IsEnabled="{Binding IsSyncing, Converter={StaticResource InvertBooleanConverter}}"
                     BackgroundColor="{StaticResource PrimaryColor}"
                     TextColor="White"
                     CornerRadius="8"
@@ -177,7 +178,7 @@
             <Button Grid.Column="1"
                     Text="🔍 Поиск"
                     Command="{Binding FindServerCommand}"
-                    IsEnabled="{Binding IsSearching, Converter={StaticResource InverseBooleanConverter}}"
+                    IsEnabled="{Binding IsSearching, Converter={StaticResource InvertBooleanConverter}}"
                     BackgroundColor="White"
                     TextColor="{StaticResource PrimaryColor}"
                     BorderColor="{StaticResource PrimaryColor}"

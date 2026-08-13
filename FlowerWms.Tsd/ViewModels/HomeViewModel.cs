@@ -6,6 +6,7 @@ using FlowerWms.Tsd.Services;
 
 namespace FlowerWms.Tsd.ViewModels;
 
+// ViewModel для главного экрана
 public partial class HomeViewModel : ObservableObject
 {
     private readonly SyncQueueService _syncQueueService;
@@ -32,7 +33,7 @@ public partial class HomeViewModel : ObservableObject
     private string _connectionStatusIcon = "⏳";
     
     [ObservableProperty]
-    private string _syncStatusMessage = "Все данные синхронизированы ✅";
+    private string _syncStatusMessage = "Все данные синхронизированы";
 
     [ObservableProperty]
     private string _serverAddress = string.Empty;
@@ -75,7 +76,7 @@ public partial class HomeViewModel : ObservableObject
                 IsSyncing = isSyncing;
                 if (!isSyncing && PendingCount == 0)
                 {
-                    SyncStatusMessage = "✅ Все данные синхронизированы";
+                    SyncStatusMessage = "Все данные синхронизированы";
                 }
             });
         };
@@ -87,10 +88,10 @@ public partial class HomeViewModel : ObservableObject
                 IsOnline = status == SyncStatus.Online;
                 ConnectionStatus = status switch
                 {
-                    SyncStatus.Online => "✅ Онлайн",
-                    SyncStatus.Offline => "📴 Офлайн",
-                    SyncStatus.Syncing => "🔄 Синхронизация...",
-                    _ => "❓ Неизвестно"
+                    SyncStatus.Online => "Онлайн",
+                    SyncStatus.Offline => "Офлайн",
+                    SyncStatus.Syncing => "Синхронизация...",
+                    _ => "Неизвестно"
                 };
                 ConnectionStatusIcon = status switch
                 {
@@ -104,12 +105,13 @@ public partial class HomeViewModel : ObservableObject
         };
     }
 
+    // Обработчик изменения статуса сети
     private void OnNetworkStatusChanged(object? sender, bool isOnline)
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
             IsOnline = isOnline;
-            ConnectionStatus = isOnline ? "✅ Онлайн" : "📴 Офлайн";
+            ConnectionStatus = isOnline ? "Онлайн" : "Офлайн";
             
             if (isOnline)
             {
@@ -119,28 +121,31 @@ public partial class HomeViewModel : ObservableObject
         });
     }
 
+    // Обработчик найденного сервера
     private void OnServerFound(object? sender, string newAddress)
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
             ServerAddress = newAddress;
             IsOnline = true;
-            ConnectionStatus = "✅ Онлайн";
+            ConnectionStatus = "Онлайн";
         });
     }
 
+    // Обновляет сообщение статуса синхронизации
     private void UpdateSyncStatusMessage(int count)
     {
         if (count == 0)
         {
-            SyncStatusMessage = "✅ Все данные синхронизированы";
+            SyncStatusMessage = "Все данные синхронизированы";
         }
         else
         {
-            SyncStatusMessage = $"⏳ Ожидает синхронизации: {count}";
+            SyncStatusMessage = $"Ожидает синхронизации: {count}";
         }
     }
 
+    // Инициализирует ViewModel
     public async Task Initialize()
     {
         if (_isInitialized) return;
@@ -157,36 +162,35 @@ public partial class HomeViewModel : ObservableObject
             
             ServerAddress = Constants.ApiBaseUrl;
             
-            // Если есть интернет — делаем фоновую синхронизацию
             if (IsOnline && PendingCount > 0)
             {
-                System.Diagnostics.Debug.WriteLine("🔄 Фоновая синхронизация при загрузке...");
+                System.Diagnostics.Debug.WriteLine("Фоновая синхронизация при загрузке...");
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        // ✅ Только обновление кэша, без обработки очереди (она обрабатывается отдельно)
                         await _syncService.SyncAllData();
                         await _syncQueueService.ProcessQueueAsync();
                         await RefreshPendingCount();
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"⚠️ Фоновая синхронизация: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"Фоновая синхронизация: {ex.Message}");
                     }
                 });
             }
             
             _isInitialized = true;
             
-            System.Diagnostics.Debug.WriteLine($"✅ HomePage инициализирован. Счетчик: {PendingCount}");
+            System.Diagnostics.Debug.WriteLine($"HomePage инициализирован. Счетчик: {PendingCount}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка Initialize: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка Initialize: {ex.Message}");
         }
     }
 
+    // Обновляет количество ожидающих синхронизации операций
     public async Task RefreshPendingCount()
     {
         try
@@ -198,53 +202,48 @@ public partial class HomeViewModel : ObservableObject
                 _lastKnownPendingCount = currentCount;
                 PendingCount = currentCount;
                 UpdateSyncStatusMessage(currentCount);
-                System.Diagnostics.Debug.WriteLine($"📊 Счетчик обновлен: {currentCount}");
+                System.Diagnostics.Debug.WriteLine($"Счетчик обновлен: {currentCount}");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления счетчика: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка обновления счетчика: {ex.Message}");
         }
     }
 
-    // ============================================================
-    // ✅ ИСПРАВЛЕННЫЙ МЕТОД СИНХРОНИЗАЦИИ
-    // ============================================================
-
+    // Выполняет синхронизацию
     [RelayCommand]
     private async Task Sync()
     {
         if (IsSyncing) 
         {
-            System.Diagnostics.Debug.WriteLine("⚠️ Синхронизация уже выполняется");
+            System.Diagnostics.Debug.WriteLine("Синхронизация уже выполняется");
             return;
         }
         
-        System.Diagnostics.Debug.WriteLine("🔄 Запуск ручной синхронизации");
+        System.Diagnostics.Debug.WriteLine("Запуск ручной синхронизации");
         
         try
         {
             IsSyncing = true;
-            SyncStatusMessage = "🔄 Проверка подключения...";
+            SyncStatusMessage = "Проверка подключения...";
             
-            // ✅ Проверяем интернет
             var hasInternet = await _syncService.CheckInternetManual();
             if (!hasInternet)
             {
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
-                    "📴 Нет интернета",
+                    "Нет интернета",
                     "Нет подключения к серверу. Синхронизация недоступна.",
                     "OK"
                 );
                 return;
             }
             
-            // ✅ Проверяем авторизацию
             var isAuthenticated = await _authService.ValidateToken();
             if (!isAuthenticated)
             {
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
-                    "⚠️ Требуется авторизация",
+                    "Требуется авторизация",
                     "Сессия истекла. Пожалуйста, войдите заново.",
                     "OK"
                 );
@@ -253,53 +252,43 @@ public partial class HomeViewModel : ObservableObject
                 return;
             }
             
-            // ✅ Синхронизация с индикацией прогресса
-            SyncStatusMessage = "🔄 Синхронизация справочников...";
-            await _syncService.SyncProducts();
+            SyncStatusMessage = "Синхронизация данных...";
+            await _syncService.SyncAllData();
             
-            SyncStatusMessage = "🔄 Синхронизация локаций...";
-            await _syncService.SyncLocations();
-            
-            SyncStatusMessage = "🔄 Синхронизация коробок...";
-            await _syncService.SyncBoxes();
-            
-            // ✅ Обработка офлайн-транзакций (только один раз!)
-            SyncStatusMessage = $"🔄 Обработка офлайн-транзакций...";
+            SyncStatusMessage = "Обработка офлайн-транзакций...";
             await _syncQueueService.ProcessQueueAsync();
             
-            // ✅ Обновляем счетчик
             await RefreshPendingCount();
             
-            // ✅ Обновляем статус
             if (PendingCount == 0)
             {
-                SyncStatusMessage = "✅ Все данные синхронизированы";
+                SyncStatusMessage = "Все данные синхронизированы";
                 
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
-                    "✅ Синхронизация завершена",
+                    "Синхронизация завершена",
                     "Все данные успешно синхронизированы.",
                     "OK"
                 );
             }
             else
             {
-                SyncStatusMessage = $"⏳ Ожидает синхронизации: {PendingCount}";
+                SyncStatusMessage = $"Ожидает синхронизации: {PendingCount}";
                 
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
-                    "⚠️ Частичная синхронизация",
+                    "Частичная синхронизация",
                     $"Осталось {PendingCount} операций для синхронизации.\nПроверьте подключение и попробуйте снова.",
                     "OK"
                 );
             }
             
-            System.Diagnostics.Debug.WriteLine($"✅ Синхронизация завершена. Осталось транзакций: {PendingCount}");
+            System.Diagnostics.Debug.WriteLine($"Синхронизация завершена. Осталось транзакций: {PendingCount}");
         }
         catch (UnauthorizedAccessException)
         {
-            SyncStatusMessage = "❌ Ошибка авторизации";
+            SyncStatusMessage = "Ошибка авторизации";
             
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
-                "⚠️ Требуется авторизация",
+                "Требуется авторизация",
                 "Сессия истекла. Пожалуйста, войдите заново.",
                 "OK"
             );
@@ -309,11 +298,11 @@ public partial class HomeViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации: {ex.Message}");
-            SyncStatusMessage = $"❌ Ошибка: {ex.Message}";
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации: {ex.Message}");
+            SyncStatusMessage = $"Ошибка: {ex.Message}";
             
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
-                "❌ Ошибка синхронизации",
+                "Ошибка синхронизации",
                 $"Не удалось выполнить синхронизацию:\n{ex.Message}",
                 "OK"
             );
@@ -324,6 +313,7 @@ public partial class HomeViewModel : ObservableObject
         }
     }
 
+    // Выполняет поиск сервера
     [RelayCommand]
     private async Task FindServer()
     {
@@ -338,10 +328,10 @@ public partial class HomeViewModel : ObservableObject
                 ServerAddress = serverAddress;
                 Constants.ApiBaseUrl = serverAddress;
                 IsOnline = true;
-                ConnectionStatus = "✅ Онлайн";
+                ConnectionStatus = "Онлайн";
                 
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
-                    "✅ Сервер найден",
+                    "Сервер найден",
                     $"Сервер доступен по адресу:\n{serverAddress}",
                     "OK"
                 );
@@ -349,9 +339,9 @@ public partial class HomeViewModel : ObservableObject
             else
             {
                 IsOnline = false;
-                ConnectionStatus = "📴 Офлайн";
+                ConnectionStatus = "Офлайн";
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
-                    "❌ Сервер не найден",
+                    "Сервер не найден",
                     "Не удалось найти сервер в сети.\nПроверьте подключение.",
                     "OK"
                 );

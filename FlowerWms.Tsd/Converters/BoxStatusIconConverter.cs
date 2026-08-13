@@ -4,20 +4,12 @@ using FlowerWms.Tsd.Models;
 
 namespace FlowerWms.Tsd.Converters;
 
-/// <summary>
-/// Базовый абстрактный класс для всех конвертеров статуса коробки
-/// </summary>
-/// <remarks>
-/// Предоставляет единый метод GetStatus для преобразования значений в BoxStatus
-/// Поддерживает: BoxStatus, int, string (числовое представление)
-/// </remarks>
+#region Базовый конвертер статуса коробки
+
+// Базовый абстрактный класс для всех конвертеров статуса коробки
 public abstract class BoxStatusBaseConverter : IValueConverter
 {
-    /// <summary>
-    /// Преобразует входное значение в BoxStatus
-    /// </summary>
-    /// <param name="value">Значение для преобразования (BoxStatus, int, string)</param>
-    /// <returns>BoxStatus или null если преобразование невозможно</returns>
+    // Преобразует входное значение в BoxStatus (поддерживает BoxStatus, int, string)
     protected BoxStatus? GetStatus(object? value)
     {
         if (value == null)
@@ -45,12 +37,11 @@ public abstract class BoxStatusBaseConverter : IValueConverter
         => throw new NotSupportedException($"Обратное преобразование не поддерживается в {GetType().Name}");
 }
 
-/// <summary>
-/// Конвертер статуса коробки в иконку (эмодзи)
-/// </summary>
-/// <example>
-/// <Label Text="{Binding Status, Converter={StaticResource BoxStatusIcon}}" />
-/// </example>
+#endregion
+
+#region Конвертеры статуса коробки
+
+// Конвертер статуса коробки в иконку (эмодзи)
 public class BoxStatusIconConverter : BoxStatusBaseConverter
 {
     public override object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -70,12 +61,7 @@ public class BoxStatusIconConverter : BoxStatusBaseConverter
     }
 }
 
-/// <summary>
-/// Конвертер статуса коробки в текстовое описание на русском языке
-/// </summary>
-/// <example>
-/// <Label Text="{Binding Status, Converter={StaticResource BoxStatusText}}" />
-/// </example>
+// Конвертер статуса коробки в текстовое описание на русском языке
 public class BoxStatusTextConverter : BoxStatusBaseConverter
 {
     public override object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -95,12 +81,7 @@ public class BoxStatusTextConverter : BoxStatusBaseConverter
     }
 }
 
-/// <summary>
-/// Конвертер статуса коробки в цвет для UI
-/// </summary>
-/// <example>
-/// <BoxView Color="{Binding Status, Converter={StaticResource BoxStatusColor}}" />
-/// </example>
+// Конвертер статуса коробки в цвет для UI
 public class BoxStatusColorConverter : BoxStatusBaseConverter
 {
     public override object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -120,9 +101,7 @@ public class BoxStatusColorConverter : BoxStatusBaseConverter
     }
 }
 
-/// <summary>
-/// Конвертер статуса коробки в фоновый цвет (светлые версии для карточек)
-/// </summary>
+// Конвертер статуса коробки в фоновый цвет (светлые версии для карточек)
 public class BoxStatusBackgroundConverter : BoxStatusBaseConverter
 {
     public override object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -142,39 +121,4 @@ public class BoxStatusBackgroundConverter : BoxStatusBaseConverter
     }
 }
 
-/// <summary>
-/// Конвертер списка коробок в отображение локации
-/// </summary>
-/// <remarks>
-/// Если все коробки в одной локации - показывает ее код
-/// Если в разных - показывает количество уникальных локаций
-/// </remarks>
-public class LocationDisplayConverter : IValueConverter
-{
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is not System.Collections.IEnumerable collection)
-            return "Не указана";
-
-        var boxes = collection.Cast<Box>().ToList();
-        
-        if (!boxes.Any())
-            return "Не указана";
-
-        var locations = boxes
-            .Where(box => !string.IsNullOrEmpty(box.LocationCode))
-            .Select(box => box.LocationCode)
-            .Distinct()
-            .ToList();
-
-        return locations.Count switch
-        {
-            0 => "Не указана",
-            1 => locations.First(),
-            _ => $"{locations.Count} разных"
-        };
-    }
-
-    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => throw new NotSupportedException("Обратное преобразование не поддерживается");
-}
+#endregion

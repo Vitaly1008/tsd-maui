@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8" ?>
+<!-- Ресурсы приложения -->
 <Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:FlowerWms.Tsd"
              x:Class="FlowerWms.Tsd.App">
     <Application.Resources>
         <ResourceDictionary>
-            <!-- Ваши ресурсы будут здесь, но они уже загружаются в App.xaml.cs -->
+            <!-- Ресурсы загружаются в App.xaml.cs -->
         </ResourceDictionary>
     </Application.Resources>
 </Application>

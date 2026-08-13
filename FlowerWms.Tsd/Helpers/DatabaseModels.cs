@@ -2,6 +2,7 @@ using SQLite;
 
 namespace FlowerWms.Tsd.Helpers;
 
+// Модель для офлайн-транзакций
 [Table("offline_transactions")]
 public class OfflineTransaction
 {
@@ -22,10 +23,10 @@ public class OfflineTransaction
     public string? error_message { get; set; }
 }
 
+// Модель для кэша коробок
 [Table("boxes_cache")]
 public class BoxCache
 {
-    // ✅ PrimaryKey по barcode (он уникальный)
     [PrimaryKey]
     public string barcode { get; set; } = string.Empty;
     
@@ -40,13 +41,13 @@ public class BoxCache
     public string? location_id { get; set; }
     public string? location_code { get; set; }
     public string? order_id { get; set; }
-    public int status { get; set; } = 0; // По умолчанию Draft
+    public int status { get; set; } = 0; // 0 - Draft, 1 - Active, 2 - Empty, 3 - Shipped
     public long created_at { get; set; }
     public long updated_at { get; set; }
-
     public int is_dirty { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
 }
 
+// Модель для кэша локаций
 [Table("locations_cache")]
 public class LocationCache
 {
@@ -62,6 +63,7 @@ public class LocationCache
     public long created_at { get; set; }
 }
 
+// Модель для кэша продуктов
 [Table("products_cache")]
 public class ProductCache
 {
@@ -77,10 +79,10 @@ public class ProductCache
     public string? barcode { get; set; }
     public long created_at { get; set; }
     public long updated_at { get; set; }
-    // ⭐ НОВОЕ ПОЛЕ: флаг, что коробка была изменена локально
     public int is_dirty { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
 }
 
+// Модель для кэша операций с коробками
 [Table("box_operations_cache")]
 public class BoxOperationCache
 {

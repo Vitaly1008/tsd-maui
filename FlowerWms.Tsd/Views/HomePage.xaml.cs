@@ -3,6 +3,7 @@ using FlowerWms.Tsd.Services;
 
 namespace FlowerWms.Tsd.Views;
 
+// Главная страница
 public partial class HomePage : BasePage
 {
     private HomeViewModel? _viewModel;
@@ -24,6 +25,7 @@ public partial class HomePage : BasePage
         }
     }
 
+    // Выполняется при загрузке страницы
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
         try
@@ -35,11 +37,12 @@ public partial class HomePage : BasePage
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка инициализации HomePage: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка инициализации HomePage: {ex.Message}");
             await DisplayAlertAsync("Ошибка", $"Не удалось загрузить главный экран: {ex.Message}", "OK");
         }
     }
 
+    // Выполняется при появлении страницы
     protected override async void OnAppearing()
     {
         base.OnAppearing();
@@ -49,17 +52,32 @@ public partial class HomePage : BasePage
         }
     }
 
+    // Возвращает сервис сканера
+    private IBarcodeService? GetBarcodeService()
+    {
+        return Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
+    }
+
+    // Отображает ошибку при недоступности сканера
+    private async Task<bool> EnsureBarcodeService()
+    {
+        var barcodeService = GetBarcodeService();
+        if (barcodeService == null)
+        {
+            await DisplayAlertAsync("Ошибка", "Сервис сканера недоступен", "OK");
+            return false;
+        }
+        return true;
+    }
+
+    // Переход на страницу приемки
     private async void OnNavigateToReceiving(object? sender, EventArgs e)
     {
+        if (!await EnsureBarcodeService()) return;
+        
         try
         {
-            var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
-            if (barcodeService == null)
-            {
-                await DisplayAlertAsync("Ошибка", "Сервис сканера недоступен", "OK");
-                return;
-            }
-            
+            var barcodeService = GetBarcodeService();
             var receivingPage = new ReceivingPage(barcodeService);
             await Navigation.PushAsync(receivingPage);
         }
@@ -69,17 +87,14 @@ public partial class HomePage : BasePage
         }
     }
 
+    // Переход на страницу отгрузки
     private async void OnNavigateToShipping(object? sender, EventArgs e)
     {
+        if (!await EnsureBarcodeService()) return;
+        
         try
         {
-            var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
-            if (barcodeService == null)
-            {
-                await DisplayAlertAsync("Ошибка", "Сервис сканера недоступен", "OK");
-                return;
-            }
-            
+            var barcodeService = GetBarcodeService();
             var shippingPage = new ShippingPage(barcodeService);
             await Navigation.PushAsync(shippingPage);
         }
@@ -89,17 +104,14 @@ public partial class HomePage : BasePage
         }
     }
 
+    // Переход на страницу инвентаризации
     private async void OnNavigateToInventory(object? sender, EventArgs e)
     {
+        if (!await EnsureBarcodeService()) return;
+        
         try
         {
-            var barcodeService = Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
-            if (barcodeService == null)
-            {
-                await DisplayAlertAsync("Ошибка", "Сервис сканера недоступен", "OK");
-                return;
-            }
-            
+            var barcodeService = GetBarcodeService();
             var inventoryPage = new InventoryPage(barcodeService);
             await Navigation.PushAsync(inventoryPage);
         }
@@ -109,11 +121,13 @@ public partial class HomePage : BasePage
         }
     }
 
+    // Переход на страницу ожидающих транзакций
     private async void OnNavigateToPending(object? sender, EventArgs e)
     {
         await DisplayAlertAsync("Информация", "Страница списка транзакций в разработке", "OK");
     }
 
+    // Выход из системы
     private async void OnLogoutRequested(object? sender, EventArgs e)
     {
         await Navigation.PopToRootAsync();

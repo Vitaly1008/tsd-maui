@@ -1,5 +1,6 @@
 namespace FlowerWms.Tsd.Models;
 
+// Модель операции с коробкой
 public class BoxOperation
 {
     public string Id { get; set; } = string.Empty;
@@ -14,6 +15,7 @@ public class BoxOperation
     public int QuantityBefore { get; set; }
     public string? Comment { get; set; }
 
+    // Создает модель из JSON-словаря
     public static BoxOperation FromJson(Dictionary<string, object> json)
     {
         return new BoxOperation
@@ -32,6 +34,7 @@ public class BoxOperation
         };
     }
 
+    // Преобразует модель в словарь для отправки на сервер
     public Dictionary<string, object> ToDictionary()
     {
         return new Dictionary<string, object>

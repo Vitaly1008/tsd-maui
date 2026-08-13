@@ -3,9 +3,9 @@ using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Converters;
 
-/// <summary>
-/// Базовые статические цвета для сканера
-/// </summary>
+#region Статические цвета для сканера
+
+// Базовые статические цвета для сканера
 internal static class ScanColors
 {
     public static readonly Color ScannedBackground = Color.FromArgb("#E8F5E9");
@@ -16,9 +16,11 @@ internal static class ScanColors
     public static readonly Color WaitingText = Color.FromArgb("#9E9E9E");
 }
 
-/// <summary>
-/// Конвертер для фона статуса сканирования
-/// </summary>
+#endregion
+
+#region Конвертеры статуса сканирования
+
+// Конвертер для фона статуса сканирования
 public class ScanStatusBackgroundConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -32,9 +34,7 @@ public class ScanStatusBackgroundConverter : IValueConverter
         => null;
 }
 
-/// <summary>
-/// Конвертер для цвета границы статуса сканирования
-/// </summary>
+// Конвертер для цвета границы статуса сканирования
 public class ScanStatusBorderConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -48,9 +48,7 @@ public class ScanStatusBorderConverter : IValueConverter
         => null;
 }
 
-/// <summary>
-/// Конвертер для иконки статуса сканирования
-/// </summary>
+// Конвертер для иконки статуса сканирования
 public class ScanStatusIconConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -62,9 +60,7 @@ public class ScanStatusIconConverter : IValueConverter
         => null;
 }
 
-/// <summary>
-/// Конвертер для текста статуса сканирования
-/// </summary>
+// Конвертер для текста статуса сканирования
 public class ScanStatusTextConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -79,9 +75,7 @@ public class ScanStatusTextConverter : IValueConverter
         => null;
 }
 
-/// <summary>
-/// Конвертер для цвета текста статуса сканирования
-/// </summary>
+// Конвертер для цвета текста статуса сканирования
 public class ScanStatusColorConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -95,22 +89,14 @@ public class ScanStatusColorConverter : IValueConverter
         => null;
 }
 
-/// <summary>
-/// Конвертер для подсказки статуса сканирования
-/// </summary>
+// Конвертер для подсказки статуса сканирования (поддерживает параметр "invert")
 public class ScanStatusSubtitleConverter : IValueConverter
 {
-    /// <summary>
-    /// Преобразует значение в подсказку
-    /// </summary>
-    /// <param name="value">Отсканированное значение</param>
-    /// <param name="parameter">"invert" для инвертирования логики</param>
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         var invert = parameter?.ToString()?.ToLower() == "invert";
         var hasValue = !string.IsNullOrEmpty(value?.ToString());
 
-        // Если инвертирован режим - меняем местами сообщения
         if (invert)
         {
             return hasValue 
@@ -126,3 +112,5 @@ public class ScanStatusSubtitleConverter : IValueConverter
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => null;
 }
+
+#endregion

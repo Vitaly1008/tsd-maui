@@ -9,19 +9,19 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
 
-        <!-- Android -->
+        <!-- Настройки Android -->
         <AndroidPackageFormat>apk</AndroidPackageFormat>
         <AndroidKeyStore>false</AndroidKeyStore>
         <ApplicationId>com.alphaflowers.wms</ApplicationId>
         <ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
         <ApplicationVersion>1</ApplicationVersion>
         
-        <!-- Android SDK пути -->
+        <!-- Пути к Android SDK и Java SDK -->
         <AndroidSdkDirectory>F:\program\AndroidSDK</AndroidSdkDirectory>
         <JavaSdkDirectory>C:\Program Files\Java\jdk-17</JavaSdkDirectory>
     </PropertyGroup>
 
-    <!-- ✅ Release настройки — отключаем AOT -->
+    <!-- Настройки для Release-сборки -->
     <PropertyGroup Condition="'$(Configuration)' == 'Release'">
         <RunAOTCompilation>false</RunAOTCompilation>
         <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>

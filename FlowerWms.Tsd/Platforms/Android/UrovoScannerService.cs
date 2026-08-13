@@ -5,7 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace FlowerWms.Tsd.Platforms.Android;
 
-// ✅ Убираем DynamicDependency с класса, ставим на методы
+// Сервис сканера Urovo
 public class UrovoScannerService : Java.Lang.Object, IDisposable
 {
     private readonly Context _context;
@@ -20,6 +20,7 @@ public class UrovoScannerService : Java.Lang.Object, IDisposable
         _onBarcodeScanned = onBarcodeScanned;
     }
 
+    // Начинает прослушивание сканера
     public void StartListening()
     {
         if (_isListening) return;
@@ -41,14 +42,15 @@ public class UrovoScannerService : Java.Lang.Object, IDisposable
 
             ActivateScanner();
             
-            System.Diagnostics.Debug.WriteLine("✅ Urovo сканер активирован");
+            System.Diagnostics.Debug.WriteLine("Urovo сканер активирован");
         }
         catch (System.Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка активации сканера: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка активации сканера: {ex.Message}");
         }
     }
 
+    // Активирует сканер через Intent
     private void ActivateScanner()
     {
         try
@@ -58,10 +60,11 @@ public class UrovoScannerService : Java.Lang.Object, IDisposable
         }
         catch (System.Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"⚠️ Не удалось активировать сканер: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Не удалось активировать сканер: {ex.Message}");
         }
     }
 
+    // Останавливает прослушивание сканера
     public void StopListening()
     {
         if (!_isListening || _receiver == null) return;
@@ -73,16 +76,17 @@ public class UrovoScannerService : Java.Lang.Object, IDisposable
             _receiver = null;
             _isListening = false;
             
-            System.Diagnostics.Debug.WriteLine("✅ Urovo сканер остановлен");
+            System.Diagnostics.Debug.WriteLine("Urovo сканер остановлен");
         }
         catch (System.Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка остановки сканера: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка остановки сканера: {ex.Message}");
         }
     }
 
     public bool IsListening => _isListening;
 
+    // Освобождает ресурсы
     public new void Dispose()
     {
         if (_disposed) return;
@@ -93,7 +97,7 @@ public class UrovoScannerService : Java.Lang.Object, IDisposable
     }
 }
 
-// ✅ Убираем DynamicDependency с класса, ставим на методы
+// BroadcastReceiver для обработки сканирования Urovo
 public class UrovoBroadcastReceiver : BroadcastReceiver
 {
     private readonly Action<string>? _onBarcodeScanned;
@@ -117,29 +121,31 @@ public class UrovoBroadcastReceiver : BroadcastReceiver
             var now = SystemClock.UptimeMillis();
             if (now - _lastScanTime < 300)
             {
-                System.Diagnostics.Debug.WriteLine($"⏳ Дебаунс: {barcode}");
+                System.Diagnostics.Debug.WriteLine($"Дебаунс: {barcode}");
                 return;
             }
 
             if (barcode == _lastBarcode)
             {
-                System.Diagnostics.Debug.WriteLine($"🔄 Повторный штрихкод: {barcode}");
+                System.Diagnostics.Debug.WriteLine($"Повторный штрихкод: {barcode}");
                 return;
             }
 
             _lastScanTime = now;
             _lastBarcode = barcode;
 
-            var cleaned = CleanBarcode(barcode);
-            System.Diagnostics.Debug.WriteLine($"📷 Штрихкод Urovo: {cleaned}");
+            var cleaned = BarcodeBroadcastReceiver.CleanBarcode(barcode);
+            System.Diagnostics.Debug.WriteLine($"Штрихкод Urovo: {cleaned}");
             _onBarcodeScanned?.Invoke(cleaned);
         }
     }
 
+    // Извлекает штрихкод из Intent для сканера Urovo
     private string ExtractBarcode(Intent intent)
     {
         var action = intent.Action;
 
+        // Urovo сканер
         if (action == "com.urovo.scanner.ACTION_BARCODE_RESULT" ||
             action == "com.urovo.scanner.ACTION_SCAN_RESULT")
         {
@@ -156,6 +162,7 @@ public class UrovoBroadcastReceiver : BroadcastReceiver
             if (!string.IsNullOrEmpty(barcode)) return barcode;
         }
 
+        // ACTION_VIEW (URI)
         if (action == Intent.ActionView)
         {
             var uri = intent.Data;
@@ -165,6 +172,7 @@ public class UrovoBroadcastReceiver : BroadcastReceiver
             }
         }
 
+        // DataWedge (Symbol/Zebra)
         if (action == "com.symbol.datawedge.api.ACTION_BARCODE")
         {
             var barcode = intent.GetStringExtra("com.ubx.datawedge.data_string");
@@ -178,25 +186,5 @@ public class UrovoBroadcastReceiver : BroadcastReceiver
         }
 
         return string.Empty;
-    }
-
-    private string CleanBarcode(string raw)
-    {
-        var cleaned = raw;
-
-        var prefixes = new[] { "] ", "]", "\\", "/", "--", "??" };
-        foreach (var prefix in prefixes)
-        {
-            if (cleaned.StartsWith(prefix))
-            {
-                cleaned = cleaned.Substring(prefix.Length);
-                break;
-            }
-        }
-
-        cleaned = cleaned.Trim();
-        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"[\x00-\x1F\x7F]", "");
-
-        return cleaned;
     }
 }

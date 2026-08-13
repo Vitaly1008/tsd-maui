@@ -4,13 +4,13 @@ using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Views;
 
+// Страница входа
 public partial class LoginPage : BasePage
 {
     private LoginViewModel? _viewModel;
 
     public LoginPage()
     {
-        // ✅ ВЫЗЫВАЕМ InitializeComponent() ЗДЕСЬ
         InitializeComponent();
         
         _viewModel = BindingContext as LoginViewModel;
@@ -20,27 +20,34 @@ public partial class LoginPage : BasePage
             _viewModel.LoginSuccess += OnLoginSuccess;
         }
 
-        this.Loaded += async (s, e) =>
-        {
-            var passwordEntry = this.FindByName<Entry>("PasswordEntry");
-            if (passwordEntry != null)
-            {
-                passwordEntry.Completed += async (sender, args) =>
-                {
-                    if (_viewModel != null && !_viewModel.IsLoading)
-                    {
-                        await _viewModel.LoginCommand.ExecuteAsync(null);
-                    }
-                };
-            }
-            
-            if (_viewModel != null)
-            {
-                await _viewModel.CheckServerAsync();
-            }
-        };
+        Loaded += OnPageLoaded;
     }
 
+    // Выполняется при загрузке страницы
+    private async void OnPageLoaded(object? sender, EventArgs e)
+    {
+        var passwordEntry = this.FindByName<Entry>("PasswordEntry");
+        if (passwordEntry != null)
+        {
+            passwordEntry.Completed += OnPasswordEntryCompleted;
+        }
+        
+        if (_viewModel != null)
+        {
+            await _viewModel.CheckServerAsync();
+        }
+    }
+
+    // Обработчик нажатия Enter в поле пароля
+    private async void OnPasswordEntryCompleted(object? sender, EventArgs e)
+    {
+        if (_viewModel != null && !_viewModel.IsLoading)
+        {
+            await _viewModel.LoginCommand.ExecuteAsync(null);
+        }
+    }
+
+    // Обработчик успешного входа
     private async void OnLoginSuccess(object? sender, LoginResponse response)
     {
         try
@@ -51,7 +58,7 @@ public partial class LoginPage : BasePage
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка навигации: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка навигации: {ex.Message}");
             await DisplayAlertAsync("Ошибка", $"Не удалось перейти на главный экран: {ex.Message}", "OK");
         }
     }

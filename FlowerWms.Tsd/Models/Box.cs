@@ -1,5 +1,6 @@
 namespace FlowerWms.Tsd.Models;
 
+// Модель коробки
 public class Box
 {
     public string Id { get; set; } = string.Empty;
@@ -10,17 +11,17 @@ public class Box
     public int CurrentQuantity { get; set; }
     public string ProductId { get; set; } = string.Empty;
     public string? LocationId { get; set; }
-    public int Status { get; set; } = 1; // 1 = Active
+    public int Status { get; set; } = 1; // 1 - Active
     public long CreatedAt { get; set; }
     public long UpdatedAt { get; set; }
     public string? OrderId { get; set; }
     
-    // Вычисляемые поля (для отображения, не хранятся в БД)
+    // Вычисляемые поля для отображения (не хранятся в БД)
     public string ProductName { get; set; } = string.Empty;
     public string ProductEan13 { get; set; } = string.Empty;
     public string? LocationCode { get; set; }
 
-    // ✅ Добавляем свойство Quantity для удобства (алиас для CurrentQuantity)
+    // Алиас для CurrentQuantity
     public int Quantity
     {
         get => CurrentQuantity;
@@ -29,9 +30,9 @@ public class Box
 
     public bool IsDirty { get; set; }
 
+    // Создает модель из JSON-словаря
     public static Box FromJson(Dictionary<string, object> json)
     {
-        // Получаем Id (может быть Guid или string)
         string id = "";
         var idObj = json.GetValueOrDefault("id", "");
         if (idObj is Guid guid)
@@ -41,7 +42,6 @@ public class Box
         
         string barcode = json.GetValueOrDefault("barcode", "")?.ToString() ?? "";
         
-        // Получаем номер коробки (может быть в поле boxNumber или номер может быть в штрихкоде)
         int boxNumber = 0;
         var boxNumberObj = json.GetValueOrDefault("boxNumber", 0);
         if (boxNumberObj is int i)
@@ -53,7 +53,6 @@ public class Box
         else if (boxNumberObj is double d)
             boxNumber = (int)d;
         
-        // Если boxNumber не пришел, пытаемся извлечь из штрихкода
         if (boxNumber == 0 && !string.IsNullOrEmpty(barcode))
         {
             var parts = barcode.Split('-');
@@ -61,7 +60,6 @@ public class Box
                 boxNumber = n;
         }
         
-        // Получаем сорт (FlowerGrade - это ENUM, может быть числом или строкой)
         string grade = "Premium";
         var gradeObj = json.GetValueOrDefault("grade", 9);
         
@@ -91,7 +89,6 @@ public class Box
         }
         else if (gradeObj is string gradeStr)
         {
-            // Если пришла строка, пробуем распарсить
             if (int.TryParse(gradeStr, out var g))
             {
                 grade = g switch
@@ -110,11 +107,9 @@ public class Box
             }
         }
         
-        // Получаем количество (текущее и начальное)
         int currentQuantity = 0;
         int initialQuantity = 0;
         
-        // Пробуем получить CurrentQuantity
         var currentQtyObj = json.GetValueOrDefault("currentQuantity", 0);
         if (currentQtyObj is int cqi)
             currentQuantity = cqi;
@@ -125,7 +120,6 @@ public class Box
         else if (currentQtyObj is double cqd)
             currentQuantity = (int)cqd;
         
-        // Пробуем получить InitialQuantity
         var initialQtyObj = json.GetValueOrDefault("initialQuantity", currentQuantity);
         if (initialQtyObj is int iqi)
             initialQuantity = iqi;
@@ -136,7 +130,6 @@ public class Box
         else if (initialQtyObj is double iqd)
             initialQuantity = (int)iqd;
         
-        // Если currentQuantity не найден, пробуем получить из штрихкода
         if (currentQuantity == 0 && !string.IsNullOrEmpty(barcode))
         {
             var parts = barcode.Split('-');
@@ -146,7 +139,6 @@ public class Box
         if (initialQuantity == 0)
             initialQuantity = currentQuantity;
         
-        // Получаем статус
         int status = 1;
         var statusObj = json.GetValueOrDefault("status", 1);
         if (statusObj is int si)
@@ -156,7 +148,6 @@ public class Box
         else if (statusObj is string ss && int.TryParse(ss, out var sn))
             status = sn;
         
-        // Получаем даты
         long createdAt = 0;
         var createdAtObj = json.GetValueOrDefault("createdAt", 0);
         if (createdAtObj is long cal)
@@ -171,18 +162,11 @@ public class Box
         else if (updatedAtObj is DateTime udt)
             updatedAt = new DateTimeOffset(udt).ToUnixTimeMilliseconds();
         
-        // Получаем ProductId
         string productId = json.GetValueOrDefault("productId", "")?.ToString() ?? "";
-        
-        // Получаем ProductName (может быть в productName или name)
         string productName = json.GetValueOrDefault("productName", "")?.ToString() ?? "";
         if (string.IsNullOrEmpty(productName))
             productName = json.GetValueOrDefault("name", "Неизвестный продукт")?.ToString() ?? "Неизвестный продукт";
-        
-        // Получаем Ean13
         string productEan13 = json.GetValueOrDefault("ean13", json.GetValueOrDefault("Ean13", ""))?.ToString() ?? "";
-        
-        // Получаем LocationCode
         string locationCode = json.GetValueOrDefault("locationCode", "")?.ToString() ?? "";
         string locationId = json.GetValueOrDefault("locationId", "")?.ToString() ?? "";
         
@@ -206,6 +190,7 @@ public class Box
         };
     }
 
+    // Преобразует модель в словарь для отправки на сервер
     public Dictionary<string, object> ToDictionary()
     {
         return new Dictionary<string, object>
@@ -216,7 +201,7 @@ public class Box
             ["grade"] = Grade,
             ["initialQuantity"] = InitialQuantity,
             ["currentQuantity"] = CurrentQuantity,
-            ["quantity"] = CurrentQuantity, // ✅ Добавляем для совместимости
+            ["quantity"] = CurrentQuantity,
             ["productId"] = ProductId,
             ["locationId"] = LocationId ?? "",
             ["status"] = Status,

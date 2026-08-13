@@ -1,5 +1,6 @@
 namespace FlowerWms.Tsd.Models;
 
+// Модель локации
 public class Location
 {
     public string Id { get; set; } = string.Empty;
@@ -9,6 +10,7 @@ public class Location
     public long CreatedAt { get; set; }
     public string? Barcode { get; set; }
 
+    // Создает модель из JSON-словаря
     public static Location FromJson(Dictionary<string, object> json)
     {
         return new Location
@@ -22,6 +24,7 @@ public class Location
         };
     }
 
+    // Преобразует модель в словарь для отправки на сервер
     public Dictionary<string, object> ToDictionary()
     {
         return new Dictionary<string, object>

@@ -3,11 +3,13 @@ using FlowerWms.Tsd.Services;
 
 namespace FlowerWms.Tsd.Platforms.Android;
 
+// Статический контекст Android для доступа из сервисов
 public static class AndroidContext
 {
     public static Context? Current { get; set; }
 }
 
+// Реализация IBarcodeService для Android
 public class BarcodeService : IBarcodeService
 {
     private UrovoScannerService? _scannerService;
@@ -19,10 +21,10 @@ public class BarcodeService : IBarcodeService
 
     public BarcodeService()
     {
-        // ✅ Инициализация отложенная
-        System.Diagnostics.Debug.WriteLine("✅ BarcodeService создан");
+        System.Diagnostics.Debug.WriteLine("BarcodeService создан");
     }
 
+    // Гарантирует инициализацию UrovoScannerService
     private void EnsureScannerService()
     {
         if (_scannerService != null) return;
@@ -30,17 +32,17 @@ public class BarcodeService : IBarcodeService
         var context = AndroidContext.Current;
         if (context == null)
         {
-            System.Diagnostics.Debug.WriteLine("❌ Контекст Android недоступен");
+            System.Diagnostics.Debug.WriteLine("Контекст Android недоступен");
             return;
         }
 
         _scannerService = new UrovoScannerService(context, (barcode) =>
         {
-            // ✅ Безопасный вызов события
             OnBarcodeScanned?.Invoke(barcode);
         });
     }
 
+    // Начинает прослушивание сканера
     public void StartListening()
     {
         lock (_lock)
@@ -60,14 +62,15 @@ public class BarcodeService : IBarcodeService
                 _isListening = true;
             }
 
-            System.Diagnostics.Debug.WriteLine("✅ Сканер запущен");
+            System.Diagnostics.Debug.WriteLine("Сканер запущен");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка запуска сканера: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка запуска сканера: {ex.Message}");
         }
     }
 
+    // Останавливает прослушивание сканера
     public void StopListening()
     {
         lock (_lock)
@@ -84,14 +87,15 @@ public class BarcodeService : IBarcodeService
                 _isListening = false;
             }
 
-            System.Diagnostics.Debug.WriteLine("✅ Сканер остановлен");
+            System.Diagnostics.Debug.WriteLine("Сканер остановлен");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка остановки сканера: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка остановки сканера: {ex.Message}");
         }
     }
 
+    // Возвращает статус прослушивания
     public bool IsListening
     {
         get
@@ -103,6 +107,7 @@ public class BarcodeService : IBarcodeService
         }
     }
 
+    // Освобождает ресурсы
     public void Dispose()
     {
         if (_disposed) return;

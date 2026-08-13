@@ -4,6 +4,7 @@ using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Views;
 
+// Страница приемки коробок
 public partial class ReceivingPage : BasePage
 {
     private ReceivingViewModel? _viewModel;
@@ -11,7 +12,6 @@ public partial class ReceivingPage : BasePage
 
     public ReceivingPage(IBarcodeService barcodeService)
     {
-        // ✅ ВЫЗЫВАЕМ InitializeComponent() ЗДЕСЬ
         InitializeComponent();
         
         _barcodeService = barcodeService;
@@ -20,6 +20,7 @@ public partial class ReceivingPage : BasePage
         Unloaded += OnPageUnloaded;
     }
 
+    // Выполняется при загрузке страницы
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
         try
@@ -27,13 +28,10 @@ public partial class ReceivingPage : BasePage
             _viewModel = new ReceivingViewModel(_barcodeService);
             BindingContext = _viewModel;
             
-            if (_viewModel != null)
-            {
-                _viewModel.OperationCompleted += OnOperationCompleted;
-                _viewModel.OperationCancelled += OnOperationCancelled;
-                
-                await _viewModel.Initialize();
-            }
+            _viewModel.OperationCompleted += OnOperationCompleted;
+            _viewModel.OperationCancelled += OnOperationCancelled;
+            
+            await _viewModel.Initialize();
         }
         catch (Exception ex)
         {
@@ -43,26 +41,36 @@ public partial class ReceivingPage : BasePage
         }
     }
 
+    // Выполняется при выгрузке страницы
     private void OnPageUnloaded(object? sender, EventArgs e)
     {
-        _viewModel?.StopScanner();
+        StopScannerAndDispose();
     }
 
+    // Обработчик завершения операции
     private async void OnOperationCompleted(object? sender, EventArgs e)
     {
-        _viewModel?.StopScanner();
+        StopScannerAndDispose();
         await Navigation.PopAsync();
     }
 
+    // Обработчик отмены операции
     private async void OnOperationCancelled(object? sender, EventArgs e)
     {
-        _viewModel?.StopScanner();
+        StopScannerAndDispose();
         await Navigation.PopAsync();
     }
-    
+
+    // Выполняется при исчезновении страницы
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        StopScannerAndDispose();
+    }
+
+    // Останавливает сканер и освобождает ресурсы
+    private void StopScannerAndDispose()
+    {
         _viewModel?.StopScanner();
         _viewModel?.Dispose();
     }

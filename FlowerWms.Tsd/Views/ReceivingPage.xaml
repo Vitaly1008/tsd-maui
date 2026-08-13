@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
+<!-- Страница приемки коробок -->
 <views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
                 xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
                 xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
@@ -44,7 +45,7 @@
         <ScrollView Grid.Row="1" Padding="16">
             <VerticalStackLayout Spacing="16">
 
-                <!-- Кнопка "Принять" - наверху -->
+                <!-- Кнопка "Принять" -->
                 <Button Text="✅ Принять коробки" 
                         Command="{Binding ConfirmOperationCommand}"
                         IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
@@ -98,7 +99,7 @@
                     </Grid>
                 </Frame>
 
-                <!-- Список отсканированных коробок - выпадающий -->
+                <!-- Список отсканированных коробок -->
                 <Frame Padding="0" CornerRadius="12" HasShadow="True" BackgroundColor="White">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -106,7 +107,7 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         
-                        <!-- Заголовок с возможностью сворачивания -->
+                        <!-- Заголовок списка -->
                         <Frame Grid.Row="0" 
                                Padding="16,12" 
                                BackgroundColor="{StaticResource PrimaryColor}"
@@ -140,7 +141,7 @@
                             </Grid>
                         </Frame>
 
-                        <!-- Список - отображается только если развернут -->
+                        <!-- Список коробок -->
                         <CollectionView Grid.Row="1"
                                         IsVisible="{Binding IsBoxListExpanded}"
                                         ItemsSource="{Binding ScannedBoxes}"
@@ -163,7 +164,6 @@
                                                    FontSize="11" 
                                                    TextColor="Gray" />
                                         </VerticalStackLayout>
-                                        <!-- Крестик для удаления -->
                                         <Button Grid.Column="2"
                                                 Text="✕"
                                                 Command="{Binding BindingContext.RemoveBoxCommand, Source={RelativeSource AncestorType={x:Type views:ReceivingPage}}}"

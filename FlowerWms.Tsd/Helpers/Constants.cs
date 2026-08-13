@@ -3,6 +3,7 @@ using Microsoft.Maui.Storage;
 
 namespace FlowerWms.Tsd.Helpers;
 
+// Хранение глобальных констант и настроек приложения
 public static class Constants
 {
     private static string? _apiBaseUrl;
@@ -11,6 +12,7 @@ public static class Constants
     private const string CONFIG_KEY_API = "apiBaseUrl";
     private const string CONFIG_KEY_DEVICE = "deviceId";
 
+    // Базовый URL API с сохранением в SecureStorage
     public static string ApiBaseUrl
     {
         get
@@ -20,7 +22,6 @@ public static class Constants
                 if (!string.IsNullOrEmpty(_apiBaseUrl))
                     return _apiBaseUrl;
 
-                // Загружаем из SecureStorage
                 _apiBaseUrl = LoadConfig(CONFIG_KEY_API, null);
                 
                 if (string.IsNullOrEmpty(_apiBaseUrl))
@@ -41,6 +42,7 @@ public static class Constants
         }
     }
 
+    // Идентификатор устройства с загрузкой из SecureStorage
     public static string DeviceId
     {
         get
@@ -53,7 +55,7 @@ public static class Constants
         }
     }
 
-    // ✅ Используем SecureStorage для безопасного хранения
+    // Загрузка конфигурации из SecureStorage
     private static string LoadConfig(string key, string? defaultValue)
     {
         try
@@ -74,6 +76,7 @@ public static class Constants
         }
     }
 
+    // Сохранение конфигурации в SecureStorage
     private static void SaveConfig(string key, string value)
     {
         try
@@ -88,6 +91,7 @@ public static class Constants
         }
     }
 
+    // API endpoints
     public static class ApiEndpoints
     {
         public const string Ping = "/api/ping";
@@ -98,10 +102,10 @@ public static class Constants
         public const string EndOperation = "/api/tsd/operation/end";
         public const string SyncBox = "/api/barcodes/sync-box";
         public const string Products = "/api/products";
-        public const string BoxesByLocation = "/api/boxes/location";  // НОВЫЙ
+        public const string BoxesByLocation = "/api/boxes/location";
         public const string BoxByBarcode = "/api/boxes/by-barcode/{barcode}";
-        public const string MoveBox = "/api/boxes/move";              // НОВЫЙ
-        public const string UpdateBoxQuantity = "/api/boxes/quantity"; // НОВЫЙ
+        public const string MoveBox = "/api/boxes/move";
+        public const string UpdateBoxQuantity = "/api/boxes/quantity";
         public const string CreateDraftBox = "/api/barcodes/create-draft-box";
         public const string ActivateBox = "/api/barcodes/activate-box";
         public const string DraftBoxByBarcode = "/api/barcodes/draft-box/barcode";

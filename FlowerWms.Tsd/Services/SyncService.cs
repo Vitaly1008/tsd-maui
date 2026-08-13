@@ -3,11 +3,13 @@ using FlowerWms.Tsd.Models;
 
 namespace FlowerWms.Tsd.Services;
 
+// Основной сервис синхронизации
 public class SyncService
 {
     private readonly ApiService _apiService;
     private readonly DatabaseHelper _dbHelper;
-    private readonly SecureStorageService _secureStorage;
+    private readonly OfflineService _offlineService;
+    private readonly SyncQueueService _syncQueueService;
     private SyncStatus _currentStatus = SyncStatus.Offline;
 
     public event EventHandler<SyncStatus>? StatusChanged;
@@ -16,7 +18,8 @@ public class SyncService
     {
         _apiService = new ApiService();
         _dbHelper = new DatabaseHelper();
-        _secureStorage = new SecureStorageService();
+        _offlineService = new OfflineService();
+        _syncQueueService = new SyncQueueService();
     }
 
     private void SetStatus(SyncStatus status)
@@ -28,9 +31,7 @@ public class SyncService
         }
     }
 
-    /// <summary>
-    /// Полная синхронизация - обновление кэша
-    /// </summary>
+    // Выполняет полную синхронизацию всех данных
     public async Task SyncAllData()
     {
         try
@@ -42,16 +43,17 @@ public class SyncService
             await SyncBoxes();
             
             SetStatus(SyncStatus.Online);
-            System.Diagnostics.Debug.WriteLine("✅ SyncAllData завершена");
+            System.Diagnostics.Debug.WriteLine("SyncAllData завершена");
         }
         catch (Exception ex)
         {
             SetStatus(SyncStatus.Offline);
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка SyncAllData: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка SyncAllData: {ex.Message}");
             throw;
         }
     }
 
+    // Синхронизирует справочник продуктов
     public async Task SyncProducts()
     {
         try
@@ -70,20 +72,21 @@ public class SyncService
                 }).ToList();
                 
                 await _dbHelper.SyncProducts(productCacheList);
-                System.Diagnostics.Debug.WriteLine($"✅ Синхронизировано продуктов: {productCacheList.Count}");
+                System.Diagnostics.Debug.WriteLine($"Синхронизировано продуктов: {productCacheList.Count}");
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("⚠️ Нет продуктов для синхронизации");
+                System.Diagnostics.Debug.WriteLine("Нет продуктов для синхронизации");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации продуктов: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации продуктов: {ex.Message}");
             throw;
         }
     }
 
+    // Синхронизирует справочник локаций
     public async Task SyncLocations()
     {
         try
@@ -101,20 +104,21 @@ public class SyncService
                 }).ToList();
                 
                 await _dbHelper.SyncLocations(locationCacheList);
-                System.Diagnostics.Debug.WriteLine($"✅ Синхронизировано локаций: {locationCacheList.Count}");
+                System.Diagnostics.Debug.WriteLine($"Синхронизировано локаций: {locationCacheList.Count}");
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("⚠️ Нет локаций для синхронизации");
+                System.Diagnostics.Debug.WriteLine("Нет локаций для синхронизации");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации локаций: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации локаций: {ex.Message}");
             throw;
         }
     }
 
+    // Синхронизирует активные коробки
     public async Task SyncBoxes()
     {
         try
@@ -126,7 +130,6 @@ public class SyncService
                 
                 foreach (var box in boxes)
                 {
-                    // ✅ Синхронизируем только Active (1) и Empty (2)
                     if (box.Status == 1 || box.Status == 2)
                     {
                         boxCacheList.Add(new BoxCache
@@ -152,25 +155,26 @@ public class SyncService
                 if (boxCacheList.Any())
                 {
                     await _dbHelper.SyncBoxes(boxCacheList);
-                    System.Diagnostics.Debug.WriteLine($"✅ Синхронизировано коробок: {boxCacheList.Count}");
+                    System.Diagnostics.Debug.WriteLine($"Синхронизировано коробок: {boxCacheList.Count}");
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine("⚠️ Нет активных коробок для синхронизации");
+                    System.Diagnostics.Debug.WriteLine("Нет активных коробок для синхронизации");
                 }
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("⚠️ Нет коробок для синхронизации");
+                System.Diagnostics.Debug.WriteLine("Нет коробок для синхронизации");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации коробок: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации коробок: {ex.Message}");
             throw;
         }
     }
 
+    // Проверяет доступность интернета
     public async Task<bool> CheckInternetManual()
     {
         try
@@ -186,62 +190,17 @@ public class SyncService
         }
     }
 
-    /// <summary>
-    /// Проверка авторизации (проверяет токен через API)
-    /// </summary>
-    public async Task<bool> ValidateToken()
-    {
-        try
-        {
-            var token = await _secureStorage.GetToken();
-            if (string.IsNullOrEmpty(token))
-                return false;
-            
-            // Проверяем токен через API (ping с авторизацией)
-            return await _apiService.PingServer();
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    public async Task<int> GetPendingCount()
-    {
-        try
-        {
-            var dbHelper = new DatabaseHelper();
-            var db = await dbHelper.GetDatabaseAsync();
-            
-            var count = await db.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM offline_transactions WHERE is_synced = 0"
-            );
-            
-            return count;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения счетчика: {ex.Message}");
-            return 0;
-        }
-    }
-
-    /// <summary>
-    /// Ручная синхронизация (для NetworkService)
-    /// </summary>
+    // Выполняет ручную синхронизацию
     public async Task SyncManual()
     {
         try
         {
             await SyncAllData();
-            
-            // Обработка офлайн-транзакций
-            var syncQueue = new SyncQueueService();
-            await syncQueue.ProcessQueueAsync();
+            await _syncQueueService.ProcessQueueAsync();
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка ручной синхронизации: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка ручной синхронизации: {ex.Message}");
             throw;
         }
     }

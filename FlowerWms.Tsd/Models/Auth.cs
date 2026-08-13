@@ -1,10 +1,12 @@
 namespace FlowerWms.Tsd.Models;
 
+// Модель запроса аутентификации
 public class LoginRequest
 {
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
 
+    // Преобразует модель в словарь для отправки на сервер
     public Dictionary<string, string> ToDictionary()
     {
         return new Dictionary<string, string>
@@ -15,6 +17,7 @@ public class LoginRequest
     }
 }
 
+// Модель ответа аутентификации
 public class LoginResponse
 {
     public string Token { get; set; } = string.Empty;
@@ -22,6 +25,7 @@ public class LoginResponse
     public string Role { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
 
+    // Создает модель из JSON-словаря
     public static LoginResponse FromJson(Dictionary<string, object> json)
     {
         return new LoginResponse

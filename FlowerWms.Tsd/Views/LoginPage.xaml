@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
+<!-- Страница входа -->
 <views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
                 xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
                 xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
@@ -22,7 +23,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Статус сервера + кнопка поиска -->
+        <!-- Статус сервера и кнопка поиска -->
         <Grid Grid.Row="0" 
               ColumnDefinitions="*, Auto"
               Margin="0,5,0,0">
@@ -44,7 +45,7 @@
             <Button Grid.Column="1"
                     Text="{Binding SearchButtonText}"
                     Command="{Binding FindServerCommand}"
-                    IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBooleanConverter}}"
+                    IsEnabled="{Binding IsLoading, Converter={StaticResource InvertBooleanConverter}}"
                     BackgroundColor="White"
                     TextColor="{StaticResource PrimaryColor}"
                     CornerRadius="8"
@@ -62,20 +63,17 @@
                              HorizontalOptions="Center"
                              Margin="0,16,0,0">
             
-            <!-- ✅ Заголовок меняется при поиске -->
             <Label Text="{Binding TitleText}" 
                    FontSize="28" 
                    FontAttributes="Bold" 
                    TextColor="White" 
                    HorizontalTextAlignment="Center" />
             
-            <!-- ✅ Подзаголовок меняется при поиске -->
             <Label Text="{Binding SubtitleText}" 
                    FontSize="14" 
                    TextColor="#E0E0E0" 
                    HorizontalTextAlignment="Center" />
             
-            <!-- ✅ Адрес сервера или диапазон сканирования -->
             <Label Text="{Binding ServerAddressDisplay}" 
                    FontSize="11" 
                    TextColor="#CCCCCC" 
@@ -108,7 +106,7 @@
                 <Label Grid.Row="0"
                        Text="{Binding ErrorMessage}"
                        TextColor="{StaticResource DangerColor}"
-                       IsVisible="{Binding ErrorMessage, Converter={StaticResource StringNotEmptyConverter}}"
+                       IsVisible="{Binding ErrorMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}"
                        FontSize="13" />
 
                 <!-- Имя пользователя -->

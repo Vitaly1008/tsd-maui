@@ -1,5 +1,6 @@
 namespace FlowerWms.Tsd.Models;
 
+// Типы операций
 public enum OperationType
 {
     Receiving,
@@ -8,6 +9,7 @@ public enum OperationType
     Inventory
 }
 
+// Статусы синхронизации
 public enum SyncStatus
 {
     Online,

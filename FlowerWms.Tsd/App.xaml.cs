@@ -4,6 +4,7 @@ using FlowerWms.Tsd.Converters;
 
 namespace FlowerWms.Tsd;
 
+// Точка входа приложения
 public partial class App : Application
 {
     public App()
@@ -15,26 +16,27 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Критическая ошибка при создании App: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Критическая ошибка при создании App: {ex.Message}");
             System.Diagnostics.Debug.WriteLine($"StackTrace: {ex.StackTrace}");
             throw;
         }
     }
 
+    // Инициализирует ресурсы приложения
     private void InitializeResources()
     {
         Resources = new ResourceDictionary();
 
         // Регистрация конвертеров
-        Resources.Add("InverseBooleanConverter", new InverseBooleanConverter());
+        Resources.Add("InvertBooleanConverter", new InvertBooleanConverter());
         Resources.Add("GreaterThanZeroConverter", new GreaterThanZeroConverter());
-        Resources.Add("IsNotNullConverter", new IsNotNullConverter());
-        Resources.Add("StringNotEmptyConverter", new StringNotEmptyConverter());
+        Resources.Add("IsNotNullOrEmptyConverter", new IsNotNullOrEmptyConverter());
         Resources.Add("ConnectionIconConverter", new ConnectionIconConverter());
         Resources.Add("SyncStatusIconConverter", new SyncStatusIconConverter());
         Resources.Add("ModeBackgroundConverter", new ModeBackgroundConverter());
         Resources.Add("ModeTextColorConverter", new ModeTextColorConverter());
         Resources.Add("ModeLabelConverter", new ModeLabelConverter());
+        Resources.Add("ModeBorderConverter", new ModeBorderConverter());
         Resources.Add("ScanStatusBackgroundConverter", new ScanStatusBackgroundConverter());
         Resources.Add("ScanStatusBorderConverter", new ScanStatusBorderConverter());
         Resources.Add("ScanStatusIconConverter", new ScanStatusIconConverter());
@@ -44,15 +46,11 @@ public partial class App : Application
         Resources.Add("SearchButtonTextConverter", new SearchButtonTextConverter());
         Resources.Add("StatusBarPaddingConverter", new StatusBarPaddingConverter());
         Resources.Add("ExpandIconConverter", new ExpandIconConverter());
-
         Resources.Add("BoxStatusIconConverter", new BoxStatusIconConverter());
-        Resources.Add("BoxStatusLabelConverter", new BoxStatusLabelConverter());
+        Resources.Add("BoxStatusTextConverter", new BoxStatusTextConverter());
         Resources.Add("BoxStatusColorConverter", new BoxStatusColorConverter());
+        Resources.Add("BoxStatusBackgroundConverter", new BoxStatusBackgroundConverter());
         Resources.Add("LocationDisplayConverter", new LocationDisplayConverter());
-
-        Resources.Add("StatusTextConverter", new StatusTextConverter());
-        Resources.Add("StatusColorConverter", new StatusColorConverter());
-        Resources.Add("ModeBorderConverter", new ModeBorderConverter());
 
         // Цвета
         Resources.Add("PrimaryColor", Color.FromArgb("#2E7D32"));
@@ -66,6 +64,7 @@ public partial class App : Application
         AddStyles();
     }
 
+    // Добавляет стили для кнопок
     private void AddStyles()
     {
         Resources.Add("PrimaryButton", new Style(typeof(Button))

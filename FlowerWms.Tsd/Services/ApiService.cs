@@ -6,6 +6,7 @@ using Location = FlowerWms.Tsd.Models.Location;
 
 namespace FlowerWms.Tsd.Services;
 
+// HTTP-запросы к бэкенду
 public class ApiService
 {
     private HttpClient _httpClient;
@@ -21,14 +22,13 @@ public class ApiService
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
     }
 
-    /// <summary>
-    /// Обновить базовый адрес API
-    /// </summary>
+    // Обновляет базовый адрес API
     public void UpdateBaseUrl(string newBaseUrl)
     {
         Constants.ApiBaseUrl = newBaseUrl;
     }
 
+    // Возвращает HttpClient с токеном авторизации
     private async Task<HttpClient> GetHttpClient()
     {
         var token = await _secureStorage.GetToken();
@@ -40,9 +40,7 @@ public class ApiService
         return _httpClient;
     }
 
-    /// <summary>
-    /// Проверка доступности сервера
-    /// </summary>
+    // Проверяет доступность сервера
     public async Task<bool> PingServer()
     {
         try
@@ -57,6 +55,7 @@ public class ApiService
         }
     }
 
+    // Выполняет запрос с поддержкой офлайн-режима
     private async Task<T?> RequestWithOfflineSupport<T>(
         HttpMethod method,
         string path,
@@ -104,7 +103,6 @@ public class ApiService
                     deviceId: Constants.DeviceId
                 );
 
-                // Возвращаем заглушку для офлайн-режима
                 if (typeof(T) == typeof(Dictionary<string, object>))
                 {
                     var result = new Dictionary<string, object>
@@ -118,6 +116,132 @@ public class ApiService
             }
 
             throw;
+        }
+    }
+
+    // Выполняет POST-запрос с обработкой ответа
+    private async Task<Dictionary<string, object>> ExecutePostRequest(string url, object data)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var json = JsonSerializer.Serialize(data);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await client.PostAsync(url, content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseData = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = responseData ?? new Dictionary<string, object>()
+                };
+            }
+
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    // Выполняет PUT-запрос с обработкой ответа
+    private async Task<Dictionary<string, object>> ExecutePutRequest(string url, object data)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var json = JsonSerializer.Serialize(data);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await client.PutAsync(url, content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseData = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = responseData ?? new Dictionary<string, object>()
+                };
+            }
+
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    // Выполняет GET-запрос и возвращает список объектов
+    private async Task<List<T>> ExecuteGetListRequest<T>(string url, Func<Dictionary<string, object>, T> fromJson)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync(url);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content) 
+                           ?? new List<Dictionary<string, object>>();
+                return data.Select(fromJson).ToList();
+            }
+
+            return new List<T>();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка GET-запроса: {ex.Message}");
+            return new List<T>();
+        }
+    }
+
+    // Выполняет GET-запрос и возвращает один объект
+    private async Task<T?> ExecuteGetSingleRequest<T>(string url, Func<Dictionary<string, object>, T> fromJson)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync(url);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
+                if (data != null)
+                {
+                    return fromJson(data);
+                }
+            }
+
+            return default;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка GET-запроса: {ex.Message}");
+            return default;
         }
     }
 
@@ -187,7 +311,6 @@ public class ApiService
         {
             var client = await GetHttpClient();
             
-            // Формируем правильный запрос для /api/barcodes/sync-box
             var syncRequest = new
             {
                 barcode = barcode,
@@ -197,7 +320,7 @@ public class ApiService
                 operationType = operationType,
                 status = payload.ContainsKey("status") 
                 ? Convert.ToInt32(payload["status"]) 
-                : 1  // 👈 ПО УМОЛЧАНИЮ 1
+                : 1
             };
             
             var json = JsonSerializer.Serialize(syncRequest);
@@ -236,153 +359,41 @@ public class ApiService
     }
 
     // ============================================================
-    // МЕТОДЫ ДЛЯ ИНВЕНТАРИЗАЦИИ
+    // МЕТОДЫ ДЛЯ ИНВЕНТАРИЗАЦИИ И УПРАВЛЕНИЯ КОРОБКАМИ
     // ============================================================
 
-    /// <summary>
-    /// Обновление количества коробки
-    /// </summary>
     public async Task<Dictionary<string, object>> UpdateBoxQuantity(string boxId, int newQuantity)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var request = new HttpRequestMessage(HttpMethod.Put, $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/quantity");
-            
-            var data = new { quantity = newQuantity };
-            var json = JsonSerializer.Serialize(data);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await client.SendAsync(request);
-            var content = await response.Content.ReadAsStringAsync();
-
-            if (response.IsSuccessStatusCode)
-            {
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = JsonSerializer.Deserialize<object>(content) ?? new object()
-                };
-            }
-
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {content}"
-            };
-        }
-        catch (Exception ex)
-        {
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
+        return await ExecutePutRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/quantity",
+            new { quantity = newQuantity }
+        );
     }
 
-    /// <summary>
-    /// Перемещение коробки на новую локацию
-    /// </summary>
     public async Task<Dictionary<string, object>> MoveBox(string boxId, string targetLocation)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var request = new HttpRequestMessage(HttpMethod.Put, $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/move");
-            
-            var data = new { locationCode = targetLocation };
-            var json = JsonSerializer.Serialize(data);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await client.SendAsync(request);
-            var content = await response.Content.ReadAsStringAsync();
-
-            if (response.IsSuccessStatusCode)
-            {
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = JsonSerializer.Deserialize<object>(content) ?? new object()
-                };
-            }
-
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {content}"
-            };
-        }
-        catch (Exception ex)
-        {
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
+        return await ExecutePutRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/move",
+            new { locationCode = targetLocation }
+        );
     }
 
-    /// <summary>
-    /// Получение списка коробок по коду локации
-    /// </summary>
     public async Task<List<Box>> GetBoxesByLocation(string locationCode)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/location/{locationCode}");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var boxesData = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content) 
-                                ?? new List<Dictionary<string, object>>();
-                
-                return boxesData.Select(Box.FromJson).ToList();
-            }
-
-            return new List<Box>();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробок: {ex.Message}");
-            return new List<Box>();
-        }
+        return await ExecuteGetListRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/location/{locationCode}",
+            Box.FromJson
+        );
     }
 
-    /// <summary>
-    /// Поиск коробки по штрихкоду
-    /// </summary>
     public async Task<Box?> FindBoxByBarcode(string barcode)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/barcode/{barcode}");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var boxData = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
-                if (boxData != null)
-                {
-                    return Box.FromJson(boxData);
-                }
-            }
-
-            return null;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка поиска коробки: {ex.Message}");
-            return null;
-        }
+        return await ExecuteGetSingleRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/barcode/{barcode}",
+            Box.FromJson
+        );
     }
 
-    /// <summary>
-    /// Получение информации о локации по коду
-    /// </summary>
     public async Task<Dictionary<string, object>?> GetLocationInfo(string locationCode)
     {
         try
@@ -400,14 +411,11 @@ public class ApiService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения локации: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Ошибка получения локации: {ex.Message}");
             return null;
         }
     }
 
-    /// <summary>
-    /// Синхронизация всех офлайн-транзакций
-    /// </summary>
     public async Task<Dictionary<string, object>> SyncAllOfflineTransactions()
     {
         try
@@ -472,9 +480,6 @@ public class ApiService
         }
     }
 
-    /// <summary>
-    /// Проверка статуса сервера с детальной информацией
-    /// </summary>
     public async Task<Dictionary<string, object>> GetServerStatus()
     {
         try
@@ -500,9 +505,6 @@ public class ApiService
         }
     }
 
-    /// <summary>
-    /// Отправка heartbeat для поддержания сессии
-    /// </summary>
     public async Task<bool> SendHeartbeat()
     {
         try
@@ -517,115 +519,46 @@ public class ApiService
         }
     }
 
-    /// <summary>
-    /// Получить все продукты с сервера
-    /// </summary>
     public async Task<List<Product>> GetAllProducts()
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/products");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var productsData = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content) 
-                                   ?? new List<Dictionary<string, object>>();
-                
-                return productsData.Select(Product.FromJson).ToList();
-            }
-
-            return new List<Product>();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения продуктов: {ex.Message}");
-            return new List<Product>();
-        }
+        return await ExecuteGetListRequest(
+            $"{Constants.ApiBaseUrl}/api/products",
+            Product.FromJson
+        );
     }
 
-    /// <summary>
-    /// Получить все локации с сервера
-    /// </summary>
     public async Task<List<Location>> GetAllLocations()
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/locations");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var locationsData = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content) 
-                                    ?? new List<Dictionary<string, object>>();
-                
-                return locationsData.Select(Location.FromJson).ToList();
-            }
-
-            return new List<Location>();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения локаций: {ex.Message}");
-            return new List<Location>();
-        }
+        return await ExecuteGetListRequest(
+            $"{Constants.ApiBaseUrl}/api/locations",
+            Location.FromJson
+        );
     }
 
-    /// <summary>
-    /// Синхронизация справочника продуктов
-    /// </summary>
     public async Task<bool> SyncProducts()
     {
         try
         {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/products");
-            
-            if (response.IsSuccessStatusCode)
+            var products = await GetAllProducts();
+            if (products.Count > 0)
             {
-                var content = await response.Content.ReadAsStringAsync();
-                var products = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
-                
-                if (products != null && products.Count > 0)
+                var dbHelper = new DatabaseHelper();
+                var productCache = products.Select(p => new ProductCache
                 {
-                    var dbHelper = new DatabaseHelper();
-                    var productCache = new List<ProductCache>();
-                    
-                    foreach (var p in products)
-                    {
-                        var id = p.GetValueOrDefault("id", "")?.ToString() ?? "";
-                        var ean13 = p.GetValueOrDefault("ean13", "")?.ToString() ?? "";
-                        var name = p.GetValueOrDefault("name", "")?.ToString() ?? "";
-                        var shortName = p.GetValueOrDefault("shortName", "")?.ToString();
-                        var onecGuid = p.GetValueOrDefault("oneCGuid", "")?.ToString();
-                        var barcode = p.GetValueOrDefault("barcode", "")?.ToString();
-                        var createdAt = p.GetValueOrDefault("createdAt", 0) is long ca ? ca : 0;
-                        var updatedAt = p.GetValueOrDefault("updatedAt", 0) is long ua ? ua : 0;
-                        
-                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(ean13) && !string.IsNullOrEmpty(name))
-                        {
-                            productCache.Add(new ProductCache
-                            {
-                                product_id = id,
-                                ean13 = ean13,
-                                name = name,
-                                short_name = shortName,
-                                onec_guid = onecGuid,
-                                barcode = barcode,
-                                created_at = createdAt,
-                                updated_at = updatedAt
-                            });
-                        }
-                    }
-                    
-                    await dbHelper.SyncProducts(productCache);
-                    System.Diagnostics.Debug.WriteLine($"Синхронизировано {productCache.Count} продуктов");
-                    return true;
-                }
+                    product_id = p.Id,
+                    ean13 = p.Ean13,
+                    name = p.Name,
+                    short_name = p.ShortName,
+                    onec_guid = p.OneCGuid,
+                    barcode = p.Barcode,
+                    created_at = p.CreatedAt,
+                    updated_at = p.UpdatedAt
+                }).ToList();
+                
+                await dbHelper.SyncProducts(productCache);
+                System.Diagnostics.Debug.WriteLine($"Синхронизировано {productCache.Count} продуктов");
+                return true;
             }
-            
             return false;
         }
         catch (Exception ex)
@@ -635,55 +568,28 @@ public class ApiService
         }
     }
 
-    /// <summary>
-    /// Синхронизация справочника локаций
-    /// </summary>
     public async Task<bool> SyncLocations()
     {
         try
         {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/locations");
-            
-            if (response.IsSuccessStatusCode)
+            var locations = await GetAllLocations();
+            if (locations.Count > 0)
             {
-                var content = await response.Content.ReadAsStringAsync();
-                var locations = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
-                
-                if (locations != null && locations.Count > 0)
+                var dbHelper = new DatabaseHelper();
+                var locationCache = locations.Select(l => new LocationCache
                 {
-                    var dbHelper = new DatabaseHelper();
-                    var locationCache = new List<LocationCache>();
-                    
-                    foreach (var loc in locations)
-                    {
-                        var id = loc.GetValueOrDefault("id", "")?.ToString() ?? "";
-                        var code = loc.GetValueOrDefault("code", "")?.ToString() ?? "";
-                        var name = loc.GetValueOrDefault("name", "")?.ToString() ?? "";
-                        var barcode = loc.GetValueOrDefault("barcode", "")?.ToString();
-                        var isActive = loc.GetValueOrDefault("isActive", true) is bool ia ? ia : true;
-                        var createdAt = loc.GetValueOrDefault("createdAt", 0) is long ca ? ca : 0;
-                        
-                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(code))
-                        {
-                            locationCache.Add(new LocationCache
-                            {
-                                location_id = id,
-                                code = code,
-                                name = name,
-                                barcode = barcode,
-                                is_active = isActive ? 1 : 0,
-                                created_at = createdAt
-                            });
-                        }
-                    }
-                    
-                    await dbHelper.SyncLocations(locationCache);
-                    System.Diagnostics.Debug.WriteLine($"Синхронизировано {locationCache.Count} локаций");
-                    return true;
-                }
+                    location_id = l.Id,
+                    code = l.Code,
+                    name = l.Name,
+                    barcode = l.Barcode,
+                    is_active = l.IsActive ? 1 : 0,
+                    created_at = l.CreatedAt
+                }).ToList();
+                
+                await dbHelper.SyncLocations(locationCache);
+                System.Diagnostics.Debug.WriteLine($"Синхронизировано {locationCache.Count} локаций");
+                return true;
             }
-            
             return false;
         }
         catch (Exception ex)
@@ -693,9 +599,6 @@ public class ApiService
         }
     }
 
-    /// <summary>
-    /// Создание коробки на сервере (сразу Active)
-    /// </summary>
     public async Task<Dictionary<string, object>> CreateBox(
         string ean13, 
         int quantity, 
@@ -703,312 +606,80 @@ public class ApiService
         int boxNumber,
         string locationCode = "UNKNOWN")
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var request = new
+        return await ExecutePostRequest(
+            $"{Constants.ApiBaseUrl}/api/barcodes/create-box",
+            new
             {
                 ean13 = ean13,
                 quantity = quantity,
                 grade = grade,
                 boxNumber = boxNumber,
                 locationCode = locationCode
-            };
-            
-            var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/barcodes/create-box",
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = data ?? new Dictionary<string, object>()
-                };
             }
-            
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
+        );
     }
 
-    /// <summary>
-    /// Получение коробки по штрихкоду
-    /// </summary>
     public async Task<Box?> GetBoxByBarcode(string barcode)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/by-barcode/{barcode}");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var boxData = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
-                if (boxData != null)
-                {
-                    return Box.FromJson(boxData);
-                }
-            }
-            
-            return null;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробки по штрихкоду: {ex.Message}");
-            return null;
-        }
+        return await ExecuteGetSingleRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/by-barcode/{barcode}",
+            Box.FromJson
+        );
     }
 
-    /// <summary>
-    /// Получить коробку по ID
-    /// </summary>
     public async Task<Box?> GetBoxById(string boxId)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/{boxId}");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var boxData = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
-                if (boxData != null)
-                {
-                    return Box.FromJson(boxData);
-                }
-            }
-            return null;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробки по ID: {ex.Message}");
-            return null;
-        }
+        return await ExecuteGetSingleRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/{boxId}",
+            Box.FromJson
+        );
     }
 
-    /// <summary>
-    /// Получить все коробки с сервера (включая Empty)
-    /// </summary>
     public async Task<List<Box>> GetAllBoxes()
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var boxesData = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
-                
-                if (boxesData != null)
-                {
-                    return boxesData.Select(Box.FromJson).ToList();
-                }
-            }
-            return new List<Box>();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения всех коробок: {ex.Message}");
-            return new List<Box>();
-        }
+        return await ExecuteGetListRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes",
+            Box.FromJson
+        );
     }
 
-    /// <summary>
-    /// Резервирование коробки
-    /// </summary>
     public async Task<Dictionary<string, object>> ReserveBox(string boxId)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var request = new { boxId = boxId };
-            var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/boxes/reserve",
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = data ?? new Dictionary<string, object>()
-                };
-            }
-            
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
+        return await ExecutePostRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/reserve",
+            new { boxId = boxId }
+        );
     }
 
-    /// <summary>
-    /// Отгрузка коробки (полная)
-    /// </summary>
     public async Task<Dictionary<string, object>> ShipBox(string boxId, string? comment = null)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var request = new { comment = comment ?? "Отгрузка через ТСД" };
-            var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/ship",
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = data ?? new Dictionary<string, object>()
-                };
-            }
-            
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
+        return await ExecutePostRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/ship",
+            new { comment = comment ?? "Отгрузка через ТСД" }
+        );
     }
 
-    /// <summary>
-    /// Списание количества коробки (частичная отгрузка)
-    /// </summary>
     public async Task<Dictionary<string, object>> ConsumeBox(string boxId, int quantity, string? comment = null)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var request = new 
+        return await ExecutePostRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/consume",
+            new 
             { 
                 boxId = boxId,
                 quantity = quantity,
                 comment = comment ?? $"Списание через ТСД: {quantity} шт."
-            };
-            
-            var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/boxes/consume",
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = data ?? new Dictionary<string, object>()
-                };
             }
-            
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
+        );
     }
 
-    /// <summary>
-    /// Получить коробку по номеру
-    /// </summary>
     public async Task<Box?> GetBoxByNumber(int boxNumber)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/by-number/{boxNumber}");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var boxData = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
-                if (boxData != null)
-                {
-                    return Box.FromJson(boxData);
-                }
-            }
-            
-            return null;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробки по номеру: {ex.Message}");
-            return null;
-        }
+        return await ExecuteGetSingleRequest(
+            $"{Constants.ApiBaseUrl}/api/boxes/by-number/{boxNumber}",
+            Box.FromJson
+        );
     }
 
-    /// <summary>
-    /// Проверка, свободен ли номер коробки
-    /// </summary>
     public async Task<Dictionary<string, object>> CheckBoxNumber(int boxNumber)
     {
         try
@@ -1046,9 +717,6 @@ public class ApiService
         }
     }
 
-    /// <summary>
-    /// Получить следующий свободный номер коробки
-    /// </summary>
     public async Task<Dictionary<string, object>> GetNextFreeBoxNumber()
     {
         try
@@ -1085,55 +753,19 @@ public class ApiService
             };
         }
     }
-    /// <summary>
-    /// Активация коробки (Draft → Active) с указанием локации
-    /// </summary>
+
     public async Task<Dictionary<string, object>> ActivateBox(
         string boxId, 
         string locationCode = "UNKNOWN",
         string? comment = null)
     {
-        try
-        {
-            var client = await GetHttpClient();
-            var request = new 
+        return await ExecutePostRequest(
+            $"{Constants.ApiBaseUrl}/api/barcodes/activate-box/{boxId}",
+            new 
             { 
                 comment = comment ?? $"Активация через ТСД, локация: {locationCode}",
                 locationCode = locationCode
-            };
-            
-            var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/barcodes/activate-box/{boxId}",
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = data ?? new Dictionary<string, object>()
-                };
             }
-            
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
+        );
     }
 }

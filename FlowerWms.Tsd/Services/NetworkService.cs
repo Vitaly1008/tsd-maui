@@ -3,10 +3,12 @@ using FlowerWms.Tsd.Helpers;
 
 namespace FlowerWms.Tsd.Services;
 
+// Мониторинг состояния сети
 public class NetworkService : IDisposable
 {
     private readonly ServerDiscoveryService _discoveryService;
     private readonly SyncService _syncService;
+    private readonly OfflineService _offlineService;
     private bool _isOnline;
     private bool _isChecking;
 
@@ -18,33 +20,38 @@ public class NetworkService : IDisposable
         _discoveryService = new ServerDiscoveryService();
         _syncService = new SyncService();
         
-        // Подписываемся на изменения сети
         NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
         
-        // Проверяем текущее состояние
         _ = CheckNetworkAsync();
     }
 
     public bool IsOnline => _isOnline;
 
+    // Обработчик изменения доступности сети
     private async void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
     {   
         if (e.IsAvailable)
         {
-            // Сеть появилась - проверяем сервер
             await CheckNetworkAsync();
         }
         else
         {
-            // Сеть пропала - переходим в офлайн
             _isOnline = false;
             NetworkStatusChanged?.Invoke(this, false);
         }
     }
 
-    /// <summary>
-    /// Проверка сети и поиск сервера при необходимости
-    /// </summary>
+    // Проверяет сеть и выполняет синхронизацию при подключении
+    private async Task PerformSyncIfNeeded()
+    {
+        var pendingCount = await _offlineService.GetPendingCount();
+        if (pendingCount > 0)
+        {
+            await _syncService.SyncManual();
+        }
+    }
+
+    // Проверяет сеть и ищет сервер при необходимости
     public async Task CheckNetworkAsync()
     {
         if (_isChecking) return;
@@ -53,27 +60,17 @@ public class NetworkService : IDisposable
         
         try
         {
-            // Проверяем текущий адрес
             var currentAddress = Constants.ApiBaseUrl;
-            
             var isAvailable = await _discoveryService.PingServer(currentAddress);
             
             if (isAvailable)
             {
                 _isOnline = true;
                 NetworkStatusChanged?.Invoke(this, true);
-                
-                // Если есть офлайн-транзакции - синхронизируем
-                var pendingCount = await _syncService.GetPendingCount();
-                if (pendingCount > 0)
-                {
-                    await _syncService.SyncManual();
-                }
+                await PerformSyncIfNeeded();
                 return;
             }
 
-            // Если текущий адрес не работает - ищем новый
-            
             var newAddress = await _discoveryService.DiscoverServer();
             
             if (!string.IsNullOrEmpty(newAddress))
@@ -82,13 +79,7 @@ public class NetworkService : IDisposable
                 Constants.ApiBaseUrl = newAddress;
                 NetworkStatusChanged?.Invoke(this, true);
                 ServerFound?.Invoke(this, newAddress);
-                
-                // Синхронизируем данные
-                var pendingCount = await _syncService.GetPendingCount();
-                if (pendingCount > 0)
-                {
-                    await _syncService.SyncManual();
-                }
+                await PerformSyncIfNeeded();
             }
             else
             {
@@ -107,9 +98,7 @@ public class NetworkService : IDisposable
         }
     }
 
-    /// <summary>
-    /// Принудительная проверка сети (по кнопке)
-    /// </summary>
+    // Принудительная проверка сети
     public async Task ForceCheckAsync()
     {
         await CheckNetworkAsync();

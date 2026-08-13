@@ -6,14 +6,13 @@ using Microsoft.Maui.Devices;
 
 namespace FlowerWms.Tsd.Helpers;
 
+// Получение высоты статус-бара на Android для корректных отступов в UI
 public static class StatusBarHelper
 {
     private static int? _cachedHeight;
     private static Thickness? _cachedPadding;
 
-    /// <summary>
-    /// Получает высоту статус-бара в пикселях
-    /// </summary>
+    // Получает высоту статус-бара в пикселях
     public static int GetStatusBarHeight()
     {
         if (_cachedHeight.HasValue)
@@ -23,7 +22,6 @@ public static class StatusBarHelper
         {
             var context = Android.App.Application.Context;
             
-            // Пытаемся получить из ресурсов Android
             var resourceId = context.Resources.GetIdentifier("status_bar_height", "dimen", "android");
             if (resourceId > 0)
             {
@@ -31,14 +29,11 @@ public static class StatusBarHelper
                 return _cachedHeight.Value;
             }
 
-            // Альтернативный способ через WindowManager
             var windowManager = context.GetSystemService(Context.WindowService) as IWindowManager;
             if (windowManager != null)
             {
                 var displayMetrics = new Android.Util.DisplayMetrics();
                 windowManager.DefaultDisplay.GetMetrics(displayMetrics);
-                
-                // На некоторых устройствах статус-бар имеет фиксированную высоту
                 _cachedHeight = (int)(25 * displayMetrics.Density);
                 return _cachedHeight.Value;
             }
@@ -53,9 +48,7 @@ public static class StatusBarHelper
         }
     }
 
-    /// <summary>
-    /// Получает высоту статус-бара в dp (device independent pixels)
-    /// </summary>
+    // Получает высоту статус-бара в dp (device independent pixels)
     public static double GetStatusBarHeightDp()
     {
         var heightPx = GetStatusBarHeight();
@@ -63,9 +56,7 @@ public static class StatusBarHelper
         return heightPx / density;
     }
 
-    /// <summary>
-    /// Возвращает Thickness для Padding с отступом сверху под статус-бар
-    /// </summary>
+    // Возвращает Thickness для Padding с отступом сверху под статус-бар
     public static Thickness GetStatusBarPadding()
     {
         if (_cachedPadding.HasValue)
@@ -76,9 +67,7 @@ public static class StatusBarHelper
         return _cachedPadding.Value;
     }
 
-    /// <summary>
-    /// Сбрасывает кэш (использовать при изменении конфигурации)
-    /// </summary>
+    // Сбрасывает кэш (использовать при изменении конфигурации)
     public static void ClearCache()
     {
         _cachedHeight = null;
