@@ -1,4 +1,5 @@
 using SQLite;
+using FlowerWms.Tsd.Models;  // Добавляем using для BoxStatus
 
 namespace FlowerWms.Tsd.Helpers;
 
@@ -41,7 +42,10 @@ public class BoxCache
     public string? location_id { get; set; }
     public string? location_code { get; set; }
     public string? order_id { get; set; }
-    public int status { get; set; } = 0; // 0 - Draft, 1 - Active, 2 - Empty, 3 - Shipped
+    
+    // Изменяем int на BoxStatus
+    public BoxStatus status { get; set; } = BoxStatus.Draft;
+    
     public long created_at { get; set; }
     public long updated_at { get; set; }
     public int is_dirty { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
@@ -79,7 +83,7 @@ public class ProductCache
     public string? barcode { get; set; }
     public long created_at { get; set; }
     public long updated_at { get; set; }
-    public int is_dirty { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
+    public int is_dirty { get; set; } = 0;
 }
 
 // Модель для кэша операций с коробками
@@ -92,7 +96,7 @@ public class BoxOperationCache
     public string operation_id { get; set; } = string.Empty;
     public string box_id { get; set; } = string.Empty;
     public string box_barcode { get; set; } = string.Empty;
-    public string operation_type { get; set; } = string.Empty; // Reserve, Ship, Move, etc.
+    public string operation_type { get; set; } = string.Empty;
     public int quantity { get; set; }
     public string? from_location_code { get; set; }
     public string? to_location_code { get; set; }

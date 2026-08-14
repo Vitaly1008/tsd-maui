@@ -352,7 +352,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            if (box.Status == 3)
+            if (box.Status == BoxStatus.Shipped)
             {
                 HasError = true;
                 ErrorMessage = $"Коробка №{box.BoxNumber} уже отгружена!";
@@ -363,7 +363,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            if (box.Status == 2 || box.CurrentQuantity <= 0)
+            if (box.Status == BoxStatus.Empty || box.CurrentQuantity <= 0)
             {
                 HasError = true;
                 ErrorMessage = $"Коробка №{box.BoxNumber} пуста (остаток: 0)!";
@@ -758,7 +758,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
             product_name = box.ProductName,
             product_ean13 = box.ProductEan13,
             location_code = box.LocationCode ?? "UNKNOWN",
-            status = newStatus,
+            status = (BoxStatus)newStatus,
             created_at = box.CreatedAt,
             updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             is_dirty = 1
@@ -1001,7 +1001,7 @@ public partial class ShippingViewModel : ObservableObject, IDisposable
         }
 
         var boxList = string.Join("\n", ScannedBoxes.Select((b, i) => 
-            $"{i + 1}. #{b.BoxNumber} | {b.ProductName} | {b.CurrentQuantity} шт. | {b.Grade} | {(b.Status == 1 ? "✅" : "📭")}")
+            $"{i + 1}. #{b.BoxNumber} | {b.ProductName} | {b.CurrentQuantity} шт. | {b.Grade} | {(b.Status == BoxStatus.Active ? "✅" : "📭")}")
         );
 
         await Application.Current?.MainPage?.DisplayAlert(

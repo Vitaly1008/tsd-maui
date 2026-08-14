@@ -152,71 +152,85 @@
                         <Label Grid.Column="2" Text="›" FontSize="20" TextColor="Gray" HorizontalOptions="Center" VerticalOptions="Center" />
                     </Grid>
                 </Frame>
+
+                <!-- Нижняя панель с кнопками -->
+                <Grid Grid.Row="3" 
+                    Padding="12,8"
+                    BackgroundColor="White"
+                    ColumnDefinitions="*, *, *"
+                    ColumnSpacing="8">
+                    
+                    <!-- Кнопка "Синхронизация" -->
+                    <Button Grid.Column="0"
+                            Text="🔄 Синхр."
+                            Command="{Binding SyncCommand}"
+                            IsEnabled="{Binding IsSyncing, Converter={StaticResource InvertBooleanConverter}}"
+                            BackgroundColor="{StaticResource PrimaryColor}"
+                            TextColor="White"
+                            CornerRadius="8"
+                            HeightRequest="40"
+                            FontSize="10"
+                            FontAttributes="Bold" />
+                    
+                    <!-- Кнопка "Поиск сервера" -->
+                    <Button Grid.Column="1"
+                            Text="🔍 Поиск"
+                            Command="{Binding FindServerCommand}"
+                            IsEnabled="{Binding IsSearching, Converter={StaticResource InvertBooleanConverter}}"
+                            BackgroundColor="White"
+                            TextColor="{StaticResource PrimaryColor}"
+                            BorderColor="{StaticResource PrimaryColor}"
+                            BorderWidth="1"
+                            CornerRadius="8"
+                            HeightRequest="40"
+                            FontSize="10"
+                            FontAttributes="Bold">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button"
+                                        Binding="{Binding IsSearching}"
+                                        Value="True">
+                                <Setter Property="Text" Value="⏳ Поиск..." />
+                                <Setter Property="IsEnabled" Value="False" />
+                                <Setter Property="Opacity" Value="0.6" />
+                            </DataTrigger>
+                            <DataTrigger TargetType="Button"
+                                        Binding="{Binding IsSearching}"
+                                        Value="False">
+                                <Setter Property="Text" Value="🔍 Поиск сервера" />
+                                <Setter Property="IsEnabled" Value="True" />
+                                <Setter Property="Opacity" Value="1" />
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+
+                    <!-- Кнопка "Выход" -->
+                    <Button Grid.Column="2"
+                            Text="🚪 Выход"
+                            Command="{Binding LogoutCommand}"
+                            BackgroundColor="Transparent"
+                            TextColor="{StaticResource DangerColor}"
+                            BorderColor="{StaticResource DangerColor}"
+                            BorderWidth="1"
+                            CornerRadius="8"
+                            HeightRequest="40"
+                            FontSize="10"
+                            FontAttributes="Bold" />
+                </Grid>
+                
+                <!-- Версия программы -->
+                <Label Grid.Row="3"
+                    Text="{Binding Version}"
+                    FontSize="11"
+                    TextColor="Gray"
+                    HorizontalTextAlignment="Center"
+                    VerticalTextAlignment="End"
+                    Margin="0,0,0,4"
+                    Opacity="0.6">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding NavigateToAboutCommand}" />
+                    </Label.GestureRecognizers>
+                </Label>
             </VerticalStackLayout>
         </ScrollView>
-
-        <!-- Нижняя панель с кнопками -->
-        <Grid Grid.Row="3" 
-              Padding="12,8"
-              BackgroundColor="White"
-              ColumnDefinitions="*, *, *"
-              ColumnSpacing="8">
-            
-            <!-- Кнопка "Синхронизация" -->
-            <Button Grid.Column="0"
-                    Text="🔄 Синхр."
-                    Command="{Binding SyncCommand}"
-                    IsEnabled="{Binding IsSyncing, Converter={StaticResource InvertBooleanConverter}}"
-                    BackgroundColor="{StaticResource PrimaryColor}"
-                    TextColor="White"
-                    CornerRadius="8"
-                    HeightRequest="40"
-                    FontSize="12"
-                    FontAttributes="Bold" />
-            
-            <!-- Кнопка "Поиск сервера" -->
-            <Button Grid.Column="1"
-                    Text="🔍 Поиск"
-                    Command="{Binding FindServerCommand}"
-                    IsEnabled="{Binding IsSearching, Converter={StaticResource InvertBooleanConverter}}"
-                    BackgroundColor="White"
-                    TextColor="{StaticResource PrimaryColor}"
-                    BorderColor="{StaticResource PrimaryColor}"
-                    BorderWidth="1"
-                    CornerRadius="8"
-                    HeightRequest="40"
-                    FontSize="12"
-                    FontAttributes="Bold">
-                <Button.Triggers>
-                    <DataTrigger TargetType="Button"
-                                Binding="{Binding IsSearching}"
-                                Value="True">
-                        <Setter Property="Text" Value="⏳ Поиск..." />
-                        <Setter Property="IsEnabled" Value="False" />
-                        <Setter Property="Opacity" Value="0.6" />
-                    </DataTrigger>
-                    <DataTrigger TargetType="Button"
-                                Binding="{Binding IsSearching}"
-                                Value="False">
-                        <Setter Property="Text" Value="🔍 Поиск сервера" />
-                        <Setter Property="IsEnabled" Value="True" />
-                        <Setter Property="Opacity" Value="1" />
-                    </DataTrigger>
-                </Button.Triggers>
-            </Button>
-
-            <!-- Кнопка "Выход" -->
-            <Button Grid.Column="2"
-                    Text="🚪 Выход"
-                    Command="{Binding LogoutCommand}"
-                    BackgroundColor="Transparent"
-                    TextColor="{StaticResource DangerColor}"
-                    BorderColor="{StaticResource DangerColor}"
-                    BorderWidth="1"
-                    CornerRadius="8"
-                    HeightRequest="40"
-                    FontSize="12"
-                    FontAttributes="Bold" />
-        </Grid>
     </Grid>
 </views:BasePage>

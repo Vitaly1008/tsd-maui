@@ -130,7 +130,7 @@ public class SyncService
                 
                 foreach (var box in boxes)
                 {
-                    if (box.Status == 1 || box.Status == 2)
+                    if (box.Status == BoxStatus.Active || box.Status == BoxStatus.Empty)
                     {
                         boxCacheList.Add(new BoxCache
                         {

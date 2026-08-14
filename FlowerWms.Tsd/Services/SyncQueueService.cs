@@ -241,14 +241,14 @@ public class SyncQueueService : IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"Коробка найдена на сервере: #{serverBox.BoxNumber}, статус: {serverBox.Status}");
             
-            if (serverBox.Status == 1)
+            if (serverBox.Status == BoxStatus.Active)
             {
                 System.Diagnostics.Debug.WriteLine($"Коробка уже активна: {barcode}");
                 await UpdateBoxCache(serverBox);
                 return;
             }
             
-            if (serverBox.Status == 0)
+            if (serverBox.Status == BoxStatus.Draft)
             {
                 var result = await _apiService.ActivateBox(
                     boxId: serverBox.Id,
@@ -371,7 +371,7 @@ public class SyncQueueService : IDisposable
     // Обновляет кэш коробки
     private async Task UpdateBoxCache(Box box)
     {
-        if (box.Status == 1 || box.Status == 2)
+        if (box.Status == BoxStatus.Active || box.Status == BoxStatus.Empty)
         {
             await _dbHelper.SaveBox(new BoxCache
             {
@@ -396,6 +396,44 @@ public class SyncQueueService : IDisposable
         {
             await _dbHelper.DeleteBoxByBarcode(box.Barcode);
             System.Diagnostics.Debug.WriteLine($"Коробка удалена из кэша: #{box.BoxNumber}, статус: {box.Status}");
+        }
+    }
+
+    // Очищает таблицу синхронизации (удаляет все несинхронизированные транзакции)
+    public async Task<int> ClearSyncTable()
+    {
+        try
+        {
+            var db = await _dbHelper.GetDatabaseAsync();
+            
+            // Получаем количество записей для очистки
+            var count = await db.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM offline_transactions WHERE is_synced = 0"
+            );
+            
+            if (count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("Нет несинхронизированных транзакций для очистки");
+                return 0;
+            }
+            
+            // Удаляем несинхронизированные транзакции
+            var deleted = await db.ExecuteAsync(
+                "DELETE FROM offline_transactions WHERE is_synced = 0"
+            );
+            
+            System.Diagnostics.Debug.WriteLine($"✅ Очищено {deleted} несинхронизированных транзакций");
+            
+            // Обновляем счетчик ожидающих операций
+            var pendingCount = await _offlineService.GetPendingCount();
+            PendingCountChanged?.Invoke(this, pendingCount);
+            
+            return deleted;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка очистки таблицы синхронизации: {ex.Message}");
+            throw;
         }
     }
 

@@ -1,3 +1,4 @@
+using FlowerWms.Tsd.Models;
 using SQLite;
 
 namespace FlowerWms.Tsd.Helpers;
@@ -191,7 +192,7 @@ public class DatabaseHelper
         {
             var db = await GetDatabaseAsync();
             var boxes = await db.Table<BoxCache>()
-                .Where(b => b.location_code == locationCode && b.status == 1)
+                .Where(b => b.location_code == locationCode && b.status == BoxStatus.Active)
                 .ToListAsync();
             
             System.Diagnostics.Debug.WriteLine($"📦 Найдено {boxes.Count} активных коробок в локации {locationCode}");
@@ -210,7 +211,7 @@ public class DatabaseHelper
         {
             var db = await GetDatabaseAsync();
             return await db.Table<BoxCache>()
-                .Where(b => b.status == 1)
+                .Where(b => b.status == BoxStatus.Active)
                 .ToListAsync();
         }
         catch (Exception ex)
@@ -234,7 +235,7 @@ public class DatabaseHelper
         }
     }
 
-    public async Task<List<BoxCache>> GetBoxesByStatus(int status)
+    public async Task<List<BoxCache>> GetBoxesByStatus(BoxStatus status)
     {
         try
         {
@@ -397,7 +398,7 @@ public class DatabaseHelper
         {
             var db = await GetDatabaseAsync();
             var box = await db.Table<BoxCache>()
-                .FirstOrDefaultAsync(b => b.barcode == barcode && b.status == 1);
+                .FirstOrDefaultAsync(b => b.barcode == barcode && b.status == BoxStatus.Active);
             return box != null;
         }
         catch (Exception ex)
@@ -430,7 +431,8 @@ public class DatabaseHelper
             var db = await GetDatabaseAsync();
             var count = await db.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM boxes_cache WHERE box_number = ? AND status = 1",
-                boxNumber
+                boxNumber,
+                BoxStatus.Active
             );
             return count > 0;
         }

@@ -21,6 +21,7 @@ public partial class HomePage : BasePage
             _viewModel.NavigateToShippingRequested += OnNavigateToShipping;
             _viewModel.NavigateToInventoryRequested += OnNavigateToInventory;
             _viewModel.NavigateToPendingRequested += OnNavigateToPending;
+            _viewModel.NavigateToAboutRequested += OnNavigateToAbout;
             Loaded += OnPageLoaded;
         }
     }
@@ -107,7 +108,9 @@ public partial class HomePage : BasePage
     // Переход на страницу инвентаризации
     private async void OnNavigateToInventory(object? sender, EventArgs e)
     {
-        if (!await EnsureBarcodeService()) return;
+        #warning Инвентаризация в разработке, раздел временно недоступен
+        await DisplayAlertAsync("Временно не доступно", "Инвентаризация находится в разработке", "OK");
+        /*if (!await EnsureBarcodeService()) return;
         
         try
         {
@@ -118,13 +121,26 @@ public partial class HomePage : BasePage
         catch (Exception ex)
         {
             await DisplayAlertAsync("Ошибка", $"Не удалось открыть инвентаризацию: {ex.Message}", "OK");
-        }
+        }*/
     }
 
     // Переход на страницу ожидающих транзакций
     private async void OnNavigateToPending(object? sender, EventArgs e)
     {
         await DisplayAlertAsync("Информация", "Страница списка транзакций в разработке", "OK");
+    }
+
+    // Переход на страницу "О программе"
+    private async void OnNavigateToAbout(object? sender, EventArgs e)
+    {
+        try
+        {
+            await Navigation.PushAsync(new AboutPage());
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("Ошибка", $"Не удалось открыть страницу: {ex.Message}", "OK");
+        }
     }
 
     // Выход из системы

@@ -16,7 +16,9 @@ F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │   ├── Constants.cs                 # Хранение глобальных констант
 │   ├── DatabaseHelper.cs            # Работа с локальной SQLite БД
 │   ├── DatabaseModels.cs            # Модели данных для SQLite
-│   └── StatusBarHelper.cs           # Получение высоты статус-бара на Android для корректных отступов в UI
+│   ├── StatusBarHelper.cs           # Получение высоты статус-бара на Android для корректных отступов в UI
+│   ├── VersionHelper.cs             # Получение версии и даты сборки
+│   └── VersionInfo.cs               # Единый файл для управления версией приложения
 │
 ├───Models/
 │   ├── Auth.cs                      # Модели для аутентификации
@@ -54,7 +56,8 @@ F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │   ├── OperationViewModel.cs        # Базовый ViewModel для операций (приемка/отгрузка)
 │   ├── ReceivingViewModel.cs        # Приемка коробок
 │   ├── ShippingViewModel.cs         # Отгрузка коробок
-│   └── InventoryViewModel.cs        # Инвентаризация
+│   ├── InventoryViewModel.cs        # Инвентаризация
+│   └── AboutViewModel.cs            # О программе
 │
 ├───Views/
 │   ├───Behaviors/
@@ -77,4 +80,4 @@ F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 ├── App.xaml                       # Ресурсы приложения
 ├── App.xaml.cs                    # Точка входа приложения
 ├── MauiProgram.cs                 # Конфигурация приложения
-└── FlowerWms.Tsd.csproj          # Файл проекта
+└── FlowerWms.Tsd.csproj           # Файл проекта

@@ -449,7 +449,7 @@ public partial class OperationViewModel : ObservableObject, IDisposable
             Quantity = quantity,
             Grade = grade,
             LocationCode = CurrentLocation,
-            Status = 1
+            Status = BoxStatus.Active
         };
     }
 

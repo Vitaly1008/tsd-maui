@@ -1,3 +1,5 @@
+using FlowerWms.Tsd.Helpers;  // Добавляем для BoxCache
+
 namespace FlowerWms.Tsd.Models;
 
 // Модель коробки
@@ -11,7 +13,10 @@ public class Box
     public int CurrentQuantity { get; set; }
     public string ProductId { get; set; } = string.Empty;
     public string? LocationId { get; set; }
-    public int Status { get; set; } = 1; // 1 - Active
+    
+    // Изменяем int на BoxStatus
+    public BoxStatus Status { get; set; } = BoxStatus.Active;
+    
     public long CreatedAt { get; set; }
     public long UpdatedAt { get; set; }
     public string? OrderId { get; set; }
@@ -139,14 +144,17 @@ public class Box
         if (initialQuantity == 0)
             initialQuantity = currentQuantity;
         
-        int status = 1;
+        // Изменяем парсинг статуса - используем BoxStatus
+        var status = BoxStatus.Active;
         var statusObj = json.GetValueOrDefault("status", 1);
         if (statusObj is int si)
-            status = si;
+            status = (BoxStatus)si;
         else if (statusObj is long sl)
-            status = (int)sl;
+            status = (BoxStatus)sl;
         else if (statusObj is string ss && int.TryParse(ss, out var sn))
-            status = sn;
+            status = (BoxStatus)sn;
+        else if (statusObj is BoxStatus bs)
+            status = bs;
         
         long createdAt = 0;
         var createdAtObj = json.GetValueOrDefault("createdAt", 0);
@@ -204,13 +212,57 @@ public class Box
             ["quantity"] = CurrentQuantity,
             ["productId"] = ProductId,
             ["locationId"] = LocationId ?? "",
-            ["status"] = Status,
+            ["status"] = (int)Status,  // Приводим к int для отправки
             ["createdAt"] = CreatedAt,
             ["updatedAt"] = UpdatedAt,
             ["orderId"] = OrderId ?? "",
             ["productName"] = ProductName,
             ["productEan13"] = ProductEan13,
             ["locationCode"] = LocationCode ?? ""
+        };
+    }
+
+    // Преобразует Box в BoxCache для локального хранения
+    public BoxCache ToCache()
+    {
+        return new BoxCache
+        {
+            barcode = Barcode,
+            box_id = Id,
+            box_number = BoxNumber,
+            grade = Grade,
+            initial_quantity = InitialQuantity,
+            current_quantity = CurrentQuantity,
+            product_id = ProductId,
+            product_name = ProductName,
+            product_ean13 = ProductEan13,
+            location_code = LocationCode ?? "UNKNOWN",
+            status = Status,
+            created_at = CreatedAt,
+            updated_at = UpdatedAt,
+            is_dirty = IsDirty ? 1 : 0
+        };
+    }
+
+    // Создает Box из BoxCache
+    public static Box FromCache(BoxCache cache)
+    {
+        return new Box
+        {
+            Id = cache.box_id,
+            Barcode = cache.barcode,
+            BoxNumber = cache.box_number,
+            Grade = cache.grade,
+            InitialQuantity = cache.initial_quantity,
+            CurrentQuantity = cache.current_quantity,
+            ProductId = cache.product_id,
+            ProductName = cache.product_name,
+            ProductEan13 = cache.product_ean13,
+            LocationCode = cache.location_code,
+            Status = cache.status,
+            CreatedAt = cache.created_at,
+            UpdatedAt = cache.updated_at,
+            IsDirty = cache.is_dirty == 1
         };
     }
 }

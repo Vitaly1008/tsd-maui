@@ -326,7 +326,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             }
 
             var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
-            if (cachedBox != null && cachedBox.status == 1)
+            if (cachedBox != null && cachedBox.status == BoxStatus.Active)
             {
                 HasError = true;
                 ErrorMessage = $"Коробка №{cachedBox.box_number} уже активирована локально!";
@@ -356,7 +356,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                     return;
                 }
 
-                if (existingBox.Status == 1)
+                if (existingBox.Status == BoxStatus.Active)
                 {
                     HasError = true;
                     ErrorMessage = $"Коробка №{boxNumber} уже активирована!";
@@ -441,7 +441,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
                         Quantity = cachedBox.current_quantity,
                         Grade = cachedBox.grade ?? grade,
                         LocationCode = CurrentLocation,
-                        Status = 1,
+                        Status = BoxStatus.Active,
                         CreatedAt = cachedBox.created_at,
                         UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                     };
@@ -513,7 +513,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             Quantity = existingBox.Quantity,
             Grade = existingBox.Grade,
             LocationCode = CurrentLocation,
-            Status = 1,
+            Status = BoxStatus.Active,
             CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
@@ -532,7 +532,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             Quantity = quantity > 0 ? quantity : 100,
             Grade = grade,
             LocationCode = CurrentLocation,
-            Status = 1,
+            Status = BoxStatus.Active,
             CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
@@ -553,7 +553,7 @@ public partial class ReceivingViewModel : ObservableObject, IDisposable
             product_name = box.ProductName,
             product_ean13 = box.ProductEan13,
             location_code = box.LocationCode ?? CurrentLocation,
-            status = 1,
+            status = BoxStatus.Active,
             created_at = box.CreatedAt,
             updated_at = box.UpdatedAt,
             is_dirty = isLocal ? 1 : 0

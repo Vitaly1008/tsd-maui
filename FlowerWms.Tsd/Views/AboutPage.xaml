@@ -3,60 +3,110 @@
 <views:BasePage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
                 xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
                 xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
+                xmlns:viewmodel="clr-namespace:FlowerWms.Tsd.ViewModels"
                 x:Class="FlowerWms.Tsd.Views.AboutPage"
                 NavigationPage.HasNavigationBar="False"
+                x:DataType="viewmodel:AboutViewModel"
                 Title="">
     
-    <StackLayout Padding="24" VerticalOptions="Center">
-        <Frame WidthRequest="80" 
-               HeightRequest="80" 
-               CornerRadius="40" 
-               BackgroundColor="{StaticResource PrimaryColor}"
-               HorizontalOptions="Center">
-            <Label Text="📦" FontSize="40" HorizontalOptions="Center" VerticalOptions="Center" />
-        </Frame>
-        
-        <Label Text="ALPHA WMS" 
-               FontSize="24" 
-               FontAttributes="Bold" 
-               HorizontalTextAlignment="Center" 
-               Margin="0,16,0,0" />
-        
-        <Label Text="v1.0.0 (build 1)" 
-               FontSize="18" 
-               TextColor="Gray" 
-               HorizontalTextAlignment="Center" />
-        
-        <Label Text="Full Offline Mode" 
-               FontSize="16" 
-               TextColor="Blue" 
-               HorizontalTextAlignment="Center" />
-        
-        <BoxView HeightRequest="1" Color="LightGray" Margin="0,16,0,16" />
-        
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="40" />
-            </Grid.RowDefinitions>
+    <views:AboutPage.BindingContext>
+        <viewmodel:AboutViewModel />
+    </views:AboutPage.BindingContext>
+
+    <ScrollView>
+        <StackLayout Padding="24,24,24,12" VerticalOptions="Center">
+            <!-- Иконка приложения -->
+            <Frame WidthRequest="80" 
+                   HeightRequest="80" 
+                   CornerRadius="40" 
+                   BackgroundColor="{StaticResource PrimaryColor}"
+                   HorizontalOptions="Center">
+                <Label Text="{Binding AppIcon}" 
+                       FontSize="40" 
+                       HorizontalOptions="Center" 
+                       VerticalOptions="Center" />
+            </Frame>
             
-            <Label Grid.Column="0" Text="📅 Дата сборки" TextColor="Gray" />
-            <Label Grid.Column="1" Text="2026-07-23" HorizontalTextAlignment="End" />
-        </Grid>
-        
-        <BoxView HeightRequest="1" Color="LightGray" Margin="0,16,0,16" />
-        
-        <Label Text="© 2026 Alpha Flowers" 
-               FontSize="14" 
-               TextColor="Gray" 
-               HorizontalTextAlignment="Center" />
-        
-        <Label Text="Все права защищены" 
-               FontSize="12" 
-               TextColor="Gray" 
-               HorizontalTextAlignment="Center" />
-    </StackLayout>
+            <!-- Название приложения -->
+            <Label Text="{Binding AppName}" 
+                   FontSize="24" 
+                   FontAttributes="Bold" 
+                   HorizontalTextAlignment="Center" 
+                   Margin="0,16,0,0" />
+            
+            <!-- Версия -->
+            <Label Text="{Binding AppVersion}" 
+                   FontSize="18" 
+                   TextColor="Gray" 
+                   HorizontalTextAlignment="Center" />
+            
+            <!-- Режим работы -->
+            <Label Text="{Binding AppMode}" 
+                   FontSize="16" 
+                   TextColor="Blue" 
+                   HorizontalTextAlignment="Center" />
+            
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,16,0,16" />
+            
+            <!-- Дата сборки -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="40" />
+                </Grid.RowDefinitions>
+                
+                <Label Grid.Column="0" Text="📅 Дата сборки" TextColor="Gray" />
+                <Label Grid.Column="1" Text="{Binding BuildDate}" 
+                       HorizontalTextAlignment="End" 
+                       FontSize="13" />
+            </Grid>
+            
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,16,0,16" />
+            
+            <!-- Кнопка очистки таблицы синхронизации -->
+            <Button Text="🧹 Очистить таблицу синхронизации"
+                    Command="{Binding ClearSyncTableCommand}"
+                    IsEnabled="{Binding IsClearing, Converter={StaticResource InvertBooleanConverter}}"
+                    BackgroundColor="{StaticResource DangerColor}"
+                    TextColor="White"
+                    CornerRadius="8"
+                    HeightRequest="50"
+                    FontSize="13"
+                    FontAttributes="Bold"
+                    Margin="0,0,0,8">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button"
+                                Binding="{Binding IsClearing}"
+                                Value="True">
+                        <Setter Property="Text" Value="⏳ Очистка..." />
+                        <Setter Property="IsEnabled" Value="False" />
+                        <Setter Property="Opacity" Value="0.6" />
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
+            
+            <!-- Подсказка к кнопке -->
+            <Label Text="⚠️ Удаляет все несинхронизированные операции безвозвратно"
+                   FontSize="11"
+                   TextColor="Gray"
+                   HorizontalTextAlignment="Center"
+                   Margin="0,0,0,16" />
+            
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,0,0,16" />
+            
+            <!-- Копирайт -->
+            <Label Text="{Binding Copyright}" 
+                   FontSize="14" 
+                   TextColor="Gray" 
+                   HorizontalTextAlignment="Center" />
+            
+            <Label Text="{Binding CopyrightDetail}" 
+                   FontSize="12" 
+                   TextColor="Gray" 
+                   HorizontalTextAlignment="Center" />
+        </StackLayout>
+    </ScrollView>
 </views:BasePage>

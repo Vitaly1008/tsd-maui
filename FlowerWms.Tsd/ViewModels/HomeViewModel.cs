@@ -41,11 +41,15 @@ public partial class HomeViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSearching;
 
+    [ObservableProperty]
+    private string _version = VersionHelper.GetVersion();
+
     public event EventHandler? LogoutRequested;
     public event EventHandler? NavigateToReceivingRequested;
     public event EventHandler? NavigateToShippingRequested;
     public event EventHandler? NavigateToInventoryRequested;
     public event EventHandler? NavigateToPendingRequested;
+    public event EventHandler? NavigateToAboutRequested;
 
     public HomeViewModel()
     {
@@ -390,5 +394,11 @@ public partial class HomeViewModel : ObservableObject
     private void NavigateToPending()
     {
         NavigateToPendingRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    private void NavigateToAbout()
+    {
+        NavigateToAboutRequested?.Invoke(this, EventArgs.Empty);
     }
 }

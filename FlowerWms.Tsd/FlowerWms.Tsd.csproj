@@ -16,6 +16,11 @@
         <ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
         <ApplicationVersion>1</ApplicationVersion>
         
+        <!-- Версия сборки (обновлять при релизе) -->
+        <AssemblyVersion>1.0.0.0</AssemblyVersion>
+        <AssemblyFileVersion>1.0.0.0</AssemblyFileVersion>
+        <InformationalVersion>1.0.0.0</InformationalVersion>
+        
         <!-- Пути к Android SDK и Java SDK -->
         <AndroidSdkDirectory>F:\program\AndroidSDK</AndroidSdkDirectory>
         <JavaSdkDirectory>C:\Program Files\Java\jdk-17</JavaSdkDirectory>
