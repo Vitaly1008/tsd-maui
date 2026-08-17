@@ -681,6 +681,46 @@ public class DatabaseHelper
         }
     }
 
+    // Обновление статуса локальной коробки
+    public async Task UpdateBoxStatusByBarcode(string barcode, BoxStatus newStatus)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            await db.ExecuteAsync(
+                "UPDATE boxes_cache SET status = ?, updated_at = ? WHERE barcode = ?",
+                (int)newStatus,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                barcode
+            );
+            System.Diagnostics.Debug.WriteLine($"✅ Статус коробки {barcode} обновлен на {newStatus}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления статуса: {ex.Message}");
+        }
+    }
+
+    // массовое обновление статусов
+    public async Task UpdateBoxesStatus(List<string> barcodes, BoxStatus newStatus)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var barcodeList = string.Join(",", barcodes.Select(b => $"'{b}'"));
+            await db.ExecuteAsync(
+                $"UPDATE boxes_cache SET status = ?, updated_at = ? WHERE barcode IN ({barcodeList})",
+                (int)newStatus,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            );
+            System.Diagnostics.Debug.WriteLine($"✅ Обновлено {barcodes.Count} коробок до статуса {newStatus}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка массового обновления: {ex.Message}");
+        }
+    }
+
     // Вспомогательный класс для PRAGMA table_info
     public class TableInfo
     {

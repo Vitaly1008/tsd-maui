@@ -51,13 +51,14 @@ F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │   └── SyncService.cs               # Основной сервис синхронизации
 │
 ├───ViewModels/
+│   ├── AboutViewModel.cs            # О программе
+│   ├── BaseOperationViewModel.cs    # Базовый ViewModel для операций (приемка/отгрузка)
+│   ├── BaseScannerViewModel.cs      # Базовый ViewModel для страниц, использующих сканер штрихкодов
 │   ├── HomeViewModel.cs             # Главный экран
-│   ├── LoginViewModel.cs            # Экран входа
-│   ├── OperationViewModel.cs        # Базовый ViewModel для операций (приемка/отгрузка)
-│   ├── ReceivingViewModel.cs        # Приемка коробок
-│   ├── ShippingViewModel.cs         # Отгрузка коробок
 │   ├── InventoryViewModel.cs        # Инвентаризация
-│   └── AboutViewModel.cs            # О программе
+│   ├── LoginViewModel.cs            # Экран входа
+│   ├── ReceivingViewModel.cs        # Приемка коробок
+│   └── ShippingViewModel.cs         # Отгрузка коробок 
 │
 ├───Views/
 │   ├───Behaviors/

@@ -15,7 +15,7 @@ public class Box
     public string? LocationId { get; set; }
     
     // Изменяем int на BoxStatus
-    public BoxStatus Status { get; set; } = BoxStatus.Active;
+    public BoxStatus Status { get; set; } = BoxStatus.Draft;
     
     public long CreatedAt { get; set; }
     public long UpdatedAt { get; set; }
@@ -145,7 +145,7 @@ public class Box
             initialQuantity = currentQuantity;
         
         // Изменяем парсинг статуса - используем BoxStatus
-        var status = BoxStatus.Active;
+        var status = BoxStatus.Draft;
         var statusObj = json.GetValueOrDefault("status", 1);
         if (statusObj is int si)
             status = (BoxStatus)si;

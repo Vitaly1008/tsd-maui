@@ -8,55 +8,15 @@ using Microsoft.Maui.Devices;
 
 namespace FlowerWms.Tsd.ViewModels;
 
-// ViewModel для страницы инвентаризации
-public partial class InventoryViewModel : ObservableObject, IDisposable
+/// <summary>
+/// ViewModel для страницы инвентаризации
+/// </summary>
+public partial class InventoryViewModel : BaseScannerViewModel
 {
-    private readonly IBarcodeService? _barcodeService;
-    private readonly DatabaseHelper _dbHelper;
-    private readonly ApiService _apiService;
-    private readonly SyncQueueService _syncQueueService;
-    private readonly SyncService _syncService;
-    private bool _isScannerStarted;
-    private bool _isInitialized;
-    private bool _disposed;
-    private Box? _currentSelectedBox;
-
-    // Основные свойства
-    [ObservableProperty]
-    private bool _isLoading;
-
+    // Специфичные свойства для инвентаризации
     [ObservableProperty]
     private string _currentLocation = string.Empty;
 
-    [ObservableProperty]
-    private string? _lastScannedBarcode;
-
-    [ObservableProperty]
-    private bool _isOnline = true;
-
-    [ObservableProperty]
-    private string _scanStatusText = "Сканируйте локацию или коробку";
-
-    [ObservableProperty]
-    private string _scanStatusIcon = "📷";
-
-    [ObservableProperty]
-    private Color _scanStatusColor = Colors.Gray;
-
-    [ObservableProperty]
-    private bool _hasError;
-
-    [ObservableProperty]
-    private string _errorMessage = string.Empty;
-
-    // Режимы
-    [ObservableProperty]
-    private bool _isLocationMode = true;
-
-    [ObservableProperty]
-    private string _modeText = "Режим: просмотр локации";
-
-    // Данные локации
     [ObservableProperty]
     private string _locationInfo = "Сканируйте локацию для просмотра коробок";
 
@@ -69,7 +29,12 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private ObservableCollection<Box> _locationBoxes = new();
 
-    // Данные для перемещения
+    [ObservableProperty]
+    private bool _isLocationMode = true;
+
+    [ObservableProperty]
+    private string _modeText = "Режим: просмотр локации";
+
     [ObservableProperty]
     private Box? _selectedBox;
 
@@ -88,138 +53,23 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isMoveButtonEnabled;
 
+    private Box? _currentSelectedBox;
+
     public event EventHandler? OperationCompleted;
     public event EventHandler? OperationCancelled;
 
     public InventoryViewModel(IBarcodeService? barcodeService = null)
+        : base(barcodeService)
     {
-        _barcodeService = barcodeService;
-        _dbHelper = new DatabaseHelper();
-        _apiService = new ApiService();
-        _syncQueueService = new SyncQueueService();
-        _syncService = new SyncService();
-        
-        if (_barcodeService != null)
-        {
-            _barcodeService.OnBarcodeScanned += OnBarcodeScanned;
-        }
-
         LocationBoxes = new ObservableCollection<Box>();
+        SetStatus("Сканируйте локацию или коробку", "📷", Colors.Gray);
     }
 
-    // Преобразует BoxCache в Box
-    private static Box BoxCacheToBox(BoxCache cached)
-    {
-        return new Box
-        {
-            Id = cached.box_id,
-            Barcode = cached.barcode,
-            BoxNumber = cached.box_number,
-            ProductName = cached.product_name,
-            ProductEan13 = cached.product_ean13,
-            CurrentQuantity = cached.current_quantity,
-            InitialQuantity = cached.initial_quantity,
-            Grade = cached.grade,
-            LocationCode = cached.location_code,
-            Status = cached.status
-        };
-    }
-
-    // Преобразует Box в BoxCache
-    private static BoxCache BoxToBoxCache(Box box, string locationCode)
-    {
-        return new BoxCache
-        {
-            box_id = box.Id,
-            barcode = box.Barcode,
-            box_number = box.BoxNumber,
-            grade = box.Grade,
-            initial_quantity = box.InitialQuantity,
-            current_quantity = box.CurrentQuantity,
-            product_id = box.ProductId,
-            product_name = box.ProductName,
-            product_ean13 = box.ProductEan13,
-            location_code = locationCode,
-            status = box.Status,
-            created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-        };
-    }
-
-    private void OnBarcodeScanned(string barcode)
-    {
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            await ScanBarcodeCommand.ExecuteAsync(barcode);
-        });
-    }
-
-    // Запускает сканер
-    public void StartScanner()
-    {
-        if (_barcodeService == null || _isScannerStarted) return;
-        
-        try
-        {
-            _barcodeService.StartListening();
-            _isScannerStarted = true;
-            System.Diagnostics.Debug.WriteLine("Сканер запущен");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка запуска сканера: {ex.Message}");
-        }
-    }
-
-    // Останавливает сканер
-    public void StopScanner()
-    {
-        if (_barcodeService == null || !_isScannerStarted) return;
-        
-        try
-        {
-            _barcodeService.StopListening();
-            _isScannerStarted = false;
-            System.Diagnostics.Debug.WriteLine("Сканер остановлен");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка остановки сканера: {ex.Message}");
-        }
-    }
-
-    // Инициализирует ViewModel
-    public async Task Initialize()
-    {
-        if (_isInitialized) return;
-        
-        try
-        {
-            IsOnline = await _syncService.CheckInternetManual();
-            
-            if (_barcodeService != null)
-            {
-                StartScanner();
-            }
-            
-            _isInitialized = true;
-            System.Diagnostics.Debug.WriteLine("Страница инвентаризации инициализирована");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка инициализации: {ex.Message}");
-        }
-    }
-
-    // Обрабатывает сканирование штрихкода
-    [RelayCommand]
-    public async Task ScanBarcode(string barcode)
+    protected override async Task ProcessBarcode(string barcode)
     {
         if (string.IsNullOrEmpty(barcode)) return;
         if (IsLoading) return;
 
-        HasError = false;
-        ErrorMessage = string.Empty;
         IsLoading = true;
         LastScannedBarcode = barcode;
 
@@ -236,11 +86,7 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            HasError = true;
-            ErrorMessage = $"Ошибка: {ex.Message}";
-            ScanStatusIcon = "❌";
-            ScanStatusColor = Colors.Red;
-            ScanStatusText = ErrorMessage;
+            SetError($"Ошибка: {ex.Message}");
         }
         finally
         {
@@ -248,42 +94,32 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Определяет, является ли штрихкод локацией
-    private bool IsLocationBarcode(string barcode)
-    {
-        var hasEan13 = System.Text.RegularExpressions.Regex.IsMatch(barcode, @"^\d{13}");
-        if (hasEan13) return false;
-        
-        var parts = barcode.Split('-');
-        if (parts.Length == 4 && parts[0].Length == 13)
-        {
-            return false;
-        }
-        
-        return true;
-    }
-
-    // Обрабатывает сканирование локации
     private async Task ProcessLocationScan(string locationCode)
     {
         CurrentLocation = locationCode;
-        ScanStatusIcon = "📍";
-        ScanStatusColor = Colors.Blue;
-        ScanStatusText = $"Локация: {locationCode}";
+        SetStatus($"Локация: {locationCode}", "📍", Colors.Blue);
 
         var cachedBoxes = await _dbHelper.GetBoxesByLocation(locationCode);
         var boxes = cachedBoxes.Select(BoxCacheToBox).ToList();
-        
+
+        // Если локально нет коробок и есть интернет - пытаемся получить с сервера
         if (boxes.Count == 0 && IsOnline)
         {
-            var serverBoxes = await _apiService.GetBoxesByLocation(locationCode);
-            if (serverBoxes.Count > 0)
+            try
             {
-                foreach (var box in serverBoxes)
+                var serverBoxes = await _apiService.GetBoxesByLocation(locationCode);
+                if (serverBoxes.Count > 0)
                 {
-                    await _dbHelper.SaveBox(BoxToBoxCache(box, locationCode));
+                    foreach (var box in serverBoxes)
+                    {
+                        await SaveBoxToCache(box, isLocal: false);
+                    }
+                    boxes = serverBoxes;
                 }
-                boxes = serverBoxes;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка получения коробок с сервера: {ex.Message}");
             }
         }
 
@@ -294,59 +130,53 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
             {
                 LocationBoxes.Add(box);
             }
-            
-            TotalBoxesInLocation = boxes.Count;
-            TotalQuantityInLocation = boxes.Sum(b => b.CurrentQuantity);
-            
-            LocationInfo = $"Локация: {locationCode}\n" +
-                        $"Коробок: {TotalBoxesInLocation}\n" +
-                        $"Количество: {TotalQuantityInLocation} шт.";
-        });
 
-        System.Diagnostics.Debug.WriteLine($"Найдено {boxes.Count} коробок в локации {locationCode}");
+            TotalBoxesInLocation = boxes.Count;
+            TotalQuantityInLocation = boxes.Sum(b => b.CurrentQuantity > 0 ? b.CurrentQuantity : b.Quantity);
+
+            LocationInfo = $"Локация: {locationCode}\n" +
+                          $"Коробок: {TotalBoxesInLocation}\n" +
+                          $"Количество: {TotalQuantityInLocation} шт.";
+        });
     }
 
-    // Обрабатывает сканирование коробки
     private async Task ProcessBoxScan(string barcode)
     {
         var box = await FindBoxByBarcode(barcode);
-        
+
         if (box == null)
         {
-            HasError = true;
-            ErrorMessage = "Коробка не найдена на складе";
-            ScanStatusIcon = "❌";
-            ScanStatusColor = Colors.Red;
-            ScanStatusText = ErrorMessage;
-            Vibration.Vibrate(200);
+            SetError("Коробка не найдена на складе");
             return;
         }
 
+        // Если коробка уже в списке - показываем информацию
+        if (LocationBoxes.Any(b => b.Barcode == box.Barcode))
+        {
+            SelectedBox = box;
+            _currentSelectedBox = box;
+            UpdateBoxInfo();
+            return;
+        }
+
+        // Переход в режим перемещения
         IsLocationMode = false;
         IsMoveMode = true;
         SelectedBox = box;
         _currentSelectedBox = box;
-        
-        SelectedBoxInfo = $"Коробка #{box.BoxNumber}\n" +
-                         $"Продукт: {box.ProductName}\n" +
-                         $"Количество: {box.CurrentQuantity} шт.\n" +
-                         $"Текущая локация: {box.LocationCode ?? "Не указана"}\n" +
-                         $"Сорт: {box.Grade}";
-        
-        ScanStatusIcon = "📦";
-        ScanStatusColor = Colors.Green;
-        ScanStatusText = $"Коробка #{box.BoxNumber} выбрана для перемещения";
-        
+
+        UpdateBoxInfo();
+
+        SetStatus($"Коробка #{box.BoxNumber} выбрана для перемещения", "📦", Colors.Green);
+
         ModeText = "Режим: перемещение коробки";
         MoveButtonText = "Указать новую локацию";
         IsMoveButtonEnabled = true;
-        
+
         TargetLocation = string.Empty;
-        
         Vibration.Vibrate(100);
     }
 
-    // Находит коробку по штрихкоду
     private async Task<Box?> FindBoxByBarcode(string barcode)
     {
         var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
@@ -362,7 +192,7 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
                 var serverBox = await _apiService.FindBoxByBarcode(barcode);
                 if (serverBox != null)
                 {
-                    await _dbHelper.SaveBox(BoxToBoxCache(serverBox, serverBox.LocationCode ?? "UNKNOWN"));
+                    await SaveBoxToCache(serverBox, isLocal: false);
                     return serverBox;
                 }
             }
@@ -375,7 +205,17 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
         return null;
     }
 
-    // Устанавливает целевую локацию для перемещения
+    private void UpdateBoxInfo()
+    {
+        if (_currentSelectedBox == null) return;
+
+        SelectedBoxInfo = $"Коробка #{_currentSelectedBox.BoxNumber}\n" +
+                         $"Продукт: {_currentSelectedBox.ProductName}\n" +
+                         $"Количество: {_currentSelectedBox.CurrentQuantity} шт.\n" +
+                         $"Текущая локация: {_currentSelectedBox.LocationCode ?? "Не указана"}\n" +
+                         $"Сорт: {_currentSelectedBox.Grade}";
+    }
+
     [RelayCommand]
     public async Task SetTargetLocation()
     {
@@ -413,7 +253,6 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Выполняет перемещение коробки
     [RelayCommand]
     public async Task MoveBox()
     {
@@ -432,7 +271,7 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
         try
         {
             var oldLocation = SelectedBox.LocationCode;
-            
+
             var boxCache = await _dbHelper.GetBoxByBarcode(SelectedBox.Barcode);
             if (boxCache != null)
             {
@@ -460,25 +299,17 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
             );
 
             SelectedBox.LocationCode = TargetLocation;
-            SelectedBoxInfo = $"Коробка #{SelectedBox.BoxNumber}\n" +
-                             $"Продукт: {SelectedBox.ProductName}\n" +
-                             $"Количество: {SelectedBox.CurrentQuantity} шт.\n" +
-                             $"Перемещена в: {TargetLocation}\n" +
-                             $"Сорт: {SelectedBox.Grade}";
+            UpdateBoxInfo();
 
+            // Обновляем список коробок в текущей локации
             if (!string.IsNullOrEmpty(CurrentLocation))
             {
                 await ProcessLocationScan(CurrentLocation);
             }
 
-            var hasInternet = await _syncService.CheckInternetManual();
-            var message = hasInternet 
-                ? $"Коробка #{SelectedBox.BoxNumber} перемещена в {TargetLocation}\nДанные синхронизированы"
-                : $"Коробка #{SelectedBox.BoxNumber} перемещена в {TargetLocation}\nДанные сохранены локально";
-            
             await Application.Current?.MainPage?.DisplayAlert(
-                hasInternet ? "Успешно" : "Офлайн-режим",
-                message,
+                "Успешно",
+                $"Коробка #{SelectedBox.BoxNumber} перемещена в {TargetLocation}",
                 "OK"
             );
 
@@ -498,7 +329,6 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Возвращает в режим просмотра локации
     private void ResetToLocationMode()
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -512,13 +342,10 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
             MoveButtonText = "Указать локацию";
             IsMoveButtonEnabled = false;
             ModeText = "Режим: просмотр локации";
-            ScanStatusText = "Сканируйте локацию для просмотра коробок";
-            ScanStatusIcon = "📷";
-            ScanStatusColor = Colors.Gray;
+            SetStatus("Сканируйте локацию для просмотра коробок", "📷", Colors.Gray);
         });
     }
 
-    // Отменяет операцию
     [RelayCommand]
     public async Task CancelOperation()
     {
@@ -542,12 +369,13 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
             );
             if (confirm == false) return;
         }
-        
+
         StopScanner();
+        
+        // 👇 ИСПОЛЬЗУЕМ СОБЫТИЕ (InventoryViewModel не наследует BaseOperationViewModel)
         OperationCancelled?.Invoke(this, EventArgs.Empty);
     }
 
-    // Обновляет текущую локацию
     [RelayCommand]
     public async Task RefreshLocation()
     {
@@ -565,7 +393,6 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Отменяет перемещение
     [RelayCommand]
     public void CancelMove()
     {
@@ -575,17 +402,44 @@ public partial class InventoryViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void Dispose()
+    private static Box BoxCacheToBox(BoxCache cached)
     {
-        if (_disposed) return;
-        
-        StopScanner();
-        if (_barcodeService != null)
+        return new Box
         {
-            _barcodeService.OnBarcodeScanned -= OnBarcodeScanned;
-        }
-        _syncQueueService.Dispose();
-        _disposed = true;
-        GC.SuppressFinalize(this);
+            Id = cached.box_id,
+            Barcode = cached.barcode,
+            BoxNumber = cached.box_number,
+            ProductName = cached.product_name,
+            ProductEan13 = cached.product_ean13,
+            CurrentQuantity = cached.current_quantity,
+            InitialQuantity = cached.initial_quantity,
+            Grade = cached.grade,
+            LocationCode = cached.location_code,
+            Status = cached.status,
+            CreatedAt = cached.created_at,
+            UpdatedAt = cached.updated_at
+        };
+    }
+
+    private async Task SaveBoxToCache(Box box, bool isLocal)
+    {
+        var boxCache = new BoxCache
+        {
+            barcode = box.Barcode,
+            box_id = box.Id,
+            box_number = box.BoxNumber,
+            grade = box.Grade,
+            initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.Quantity,
+            current_quantity = box.CurrentQuantity > 0 ? box.CurrentQuantity : box.Quantity,
+            product_id = box.ProductId,
+            product_name = box.ProductName,
+            product_ean13 = box.ProductEan13,
+            location_code = box.LocationCode ?? "UNKNOWN",
+            status = box.Status,
+            created_at = box.CreatedAt,
+            updated_at = box.UpdatedAt,
+            is_dirty = isLocal ? 1 : 0
+        };
+        await _dbHelper.SaveBox(boxCache);
     }
 }

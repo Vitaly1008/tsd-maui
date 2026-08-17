@@ -266,6 +266,8 @@ public class SyncQueueService : IDisposable
                 if (updatedBox != null)
                 {
                     await UpdateBoxCache(updatedBox);
+                    // обновляем статус в локальной БД
+                    await UpdateBoxStatusAfterSync(barcode, BoxStatus.Active);
                 }
                 
                 System.Diagnostics.Debug.WriteLine($"Коробка активирована: {barcode}");
@@ -436,6 +438,28 @@ public class SyncQueueService : IDisposable
             throw;
         }
     }
+
+
+    // Обновление статуса после синхронизации
+    private async Task UpdateBoxStatusAfterSync(string barcode, BoxStatus newStatus)
+    {
+        try
+        {
+            var box = await _dbHelper.GetBoxByBarcode(barcode);
+            if (box != null)
+            {
+                box.status = newStatus;
+                box.is_dirty = 0;
+                await _dbHelper.SaveBox(box);
+                System.Diagnostics.Debug.WriteLine($"✅ Статус коробки {barcode} обновлен на {newStatus} после синхронизации");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления статуса: {ex.Message}");
+        }
+    }
+
 
     public void Dispose()
     {

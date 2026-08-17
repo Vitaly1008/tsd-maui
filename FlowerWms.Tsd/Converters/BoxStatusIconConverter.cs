@@ -23,10 +23,10 @@ public abstract class BoxStatusBaseConverter : IValueConverter
         if (value is int intStatus && Enum.IsDefined(typeof(BoxStatus), intStatus))
             return (BoxStatus)intStatus;
 
-        // Преобразование из string
-        if (value is string stringStatus && int.TryParse(stringStatus, out int parsedInt) 
+        // Преобразование из string ломает логику, убираем
+        /*if (value is string stringStatus && int.TryParse(stringStatus, out int parsedInt) 
             && Enum.IsDefined(typeof(BoxStatus), parsedInt))
-            return (BoxStatus)parsedInt;
+            return (BoxStatus)parsedInt;*/
 
         return null;
     }
