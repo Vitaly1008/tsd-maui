@@ -175,6 +175,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
             if (!IsPartialShipmentMode)
             {
                 IsFullShipmentMode = true;
+                // ✅ Исправлено: используем _currentSelectedBox
                 ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
                 ShipQuantityDisplay = ShipQuantity.ToString();
                 ShipModeDescription = "Полная отгрузка (вся коробка)";
@@ -229,6 +230,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
 
         IsFullShipmentMode = false;
         IsPartialShipmentMode = true;
+        // ✅ Исправлено: берем из _currentSelectedBox
         ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
         ShipQuantityDisplay = ShipQuantity.ToString();
         ShipModeDescription = "Частичная отгрузка (укажите количество)";
@@ -289,12 +291,34 @@ public partial class ShippingViewModel : BaseOperationViewModel
             return;
         }
 
+        // ✅ Добавлена проверка для частичной отгрузки
+        if (IsPartialShipmentMode && ShipQuantity <= 0)
+        {
+            await Application.Current?.MainPage?.DisplayAlert(
+                "Ошибка",
+                "Укажите количество для отгрузки",
+                "OK"
+            );
+            return;
+        }
+
+        if (IsPartialShipmentMode && ShipQuantity > MaxQuantity)
+        {
+            await Application.Current?.MainPage?.DisplayAlert(
+                "Ошибка",
+                $"Нельзя отгрузить больше {MaxQuantity} шт.",
+                "OK"
+            );
+            return;
+        }
+
         IsLoading = true;
         var boxes = ScannedBoxes.ToList();
         int shippedCount = 0;
         int partialCount = 0;
         int localCount = 0;
         int totalShippedQuantity = 0;
+        var errors = new List<string>();
 
         try
         {
@@ -322,82 +346,112 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 int newQuantity = box.CurrentQuantity - quantityToShip;
                 totalShippedQuantity += quantityToShip;
 
-                if (IsOnline && !box.Id.StartsWith("local_"))
+                // ✅ Улучшено: проверяем что коробка не локальная и есть интернет
+                bool isLocalBox = box.Id.StartsWith("local_");
+                bool canUseOnline = IsOnline && !isLocalBox;
+
+                if (canUseOnline)
                 {
                     try
                     {
+                        Dictionary<string, object> result;
+                        
                         if (isFullShipment)
                         {
-                            var shipResult = await _apiService.ShipBox(
+                            result = await _apiService.ShipBox(
                                 boxId: box.Id,
                                 comment: "Полная отгрузка через ТСД"
                             );
-
-                            if (shipResult.TryGetValue("success", out var success) && success is bool s && s)
-                            {
-                                shippedCount++;
-                                var updatedBox = await _apiService.GetBoxByBarcode(box.Barcode);
-                                if (updatedBox != null)
-                                    await UpdateLocalBox(updatedBox);
-                                else
-                                    await _dbHelper.DeleteBoxByBarcode(box.Barcode);
-                            }
-                            else
-                            {
-                                throw new Exception(shipResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка");
-                            }
                         }
                         else
                         {
-                            var consumeResult = await _apiService.ConsumeBox(
+                            result = await _apiService.ConsumeBox(
                                 boxId: box.Id,
                                 quantity: quantityToShip,
                                 comment: $"Частичная отгрузка, остаток: {newQuantity} шт."
                             );
+                        }
 
-                            if (consumeResult.TryGetValue("success", out var success) && success is bool s && s)
+                        // ✅ Проверяем результат
+                        if (result.TryGetValue("success", out var successObj) && 
+                            successObj is bool success && success)
+                        {
+                            if (isFullShipment)
+                                shippedCount++;
+                            else
+                                partialCount++;
+
+                            // ✅ Улучшено: обновляем кэш без лишнего запроса
+                            // Пробуем получить обновленную коробку из результата
+                            if (result.TryGetValue("data", out var dataObj) && 
+                                dataObj is Dictionary<string, object> data)
                             {
-                                var updatedBox = await _apiService.GetBoxByBarcode(box.Barcode);
-                                if (updatedBox != null)
+                                var updatedBox = Box.FromJson(data);
+                                if (updatedBox != null && !string.IsNullOrEmpty(updatedBox.Id))
                                 {
                                     await UpdateLocalBox(updatedBox);
-                                    partialCount++;
+                                    System.Diagnostics.Debug.WriteLine($"✅ Кэш обновлен из ответа: #{updatedBox.BoxNumber}");
+                                }
+                                else
+                                {
+                                    // Если не удалось распарсить, делаем запрос
+                                    await RefreshBoxCache(box.Barcode);
                                 }
                             }
                             else
                             {
-                                throw new Exception(consumeResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка");
+                                // Если нет данных в ответе, делаем запрос
+                                await RefreshBoxCache(box.Barcode);
+                            }
+                        }
+                        else
+                        {
+                            var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                            
+                            // ✅ Если ошибка из-за сети, сохраняем локально
+                            if (result.TryGetValue("offline", out var offlineObj) && 
+                                offlineObj is bool offline && offline)
+                            {
+                                await SaveLocalShipment(box, quantityToShip, isFullShipment);
+                                localCount++;
+                            }
+                            else
+                            {
+                                errors.Add($"Коробка #{box.BoxNumber}: {errorMsg}");
                             }
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        // ✅ При любой ошибке сохраняем локально
+                        System.Diagnostics.Debug.WriteLine($"Ошибка при отгрузке {box.BoxNumber}: {ex.Message}");
                         await SaveLocalShipment(box, quantityToShip, isFullShipment);
                         localCount++;
                     }
                 }
                 else
                 {
+                    // Офлайн или локальная коробка
                     await SaveLocalShipment(box, quantityToShip, isFullShipment);
                     localCount++;
                 }
             }
 
+            // ✅ Формируем сообщение с учетом ошибок
             var message = $"Обработано {boxes.Count} коробок.\nВсего отгружено: {totalShippedQuantity} шт.\n\n";
-            if (shippedCount > 0) message += $"Полностью отгружено: {shippedCount}\n";
-            if (partialCount > 0) message += $"Частично отгружено: {partialCount}\n";
-            if (localCount > 0) message += $"Сохранено локально: {localCount}\n";
-            message += localCount == 0 ? "\nДанные синхронизированы с сервером." : "\nДанные сохранены локально.";
+            if (shippedCount > 0) message += $"✅ Полностью отгружено: {shippedCount}\n";
+            if (partialCount > 0) message += $"✂️ Частично отгружено: {partialCount}\n";
+            if (localCount > 0) message += $"📴 Сохранено локально: {localCount}\n";
+            if (errors.Any()) message += $"\n⚠️ Ошибки:\n{string.Join("\n", errors)}";
+            message += localCount == 0 && !errors.Any() ? "\n✅ Данные синхронизированы с сервером." : "\n📴 Данные сохранены локально.";
 
             await Application.Current?.MainPage?.DisplayAlert(
-                localCount == 0 ? "Успешно" : "Внимание",
+                errors.Any() ? "Внимание" : localCount == 0 ? "Успешно" : "Внимание",
                 message,
                 "OK"
             );
 
             ClearSession();
-            
-            // 👇 ИСПОЛЬЗУЕМ ЗАЩИЩЕННЫЙ МЕТОД
             OnOperationCompleted();
         }
         catch (Exception ex)
@@ -414,10 +468,41 @@ public partial class ShippingViewModel : BaseOperationViewModel
         }
     }
 
+    // ✅ Новый метод: обновление кэша без лишних запросов
+    private async Task RefreshBoxCache(string barcode)
+    {
+        try
+        {
+            var updatedBox = await _apiService.GetBoxByBarcode(barcode);
+            if (updatedBox != null)
+            {
+                await UpdateLocalBox(updatedBox);
+                System.Diagnostics.Debug.WriteLine($"✅ Кэш обновлен запросом: #{updatedBox.BoxNumber}");
+            }
+            else
+            {
+                await _dbHelper.DeleteBoxByBarcode(barcode);
+                System.Diagnostics.Debug.WriteLine($"🗑️ Коробка удалена из кэша: {barcode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления кэша: {ex.Message}");
+        }
+    }
+
     private async Task SaveLocalShipment(Box box, int quantityToShip, bool isFullShipment)
     {
         int newQuantity = box.CurrentQuantity - quantityToShip;
-        int newStatus = isFullShipment ? 3 : (newQuantity == 0 ? 2 : 1);
+        
+        // ✅ Используем BoxStatus enum
+        BoxStatus newStatus;
+        if (isFullShipment)
+            newStatus = BoxStatus.Shipped;
+        else if (newQuantity == 0)
+            newStatus = BoxStatus.Empty;
+        else
+            newStatus = BoxStatus.Active;
 
         var boxCache = new BoxCache
         {
@@ -431,7 +516,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
             product_name = box.ProductName,
             product_ean13 = box.ProductEan13,
             location_code = box.LocationCode ?? "UNKNOWN",
-            status = (BoxStatus)newStatus,
+            status = newStatus, // ✅ Теперь используем enum
             created_at = box.CreatedAt,
             updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             is_dirty = 1
@@ -445,7 +530,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
             boxNumber = box.BoxNumber,
             quantity = quantityToShip,
             newQuantity = newQuantity,
-            status = newStatus,
+            status = (int)newStatus, // ✅ Сохраняем как int для совместимости
             isFullShipment = isFullShipment,
             operationType = "Shipping"
         };
@@ -456,6 +541,8 @@ public partial class ShippingViewModel : BaseOperationViewModel
             payload: payload,
             deviceId: Constants.DeviceId
         );
+        
+        System.Diagnostics.Debug.WriteLine($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт., статус: {newStatus}");
     }
 
     public override void RemoveBox(object parameter)

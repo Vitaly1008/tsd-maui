@@ -651,25 +651,49 @@ public class ApiService
         );
     }
 
+    // ============================================================
+    // ✅ ОТГРУЗКА С ПОДДЕРЖКОЙ ОФЛАЙН (исправленная версия)
+    // ============================================================
+
     public async Task<Dictionary<string, object>> ShipBox(string boxId, string? comment = null)
     {
-        return await ExecutePostRequest(
-            $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/ship",
-            new { comment = comment ?? "Отгрузка через ТСД" }
+        // Используем RequestWithOfflineSupport для офлайн-поддержки
+        var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
+            HttpMethod.Post,
+            $"/api/boxes/{boxId}/ship",
+            new { comment = comment ?? "Отгрузка через ТСД" },
+            "Shipping",
+            boxId  // передаем boxId как barcode для идентификации
         );
+        
+        return result ?? new Dictionary<string, object>
+        {
+            ["success"] = false,
+            ["message"] = "Не удалось выполнить отгрузку"
+        };
     }
 
     public async Task<Dictionary<string, object>> ConsumeBox(string boxId, int quantity, string? comment = null)
     {
-        return await ExecutePostRequest(
-            $"{Constants.ApiBaseUrl}/api/boxes/consume",
+        // Используем RequestWithOfflineSupport для офлайн-поддержки
+        var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
+            HttpMethod.Post,
+            $"/api/boxes/consume",
             new 
             { 
                 boxId = boxId,
                 quantity = quantity,
                 comment = comment ?? $"Списание через ТСД: {quantity} шт."
-            }
+            },
+            "Shipping",
+            boxId  // передаем boxId как barcode для идентификации
         );
+        
+        return result ?? new Dictionary<string, object>
+        {
+            ["success"] = false,
+            ["message"] = "Не удалось выполнить списание"
+        };
     }
 
     public async Task<Box?> GetBoxByNumber(int boxNumber)

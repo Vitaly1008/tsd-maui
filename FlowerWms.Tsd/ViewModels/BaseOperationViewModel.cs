@@ -86,20 +86,26 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         try
         {
             var boxes = ScannedBoxes.ToList();
+            
+            // Добавляем больше информации для восстановления
+            var payload = new
+            {
+                operationType = _operationType,
+                boxes = boxes.Select(b => b.ToDictionary()),
+                locationCode = CurrentLocation,
+                orderNumber = OrderNumber,
+                orderId = OrderId,
+                isAutoSave = true,
+                deviceId = Constants.DeviceId,
+                timestamp = DateTime.UtcNow,
+                boxCount = boxes.Count,
+                totalQuantity = boxes.Sum(b => b.CurrentQuantity)
+            };
 
             await new OfflineService().SaveTransaction(
-                operationType: _operationType,
+                operationType: $"{_operationType}_autosave",
                 barcode: string.Join(",", boxes.Select(b => b.Barcode)),
-                payload: new
-                {
-                    operationType = _operationType,
-                    boxes = boxes.Select(b => b.ToDictionary()),
-                    locationCode = CurrentLocation,
-                    orderNumber = OrderNumber,
-                    isAutoSave = true,
-                    deviceId = Constants.DeviceId,
-                    timestamp = DateTime.UtcNow
-                },
+                payload: payload,
                 deviceId: Constants.DeviceId
             );
 

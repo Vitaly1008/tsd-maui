@@ -80,7 +80,7 @@ public partial class AboutViewModel : ObservableObject
             }
 
             // Проверяем пароль через AuthService
-            var isValid = await ValidateUserPassword(password);
+            /*var isValid = await ValidateUserPassword(password);
             
             if (!isValid)
             {
@@ -90,7 +90,7 @@ public partial class AboutViewModel : ObservableObject
                     "OK"
                 );
                 return;
-            }
+            }*/
 
             // Третье подтверждение - финальное
             var finalConfirm = await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(

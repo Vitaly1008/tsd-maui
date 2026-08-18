@@ -147,14 +147,20 @@ public class Box
         // Изменяем парсинг статуса - используем BoxStatus
         var status = BoxStatus.Draft;
         var statusObj = json.GetValueOrDefault("status", 1);
-        if (statusObj is int si)
+        
+        if (statusObj is BoxStatus bs)
+            status = bs;
+        else if (statusObj is int si)
             status = (BoxStatus)si;
         else if (statusObj is long sl)
             status = (BoxStatus)sl;
-        else if (statusObj is string ss && int.TryParse(ss, out var sn))
-            status = (BoxStatus)sn;
-        else if (statusObj is BoxStatus bs)
-            status = bs;
+        else if (statusObj is string ss)
+        {
+            if (int.TryParse(ss, out var sn))
+                status = (BoxStatus)sn;
+            else if (Enum.TryParse<BoxStatus>(ss, true, out var se))
+                status = se;
+        }
         
         long createdAt = 0;
         var createdAtObj = json.GetValueOrDefault("createdAt", 0);

@@ -328,13 +328,37 @@ public class SyncQueueService : IDisposable
         var boxId = payload?.GetValueOrDefault("boxId")?.ToString();
         var quantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
         var isFullShipment = payload?.GetValueOrDefault("isFullShipment", false) is bool f && f;
+        var barcode = op.barcode;
         
         if (string.IsNullOrEmpty(boxId))
         {
             throw new Exception("Не указан boxId для операции отгрузки");
         }
         
-        object result;
+        // Получаем актуальное состояние коробки перед операцией
+        var currentBox = await _apiService.GetBoxByBarcode(barcode);
+        if (currentBox == null)
+        {
+            throw new Exception($"Коробка {barcode} не найдена на сервере");
+        }
+        
+        // Проверяем, что коробка еще не отгружена
+        if (currentBox.Status == BoxStatus.Shipped)
+        {
+            System.Diagnostics.Debug.WriteLine($"Коробка {barcode} уже отгружена, пропускаем");
+            return;
+        }
+        
+        // Если частичная отгрузка, проверяем количество
+        if (!isFullShipment && quantity > 0)
+        {
+            if (quantity > currentBox.CurrentQuantity)
+            {
+                throw new Exception($"Недостаточно товара. Доступно: {currentBox.CurrentQuantity}, запрошено: {quantity}");
+            }
+        }
+        
+        Dictionary<string, object> result;
         if (isFullShipment || quantity <= 0)
         {
             result = await _apiService.ShipBox(boxId, "Синхронизация из офлайн-режима");
@@ -344,24 +368,55 @@ public class SyncQueueService : IDisposable
             result = await _apiService.ConsumeBox(boxId, quantity, "Синхронизация из офлайн-режима");
         }
         
-        var resultDict = result as Dictionary<string, object>;
-        if (!(resultDict?.TryGetValue("success", out var success) == true && success is bool s && s))
+        // Проверяем результат
+        if (!(result.TryGetValue("success", out var success) && success is bool s && s))
         {
-            var errorMsg = resultDict?.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+            var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
             throw new Exception(errorMsg);
         }
         
-        var updatedBox = await _apiService.GetBoxByBarcode(op.barcode);
-        if (updatedBox != null)
+        // Обновляем кэш из ответа, если возможно
+        if (result.TryGetValue("data", out var dataObj) && 
+            dataObj is Dictionary<string, object> data)
         {
-            await UpdateBoxCache(updatedBox);
+            var updatedBox = Box.FromJson(data);
+            if (updatedBox != null && !string.IsNullOrEmpty(updatedBox.Id))
+            {
+                await UpdateBoxCache(updatedBox);
+                System.Diagnostics.Debug.WriteLine($"Кэш обновлен из ответа: #{updatedBox.BoxNumber}");
+            }
+            else
+            {
+                await RefreshBoxCache(barcode);
+            }
         }
         else
         {
-            await _dbHelper.DeleteBoxByBarcode(op.barcode);
+            await RefreshBoxCache(barcode);
         }
         
-        System.Diagnostics.Debug.WriteLine($"Отгружена коробка: {op.barcode}, кол-во: {quantity}, полная: {isFullShipment}");
+        System.Diagnostics.Debug.WriteLine($"Отгружена коробка: {barcode}, кол-во: {quantity}, полная: {isFullShipment}");
+    }
+
+    // Новый метод для обновления кэша
+    private async Task RefreshBoxCache(string barcode)
+    {
+        try
+        {
+            var updatedBox = await _apiService.GetBoxByBarcode(barcode);
+            if (updatedBox != null)
+            {
+                await UpdateBoxCache(updatedBox);
+            }
+            else
+            {
+                await _dbHelper.DeleteBoxByBarcode(barcode);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления кэша: {ex.Message}");
+        }
     }
 
     // Обрабатывает другие типы операций
