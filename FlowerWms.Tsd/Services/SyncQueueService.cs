@@ -70,11 +70,11 @@ public class SyncQueueService : IDisposable
             
             System.Diagnostics.Debug.WriteLine($"Транзакция добавлена в очередь: {transactionId}, тип: {operationType}");
             
-            var hasInternet = await _apiService.PingServer();
+            /*var hasInternet = await _apiService.PingServer();
             if (hasInternet)
             {
                 _ = Task.Run(async () => await ProcessQueueAsync());
-            }
+            }*/
         }
         catch (Exception ex)
         {
@@ -240,6 +240,22 @@ public class SyncQueueService : IDisposable
         if (serverBox != null)
         {
             System.Diagnostics.Debug.WriteLine($"Коробка найдена на сервере: #{serverBox.BoxNumber}, статус: {serverBox.Status}");
+
+            //Проверяем, является ли коробка частичной
+            if (serverBox.IsPartial)
+            {
+                System.Diagnostics.Debug.WriteLine($"Коробка {barcode} является частичной, сохраняем в кэш с isPartial=1");
+                await UpdateBoxCache(serverBox);
+                
+                //Обновляем isPartial в локальной БД
+                var localBox = await _dbHelper.GetBoxByBarcode(barcode);
+                if (localBox != null)
+                {
+                    localBox.isPartial = 1;
+                    await _dbHelper.SaveBox(localBox);
+                }
+                return;
+            }
             
             if (serverBox.Status == BoxStatus.Active)
             {
@@ -329,27 +345,26 @@ public class SyncQueueService : IDisposable
         var quantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
         var isFullShipment = payload?.GetValueOrDefault("isFullShipment", false) is bool f && f;
         var barcode = op.barcode;
-        
+
         if (string.IsNullOrEmpty(boxId))
         {
             throw new Exception("Не указан boxId для операции отгрузки");
         }
-        
-        // Получаем актуальное состояние коробки перед операцией
+
+        // ✅ 1. ПОЛУЧАЕМ АКТУАЛЬНОЕ СОСТОЯНИЕ КОРОБКИ С СЕРВЕРА
         var currentBox = await _apiService.GetBoxByBarcode(barcode);
         if (currentBox == null)
         {
             throw new Exception($"Коробка {barcode} не найдена на сервере");
         }
-        
-        // Проверяем, что коробка еще не отгружена
-        if (currentBox.Status == BoxStatus.Shipped)
+
+        // ✅ 2. ПРОВЕРЯЕМ СТАТУС
+        if (currentBox.Status != BoxStatus.Active)
         {
-            System.Diagnostics.Debug.WriteLine($"Коробка {barcode} уже отгружена, пропускаем");
-            return;
+            throw new Exception($"Коробка {barcode} имеет статус {currentBox.Status}, отгрузка невозможна");
         }
-        
-        // Если частичная отгрузка, проверяем количество
+
+        // ✅ 3. ПРОВЕРЯЕМ КОЛИЧЕСТВО
         if (!isFullShipment && quantity > 0)
         {
             if (quantity > currentBox.CurrentQuantity)
@@ -357,7 +372,14 @@ public class SyncQueueService : IDisposable
                 throw new Exception($"Недостаточно товара. Доступно: {currentBox.CurrentQuantity}, запрошено: {quantity}");
             }
         }
-        
+
+        // ✅ 4. ОБНОВЛЯЕМ ЛОКАЛЬНЫЙ КЭШ (если количество изменилось)
+        if (currentBox.CurrentQuantity != (payload?.GetValueOrDefault("currentQuantity", 0) is int cq ? cq : 0))
+        {
+            await _dbHelper.ForceUpdateBoxStatus(barcode, BoxStatus.Active, currentBox.CurrentQuantity);
+        }
+
+        // ✅ 5. ВЫПОЛНЯЕМ ОТГРУЗКУ
         Dictionary<string, object> result;
         if (isFullShipment || quantity <= 0)
         {
@@ -367,35 +389,50 @@ public class SyncQueueService : IDisposable
         {
             result = await _apiService.ConsumeBox(boxId, quantity, "Синхронизация из офлайн-режима");
         }
-        
-        // Проверяем результат
+
+        // ✅ 6. ПРОВЕРЯЕМ РЕЗУЛЬТАТ
         if (!(result.TryGetValue("success", out var success) && success is bool s && s))
         {
             var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
             throw new Exception(errorMsg);
         }
+
+        // ✅ 7. ОБНОВЛЯЕМ СТАТУС
+        int newQuantity = isFullShipment ? 0 : currentBox.CurrentQuantity - quantity;
+        BoxStatus newStatus;
         
-        // Обновляем кэш из ответа, если возможно
+        if (isFullShipment)
+        {
+            newStatus = BoxStatus.Shipped;
+            newQuantity = 0;
+        }
+        else if (newQuantity <= 0)
+        {
+            newStatus = BoxStatus.Empty;
+            newQuantity = 0;
+        }
+        else
+        {
+            newStatus = BoxStatus.Active;
+        }
+
+        // ✅ 8. ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ В ЛОКАЛЬНОЙ БД
+        await _dbHelper.ForceUpdateBoxStatus(barcode, newStatus, newQuantity);
+        
+        // ✅ 9. ОБНОВЛЯЕМ КЭШ ИЗ ОТВЕТА
         if (result.TryGetValue("data", out var dataObj) && 
             dataObj is Dictionary<string, object> data)
         {
             var updatedBox = Box.FromJson(data);
             if (updatedBox != null && !string.IsNullOrEmpty(updatedBox.Id))
             {
+                updatedBox.Status = newStatus;
+                updatedBox.CurrentQuantity = newQuantity;
                 await UpdateBoxCache(updatedBox);
-                System.Diagnostics.Debug.WriteLine($"Кэш обновлен из ответа: #{updatedBox.BoxNumber}");
-            }
-            else
-            {
-                await RefreshBoxCache(barcode);
             }
         }
-        else
-        {
-            await RefreshBoxCache(barcode);
-        }
-        
-        System.Diagnostics.Debug.WriteLine($"Отгружена коробка: {barcode}, кол-во: {quantity}, полная: {isFullShipment}");
+
+        System.Diagnostics.Debug.WriteLine($"✅ Отгружена коробка: {barcode}, кол-во: {quantity}, полная: {isFullShipment}, новый статус: {newStatus}");
     }
 
     // Новый метод для обновления кэша
@@ -445,7 +482,7 @@ public class SyncQueueService : IDisposable
                 status = box.Status,
                 created_at = box.CreatedAt,
                 updated_at = box.UpdatedAt,
-                is_dirty = 0
+                isPartial = 0
             });
             System.Diagnostics.Debug.WriteLine($"Кэш обновлен: #{box.BoxNumber}, статус: {box.Status}");
         }
@@ -504,7 +541,7 @@ public class SyncQueueService : IDisposable
             if (box != null)
             {
                 box.status = newStatus;
-                box.is_dirty = 0;
+                box.isPartial = 0;
                 await _dbHelper.SaveBox(box);
                 System.Diagnostics.Debug.WriteLine($"✅ Статус коробки {barcode} обновлен на {newStatus} после синхронизации");
             }
@@ -512,6 +549,23 @@ public class SyncQueueService : IDisposable
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления статуса: {ex.Message}");
+        }
+    }
+
+    // Удаляет транзакцию из очереди (после успешной синхронизации)
+    public async Task DeleteTransaction(string transactionId)
+    {
+        try
+        {
+            await _offlineService.DeleteTransaction(transactionId);
+            var pendingCount = await _offlineService.GetPendingCount();
+            PendingCountChanged?.Invoke(this, pendingCount);
+            System.Diagnostics.Debug.WriteLine($"✅ Транзакция удалена из очереди: {transactionId}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка удаления транзакции: {ex.Message}");
+            throw;
         }
     }
 

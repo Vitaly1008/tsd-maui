@@ -438,7 +438,7 @@ public partial class InventoryViewModel : BaseScannerViewModel
             status = box.Status,
             created_at = box.CreatedAt,
             updated_at = box.UpdatedAt,
-            is_dirty = isLocal ? 1 : 0
+            isPartial = isLocal ? 1 : 0
         };
         await _dbHelper.SaveBox(boxCache);
     }

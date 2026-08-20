@@ -48,7 +48,7 @@ public class BoxCache
     
     public long created_at { get; set; }
     public long updated_at { get; set; }
-    public int is_dirty { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
+    public int isPartial { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
 }
 
 // Модель для кэша локаций
@@ -83,7 +83,7 @@ public class ProductCache
     public string? barcode { get; set; }
     public long created_at { get; set; }
     public long updated_at { get; set; }
-    public int is_dirty { get; set; } = 0;
+    public int isPartial { get; set; } = 0;
 }
 
 // Модель для кэша операций с коробками

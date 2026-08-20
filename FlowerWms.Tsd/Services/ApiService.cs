@@ -94,7 +94,11 @@ public class ApiService
         {
             _isOffline = true;
 
-            if (!string.IsNullOrEmpty(operationType) && !string.IsNullOrEmpty(barcode))
+            // Проверяем, что это не операция отгрузки (Shipping)
+            // Для Shipping транзакции создаются только через SyncQueueService
+            if (!string.IsNullOrEmpty(operationType) && 
+                !string.IsNullOrEmpty(barcode) && 
+                operationType != "Shipping") // ← ИСКЛЮЧАЕМ SHIPPING
             {   
                 await _offlineService.SaveTransaction(
                     operationType: operationType,
@@ -652,25 +656,46 @@ public class ApiService
     }
 
     // ============================================================
-    // ✅ ОТГРУЗКА С ПОДДЕРЖКОЙ ОФЛАЙН (исправленная версия)
+    // ОТГРУЗКА С ПОДДЕРЖКОЙ ОФЛАЙН (исправленная версия)
     // ============================================================
 
     public async Task<Dictionary<string, object>> ShipBox(string boxId, string? comment = null)
     {
-        // Используем RequestWithOfflineSupport для офлайн-поддержки
-        var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
-            HttpMethod.Post,
-            $"/api/boxes/{boxId}/ship",
-            new { comment = comment ?? "Отгрузка через ТСД" },
-            "Shipping",
-            boxId  // передаем boxId как barcode для идентификации
-        );
-        
-        return result ?? new Dictionary<string, object>
+        try
         {
-            ["success"] = false,
-            ["message"] = "Не удалось выполнить отгрузку"
-        };
+            // Сначала делаем запрос на отгрузку
+            var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
+                HttpMethod.Post,
+                $"/api/boxes/{boxId}/ship",
+                new { comment = comment ?? "Отгрузка через ТСД" },
+                "Shipping",
+                boxId
+            );
+            
+            if (result != null && result.TryGetValue("success", out var success) && success is bool s && s)
+            {
+                // ДОПОЛНИТЕЛЬНО получаем обновленную коробку
+                var updatedBox = await GetBoxById(boxId);
+                if (updatedBox != null)
+                {
+                    result["data"] = updatedBox.ToDictionary();
+                }
+            }
+            
+            return result ?? new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = "Не удалось выполнить отгрузку"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
     }
 
     public async Task<Dictionary<string, object>> ConsumeBox(string boxId, int quantity, string? comment = null)
@@ -791,5 +816,30 @@ public class ApiService
                 locationCode = locationCode
             }
         );
+    }
+
+    //получение коробок isPartial
+    public async Task<List<Box>> GetPartialBoxes()
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/partial");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content) 
+                        ?? new List<Dictionary<string, object>>();
+                return data.Select(Box.FromJson).ToList();
+            }
+            
+            return new List<Box>();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка получения частичных коробок: {ex.Message}");
+            return new List<Box>();
+        }
     }
 }

@@ -33,7 +33,7 @@ public class Box
         set => CurrentQuantity = value;
     }
 
-    public bool IsDirty { get; set; }
+    public bool IsPartial { get; set; }
 
     // Создает модель из JSON-словаря
     public static Box FromJson(Dictionary<string, object> json)
@@ -143,9 +143,9 @@ public class Box
         }
         if (initialQuantity == 0)
             initialQuantity = currentQuantity;
-        
+
         // Изменяем парсинг статуса - используем BoxStatus
-        var status = BoxStatus.Draft;
+        BoxStatus status = BoxStatus.Draft;
         var statusObj = json.GetValueOrDefault("status", 1);
         
         if (statusObj is BoxStatus bs)
@@ -161,7 +161,7 @@ public class Box
             else if (Enum.TryParse<BoxStatus>(ss, true, out var se))
                 status = se;
         }
-        
+
         long createdAt = 0;
         var createdAtObj = json.GetValueOrDefault("createdAt", 0);
         if (createdAtObj is long cal)
@@ -246,7 +246,7 @@ public class Box
             status = Status,
             created_at = CreatedAt,
             updated_at = UpdatedAt,
-            is_dirty = IsDirty ? 1 : 0
+            isPartial = IsPartial ? 1 : 0
         };
     }
 
@@ -268,7 +268,7 @@ public class Box
             Status = cache.status,
             CreatedAt = cache.created_at,
             UpdatedAt = cache.updated_at,
-            IsDirty = cache.is_dirty == 1
+            IsPartial = cache.isPartial == 1
         };
     }
 }

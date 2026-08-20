@@ -193,7 +193,7 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             status = box.Status,
             created_at = box.CreatedAt,
             updated_at = box.UpdatedAt,
-            is_dirty = isLocal ? 1 : 0
+            isPartial = isLocal ? 1 : 0
         };
         await _dbHelper.SaveBox(boxCache);
     }
@@ -345,7 +345,7 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             Quantity = quantity > 0 ? quantity : 100,
             Grade = grade,
             LocationCode = CurrentLocation,
-            Status = status, // ✅ Теперь можно задать любой статус
+            Status = status, // Теперь можно задать любой статус
             CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };

@@ -33,7 +33,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                 return;
             }
 
-            // ✅ ПРОВЕРКА ЛОКАЛЬНОГО КЭША - ищем любую коробку
+            // ПРОВЕРКА ЛОКАЛЬНОГО КЭША - ищем любую коробку
             var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
             
             // Если коробка уже АКТИВНА в локальной БД — блокируем
@@ -49,7 +49,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
 
             if (IsOnline)
             {
-                // ✅ ОНЛАЙН-РЕЖИМ: проверяем на сервере
+                // ОНЛАЙН-РЕЖИМ: проверяем на сервере
                 var existingBox = await _apiService.GetBoxByBarcode(barcode);
 
                 if (existingBox == null)
@@ -73,7 +73,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
 
                 try
                 {
-                    // ✅ АКТИВИРУЕМ НА СЕРВЕРЕ
+                    // АКТИВИРУЕМ НА СЕРВЕРЕ
                     var activateResult = await _apiService.ActivateBox(
                         boxId: existingBox.Id,
                         locationCode: CurrentLocation,
@@ -88,7 +88,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                             box = Box.FromJson(data);
                             box.LocationCode = CurrentLocation;
                             
-                            // ✅ СТАТУС УЖЕ ACTIVE (пришел с сервера)
+                            // СТАТУС УЖЕ ACTIVE (пришел с сервера)
                             isActivated = true;
 
                             // Сохраняем в локальный кэш с ACTIVE статусом
@@ -106,7 +106,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                 }
                 catch (Exception ex)
                 {
-                    // ✅ ОШИБКА АКТИВАЦИИ - переходим в офлайн-режим
+                    // ОШИБКА АКТИВАЦИИ - переходим в офлайн-режим
                     // Проверяем, есть ли уже локальная Draft-коробка
                     if (cachedBox != null && cachedBox.status == BoxStatus.Draft)
                     {
@@ -133,7 +133,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
             }
             else
             {
-                // ✅ ОФЛАЙН-РЕЖИМ
+                // ОФЛАЙН-РЕЖИМ
                 if (cachedBox != null && cachedBox.status == BoxStatus.Draft)
                 {
                     // Используем существующую локальную коробку
@@ -157,13 +157,13 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                 );
             }
 
-            // ✅ Добавляем коробку в список сессии
+            // Добавляем коробку в список сессии
             if (!ScannedBoxes.Any(b => b.Barcode == box.Barcode))
             {
                 AddBoxToList(box);
             }
             
-            // ✅ Обновляем статус в соответствии с режимом активации
+            // Обновляем статус в соответствии с режимом активации
             if (!isActivated)
             {
                 SetStatus($"Локально: #{box.BoxNumber} (ожидает синхронизации)", "📴", Colors.Orange);
@@ -232,10 +232,10 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                     "OK"
                 );
 
-                // ✅ Синхронизируем очередь
+                // Синхронизируем очередь
                 await _syncQueueService.ProcessQueueAsync();
                 
-                // ✅ ПОСЛЕ СИНХРОНИЗАЦИИ - обновляем статусы всех локальных коробок на ACTIVE
+                // ПОСЛЕ СИНХРОНИЗАЦИИ - обновляем статусы всех локальных коробок на ACTIVE
                 var localBarcodes = localBoxes.Select(b => b.Barcode).ToList();
                 await _dbHelper.UpdateBoxesStatus(localBarcodes, BoxStatus.Active);
                 

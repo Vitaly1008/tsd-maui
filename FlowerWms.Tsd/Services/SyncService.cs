@@ -40,6 +40,7 @@ public class SyncService
             
             await SyncProducts();
             await SyncLocations();
+            await SyncPartialBoxes();
             await SyncBoxes();
             
             SetStatus(SyncStatus.Online);
@@ -147,7 +148,7 @@ public class SyncService
                             status = box.Status,
                             created_at = box.CreatedAt,
                             updated_at = box.UpdatedAt,
-                            is_dirty = 0
+                            isPartial = 0
                         });
                     }
                 }
@@ -195,12 +196,64 @@ public class SyncService
     {
         try
         {
+            // Сначала синхронизируем справочники
             await SyncAllData();
-            await _syncQueueService.ProcessQueueAsync();
+            
+            // Проверяем, есть ли транзакции для синхронизации
+            var pendingCount = await _offlineService.GetPendingCount();
+            if (pendingCount > 0)
+            {
+                await _syncQueueService.ProcessQueueAsync();
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("Нет транзакций для синхронизации");
+            }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Ошибка ручной синхронизации: {ex.Message}");
+            throw;
+        }
+    }
+
+    // Синхронизирует частично отгруженные коробки (по алгоритму)
+    public async Task SyncPartialBoxes()
+    {
+        try
+        {
+            var partialBoxes = await _apiService.GetPartialBoxes();
+            if (partialBoxes != null && partialBoxes.Any())
+            {
+                var boxCacheList = partialBoxes.Select(box => new BoxCache
+                {
+                    barcode = box.Barcode,
+                    box_id = box.Id,
+                    box_number = box.BoxNumber,
+                    grade = box.Grade,
+                    initial_quantity = box.InitialQuantity,
+                    current_quantity = box.CurrentQuantity,
+                    product_id = box.ProductId,
+                    product_name = box.ProductName,
+                    product_ean13 = box.ProductEan13,
+                    location_code = box.LocationCode ?? "UNKNOWN",
+                    status = box.Status,
+                    created_at = box.CreatedAt,
+                    updated_at = box.UpdatedAt,
+                    isPartial = 1 // помечаем как частичную
+                }).ToList();
+                
+                await _dbHelper.SyncBoxes(boxCacheList);
+                System.Diagnostics.Debug.WriteLine($"Синхронизировано частичных коробок: {boxCacheList.Count}");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("Нет частичных коробок для синхронизации");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации частичных коробок: {ex.Message}");
             throw;
         }
     }
