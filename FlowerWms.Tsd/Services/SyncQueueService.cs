@@ -341,10 +341,11 @@ public class SyncQueueService : IDisposable
     // Обрабатывает операцию отгрузки
     private async Task ProcessShippingOperation(OfflineTransaction op, Dictionary<string, object>? payload)
     {
+        var barcode = op.barcode;
         var boxId = payload?.GetValueOrDefault("boxId")?.ToString();
         var quantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
         var isFullShipment = payload?.GetValueOrDefault("isFullShipment", false) is bool f && f;
-        var barcode = op.barcode;
+        var currentQuantity = payload?.GetValueOrDefault("currentQuantity", 0) is int cq ? cq : 0;
 
         if (string.IsNullOrEmpty(boxId))
         {
@@ -352,110 +353,92 @@ public class SyncQueueService : IDisposable
         }
 
         // ✅ 1. ПОЛУЧАЕМ АКТУАЛЬНОЕ СОСТОЯНИЕ КОРОБКИ С СЕРВЕРА
-        var currentBox = await _apiService.GetBoxByBarcode(barcode);
-        if (currentBox == null)
+        var serverBox = await _apiService.GetBoxByBarcode(barcode);
+        if (serverBox == null)
         {
             throw new Exception($"Коробка {barcode} не найдена на сервере");
         }
 
         // ✅ 2. ПРОВЕРЯЕМ СТАТУС
-        if (currentBox.Status != BoxStatus.Active)
+        if (serverBox.Status != BoxStatus.Active)
         {
-            throw new Exception($"Коробка {barcode} имеет статус {currentBox.Status}, отгрузка невозможна");
+            throw new Exception($"Коробка {barcode} имеет статус {serverBox.Status}, отгрузка невозможна");
         }
 
         // ✅ 3. ПРОВЕРЯЕМ КОЛИЧЕСТВО
-        if (!isFullShipment && quantity > 0)
+        int availableQuantity = serverBox.CurrentQuantity;
+        
+        // Если коробка была частичной, используем локальное значение
+        if (serverBox.IsPartial)
         {
-            if (quantity > currentBox.CurrentQuantity)
+            var localBox = await _dbHelper.GetBoxByBarcode(barcode);
+            if (localBox != null)
             {
-                throw new Exception($"Недостаточно товара. Доступно: {currentBox.CurrentQuantity}, запрошено: {quantity}");
+                availableQuantity = localBox.current_quantity;
             }
         }
 
-        // ✅ 4. ОБНОВЛЯЕМ ЛОКАЛЬНЫЙ КЭШ (если количество изменилось)
-        if (currentBox.CurrentQuantity != (payload?.GetValueOrDefault("currentQuantity", 0) is int cq ? cq : 0))
+        if (!isFullShipment && quantity > 0 && quantity > availableQuantity)
         {
-            await _dbHelper.ForceUpdateBoxStatus(barcode, BoxStatus.Active, currentBox.CurrentQuantity);
+            throw new Exception($"Недостаточно товара. Доступно: {availableQuantity}, запрошено: {quantity}");
         }
 
-        // ✅ 5. ВЫПОЛНЯЕМ ОТГРУЗКУ
+        // ✅ 4. ВЫПОЛНЯЕМ ОТГРУЗКУ НА СЕРВЕРЕ
         Dictionary<string, object> result;
-        if (isFullShipment || quantity <= 0)
+        
+        if (isFullShipment || quantity <= 0 || quantity >= availableQuantity)
         {
             result = await _apiService.ShipBox(boxId, "Синхронизация из офлайн-режима");
         }
         else
         {
-            result = await _apiService.ConsumeBox(boxId, quantity, "Синхронизация из офлайн-режима");
+            result = await _apiService.ConsumeBox(boxId, quantity, $"Частичная отгрузка, остаток: {availableQuantity - quantity} шт.");
         }
 
-        // ✅ 6. ПРОВЕРЯЕМ РЕЗУЛЬТАТ
+        // ✅ 5. ПРОВЕРЯЕМ РЕЗУЛЬТАТ
         if (!(result.TryGetValue("success", out var success) && success is bool s && s))
         {
             var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
             throw new Exception(errorMsg);
         }
 
-        // ✅ 7. ОБНОВЛЯЕМ СТАТУС
-        int newQuantity = isFullShipment ? 0 : currentBox.CurrentQuantity - quantity;
-        BoxStatus newStatus;
-        
-        if (isFullShipment)
-        {
-            newStatus = BoxStatus.Shipped;
-            newQuantity = 0;
-        }
-        else if (newQuantity <= 0)
-        {
-            newStatus = BoxStatus.Empty;
-            newQuantity = 0;
-        }
-        else
-        {
-            newStatus = BoxStatus.Active;
-        }
+        // ✅ 6. ПОСЛЕ УСПЕШНОЙ ОТГРУЗКИ — ОБНОВЛЯЕМ ВСЮ ЛОКАЛЬНУЮ БД С СЕРВЕРА
+        // ✅ ТОЛЬКО ЗДЕСЬ ОБНОВЛЯЕТСЯ isPartial
+        await RefreshLocalBoxesFromServer();
 
-        // ✅ 8. ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ В ЛОКАЛЬНОЙ БД
-        await _dbHelper.ForceUpdateBoxStatus(barcode, newStatus, newQuantity);
-        
-        // ✅ 9. ОБНОВЛЯЕМ КЭШ ИЗ ОТВЕТА
-        if (result.TryGetValue("data", out var dataObj) && 
-            dataObj is Dictionary<string, object> data)
-        {
-            var updatedBox = Box.FromJson(data);
-            if (updatedBox != null && !string.IsNullOrEmpty(updatedBox.Id))
-            {
-                updatedBox.Status = newStatus;
-                updatedBox.CurrentQuantity = newQuantity;
-                await UpdateBoxCache(updatedBox);
-            }
-        }
+        // ✅ 7. УДАЛЯЕМ ТРАНЗАКЦИЮ
+        await DeleteTransaction(op.transaction_id);
 
-        System.Diagnostics.Debug.WriteLine($"✅ Отгружена коробка: {barcode}, кол-во: {quantity}, полная: {isFullShipment}, новый статус: {newStatus}");
+        System.Diagnostics.Debug.WriteLine($"✅ Отгружена коробка: {barcode}, кол-во: {quantity}, полная: {isFullShipment}");
     }
 
-    // Новый метод для обновления кэша
-    private async Task RefreshBoxCache(string barcode)
+    // ✅ ОБНОВЛЯЕМ ВСЕ ЧАСТИЧНЫЕ КОРОБКИ С СЕРВЕРА
+    private async Task RefreshLocalBoxesFromServer()
     {
         try
         {
-            var updatedBox = await _apiService.GetBoxByBarcode(barcode);
-            if (updatedBox != null)
+            var partialBoxes = await _apiService.GetPartialBoxes();
+            if (partialBoxes != null && partialBoxes.Any())
             {
-                await UpdateBoxCache(updatedBox);
-            }
-            else
-            {
-                await _dbHelper.DeleteBoxByBarcode(barcode);
+                // ✅ Полностью обновляем все коробки с сервера
+                var updateList = partialBoxes.Select(box => (
+                    barcode: box.Barcode,
+                    isPartial: true,
+                    currentQuantity: box.CurrentQuantity,
+                    status: box.Status
+                )).ToList();
+
+                await _dbHelper.UpdateBoxesFromServer(updateList);
+                
+                System.Diagnostics.Debug.WriteLine($"✅ Обновлено {partialBoxes.Count} коробок с сервера");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления кэша: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления коробок с сервера: {ex.Message}");
         }
     }
-
+    
     // Обрабатывает другие типы операций
     private async Task ProcessOtherOperation(OfflineTransaction op, Dictionary<string, object>? payload)
     {

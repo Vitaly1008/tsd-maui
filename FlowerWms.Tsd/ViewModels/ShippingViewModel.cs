@@ -67,16 +67,18 @@ public partial class ShippingViewModel : BaseOperationViewModel
             var (ean13, _, grade, boxNumber) = ParseBarcode(barcode);
 
             Box? box = null;
+            bool isPartial = false;
 
-            // Поиск в кэше
+            // ✅ 1. СНАЧАЛА ИЩЕМ В ЛОКАЛЬНОМ КЭШЕ
             var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
             if (cachedBox != null)
             {
                 box = BoxCacheToBox(cachedBox);
-                System.Diagnostics.Debug.WriteLine($"Коробка найдена в кэше: #{box.BoxNumber}, остаток: {box.CurrentQuantity}");
+                isPartial = cachedBox.isPartial == 1;
+                System.Diagnostics.Debug.WriteLine($"📦 Коробка найдена в кэше: #{box.BoxNumber}, остаток: {box.CurrentQuantity}, isPartial: {isPartial}");
             }
 
-            // Поиск на сервере
+            // ✅ 2. ЕСЛИ НЕТ В КЭШЕ И ЕСТЬ ИНТЕРНЕТ — ИЩЕМ НА СЕРВЕРЕ
             if (box == null && IsOnline)
             {
                 try
@@ -85,13 +87,16 @@ public partial class ShippingViewModel : BaseOperationViewModel
                     if (serverBox != null)
                     {
                         box = serverBox;
-                        System.Diagnostics.Debug.WriteLine($"Коробка найдена на сервере: #{box.BoxNumber}");
+                        // Проверяем, является ли коробка частичной на сервере
+                        // (это поле должно приходить от бекенда)
+                        isPartial = serverBox.IsPartial;
+                        System.Diagnostics.Debug.WriteLine($"📦 Коробка найдена на сервере: #{box.BoxNumber}, isPartial: {isPartial}");
                         await UpdateLocalBox(box);
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Ошибка получения коробки с сервера: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробки с сервера: {ex.Message}");
                 }
             }
 
@@ -99,6 +104,20 @@ public partial class ShippingViewModel : BaseOperationViewModel
             {
                 SetError($"Коробка №{boxNumber} не найдена на складе!");
                 return;
+            }
+
+            // ✅ 3. ЕСЛИ КОРОБКА isPartial — КОЛИЧЕСТВО БЕРЕМ ИЗ БД
+            if (isPartial && cachedBox != null)
+            {
+                box.CurrentQuantity = cachedBox.current_quantity;
+                System.Diagnostics.Debug.WriteLine($"📦 Частичная коробка: количество из БД = {box.CurrentQuantity}");
+            }
+            // ✅ 4. ЕСЛИ КОРОБКА НЕ isPartial — КОЛИЧЕСТВО БЕРЕМ ИЗ ШК
+            else
+            {
+                // Количество уже установлено из ШК при парсинге
+                box.CurrentQuantity = box.Quantity > 0 ? box.Quantity : 100;
+                System.Diagnostics.Debug.WriteLine($"📦 Целая коробка: количество из ШК = {box.CurrentQuantity}");
             }
 
             // Проверки состояния коробки
@@ -395,7 +414,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
                         }
                         else
                         {
-                            result = await _apiService.ConsumeBox(box.Id, quantityToShip, $"Частичная отгрузка, остаток: {newQuantity} шт.");
+                            result = await _apiService.ConsumeBox(box.Id, quantityToShip, $"Частичная отгрузка, остаток: {box.CurrentQuantity - quantityToShip} шт.");
                         }
 
                         if (result.TryGetValue("success", out var successObj) && successObj is bool success && success)
@@ -508,33 +527,20 @@ public partial class ShippingViewModel : BaseOperationViewModel
         
         BoxStatus newStatus;
         if (isFullShipment)
-            newStatus = BoxStatus.Shipped;
-        else if (newQuantity == 0)
-            newStatus = BoxStatus.Empty;
-        else
-            newStatus = BoxStatus.Active;
-
-        var boxCache = new BoxCache
         {
-            barcode = box.Barcode,
-            box_id = box.Id,
-            box_number = box.BoxNumber,
-            grade = box.Grade,
-            initial_quantity = box.InitialQuantity,
-            current_quantity = newQuantity,
-            product_id = box.ProductId,
-            product_name = box.ProductName,
-            product_ean13 = box.ProductEan13,
-            location_code = box.LocationCode ?? "UNKNOWN",
-            status = newStatus,
-            created_at = box.CreatedAt,
-            updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            isPartial = 1
-        };
-        
-        // ✅ Используем принудительное обновление
-        await _dbHelper.ForceUpdateBoxStatus(box.Barcode, newStatus, newQuantity);
+            newStatus = BoxStatus.Shipped;
+            newQuantity = 0;
+        }
+        else if (newQuantity == 0)
+        {
+            newStatus = BoxStatus.Empty;
+        }
+        else
+        {
+            newStatus = BoxStatus.Active;
+        }
 
+        // ✅ Сохраняем в очередь для синхронизации
         var payload = new
         {
             boxId = box.Id,
@@ -544,7 +550,8 @@ public partial class ShippingViewModel : BaseOperationViewModel
             newQuantity = newQuantity,
             status = (int)newStatus,
             isFullShipment = isFullShipment,
-            operationType = "Shipping"
+            operationType = "Shipping",
+            currentQuantity = box.CurrentQuantity
         };
 
         await _syncQueueService.EnqueueAsync(
@@ -552,6 +559,15 @@ public partial class ShippingViewModel : BaseOperationViewModel
             barcode: box.Barcode,
             payload: payload,
             deviceId: Constants.DeviceId
+        );
+
+        // ✅ Обновляем ТОЛЬКО статус и количество в локальной БД
+        // ✅ isPartial НЕ ТРОГАЕМ — он обновится только с сервера после синхронизации
+        await _dbHelper.ForceUpdateBoxStatus(
+            barcode: box.Barcode,
+            newStatus: newStatus,
+            newQuantity: newQuantity,
+            isPartial: box.IsPartial // ⚠️ Сохраняем СТАРОЕ значение isPartial
         );
         
         System.Diagnostics.Debug.WriteLine($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт., статус: {newStatus}");

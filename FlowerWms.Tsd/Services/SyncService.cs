@@ -222,29 +222,21 @@ public class SyncService
     {
         try
         {
+            // ✅ Загружаем частичные коробки с сервера
             var partialBoxes = await _apiService.GetPartialBoxes();
             if (partialBoxes != null && partialBoxes.Any())
             {
-                var boxCacheList = partialBoxes.Select(box => new BoxCache
-                {
-                    barcode = box.Barcode,
-                    box_id = box.Id,
-                    box_number = box.BoxNumber,
-                    grade = box.Grade,
-                    initial_quantity = box.InitialQuantity,
-                    current_quantity = box.CurrentQuantity,
-                    product_id = box.ProductId,
-                    product_name = box.ProductName,
-                    product_ean13 = box.ProductEan13,
-                    location_code = box.LocationCode ?? "UNKNOWN",
-                    status = box.Status,
-                    created_at = box.CreatedAt,
-                    updated_at = box.UpdatedAt,
-                    isPartial = 1 // помечаем как частичную
-                }).ToList();
+                var updateList = new List<(string barcode, bool isPartial, int currentQuantity)>();
                 
-                await _dbHelper.SyncBoxes(boxCacheList);
-                System.Diagnostics.Debug.WriteLine($"Синхронизировано частичных коробок: {boxCacheList.Count}");
+                foreach (var box in partialBoxes)
+                {
+                    updateList.Add((box.Barcode, true, box.CurrentQuantity));
+                }
+                
+                // ✅ Обновляем ТОЛЬКО isPartial и количество с сервера
+                await _dbHelper.UpdateBoxesPartialFromServer(updateList);
+                
+                System.Diagnostics.Debug.WriteLine($"✅ Обновлено {partialBoxes.Count} частичных коробок с сервера");
             }
             else
             {
@@ -253,7 +245,7 @@ public class SyncService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации частичных коробок: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации частичных коробок: {ex.Message}");
             throw;
         }
     }

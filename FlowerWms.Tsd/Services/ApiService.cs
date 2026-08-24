@@ -663,7 +663,7 @@ public class ApiService
     {
         try
         {
-            // Сначала делаем запрос на отгрузку
+            // ✅ ИСПРАВЛЕНО: отправляем только comment как строку
             var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
                 HttpMethod.Post,
                 $"/api/boxes/{boxId}/ship",
@@ -674,7 +674,6 @@ public class ApiService
             
             if (result != null && result.TryGetValue("success", out var success) && success is bool s && s)
             {
-                // ДОПОЛНИТЕЛЬНО получаем обновленную коробку
                 var updatedBox = await GetBoxById(boxId);
                 if (updatedBox != null)
                 {
@@ -700,25 +699,72 @@ public class ApiService
 
     public async Task<Dictionary<string, object>> ConsumeBox(string boxId, int quantity, string? comment = null)
     {
-        // Используем RequestWithOfflineSupport для офлайн-поддержки
-        var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
-            HttpMethod.Post,
-            $"/api/boxes/consume",
-            new 
-            { 
-                boxId = boxId,
-                quantity = quantity,
-                comment = comment ?? $"Списание через ТСД: {quantity} шт."
-            },
-            "Shipping",
-            boxId  // передаем boxId как barcode для идентификации
-        );
-        
-        return result ?? new Dictionary<string, object>
+        try
         {
-            ["success"] = false,
-            ["message"] = "Не удалось выполнить списание"
-        };
+            // ✅ ИСПРАВЛЕНО: отправляем boxId и quantity, comment опционально
+            var request = new Dictionary<string, object>
+            {
+                ["boxId"] = boxId,
+                ["quantity"] = quantity
+            };
+            
+            if (!string.IsNullOrEmpty(comment))
+            {
+                request["comment"] = comment;
+            }
+            
+            var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
+                HttpMethod.Post,
+                "/api/boxes/consume",
+                request,
+                "Shipping",
+                boxId
+            );
+            
+            return result ?? new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = "Не удалось выполнить списание"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    // ✅ НОВЫЙ МЕТОД: обновление количества коробки
+    public async Task<Dictionary<string, object>> UpdateBoxQuantity(string boxId, int quantity, string? comment = null)
+    {
+        try
+        {
+            var request = new Dictionary<string, object>
+            {
+                ["quantity"] = quantity
+            };
+            
+            if (!string.IsNullOrEmpty(comment))
+            {
+                request["comment"] = comment;
+            }
+            
+            return await ExecutePutRequest(
+                $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/quantity",
+                request
+            );
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
     }
 
     public async Task<Box?> GetBoxByNumber(int boxNumber)
@@ -824,21 +870,34 @@ public class ApiService
         try
         {
             var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/boxes/partial");
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/stock/partial-boxes");
             
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync();
-                var data = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content) 
-                        ?? new List<Dictionary<string, object>>();
-                return data.Select(Box.FromJson).ToList();
+                var data = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
+                
+                if (data != null)
+                {
+                    var boxes = new List<Box>();
+                    foreach (var item in data)
+                    {
+                        var box = Box.FromJson(item);
+                        if (box != null)
+                        {
+                            box.IsPartial = true;
+                            boxes.Add(box);
+                        }
+                    }
+                    return boxes;
+                }
             }
             
             return new List<Box>();
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка получения частичных коробок: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения частичных коробок: {ex.Message}");
             return new List<Box>();
         }
     }
