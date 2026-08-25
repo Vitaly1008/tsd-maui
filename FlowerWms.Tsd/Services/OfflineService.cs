@@ -158,4 +158,55 @@ public class OfflineService
             return new List<OfflineTransaction>();
         }
     }
+
+    // Возвращает все несинхронизированные транзакции (без ограничений)
+    public async Task<List<OfflineTransaction>> GetAllUnsyncedTransactions()
+    {
+        try
+        {
+            var db = await _dbHelper.GetDatabaseAsync();
+            return await db.QueryAsync<OfflineTransaction>(
+                "SELECT * FROM offline_transactions WHERE is_synced = 0 ORDER BY created_at ASC"
+            );
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка получения транзакций: {ex.Message}");
+            return new List<OfflineTransaction>();
+        }
+    }
+
+    // Возвращает транзакцию по ID
+    public async Task<OfflineTransaction?> GetTransactionById(string transactionId)
+    {
+        try
+        {
+            var db = await _dbHelper.GetDatabaseAsync();
+            return await db.Table<OfflineTransaction>()
+                .FirstOrDefaultAsync(t => t.transaction_id == transactionId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка получения транзакции: {ex.Message}");
+            return null;
+        }
+    }
+
+    // Получает транзакции с фильтрацией по типу операции
+    public async Task<List<OfflineTransaction>> GetUnsyncedTransactionsByType(string operationType)
+    {
+        try
+        {
+            var db = await _dbHelper.GetDatabaseAsync();
+            return await db.QueryAsync<OfflineTransaction>(
+                "SELECT * FROM offline_transactions WHERE is_synced = 0 AND operation_type = ? ORDER BY created_at ASC",
+                operationType
+            );
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка получения транзакций: {ex.Message}");
+            return new List<OfflineTransaction>();
+        }
+    }
 }

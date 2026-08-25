@@ -1,16 +1,24 @@
 F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │
 ├───Converters/
-│   ├── BaseConverters.cs           # Базовые абстрактные классы для всех конвертеров
-│   ├── BoxStatusConverters.cs      # Конвертеры статуса коробки
-│   ├── BoolConverters.cs           # Конвертеры булевых значений
-│   ├── ConnectionIconConverter.cs  # Конвертер статуса подключения в иконку сети (📶/📴) и синхронизации (🔄/📶)
-│   ├── ExpandIconConverter.cs      # Конвертер состояния раскрытия в иконку (▼/▶)
-│   ├── LocationConverters.cs       # Конвертеры для работы с локациями
-│   ├── ModeConverters.cs           # Конвертеры цветов для активного/неактивного режима: фон, текст, граница, подпись
-│   ├── ScanStatusConverters.cs     # Конвертеры статуса сканирования: фон, граница, иконка, текст, цвет, подсказка
-│   ├── SearchButtonConverter.cs    # Конвертер текста кнопки поиска сервера ("⏳ Поиск..." / "🔍 Поиск сервера")
-│   └── StatusBarPaddingConverter.cs # Конвертер добавления отступа под статус-бар Android
+│   ├── BaseConverters.cs           		# Базовые абстрактные классы для всех конвертеров
+│   ├── BoxStatusConverters.cs      		# Конвертеры статуса коробки
+│   ├── BoolConverters.cs           		# Конвертеры булевых значений
+│   ├── ConnectionIconConverter.cs  		# Конвертер статуса подключения в иконку сети (📶/📴) и синхронизации (🔄/📶)
+│   ├── CreatedAtDisplayConverter.cs  	  	# Конвертер даты создания транзакции в читаемый формат
+│   ├── ExpandIconConverter.cs      		# Конвертер состояния раскрытия в иконку (▼/▶)
+│   ├── IsZeroConverter.cs          		# Конвертер для проверки, что значение равно 0
+│   ├── LocationConverters.cs       		# Конвертеры для работы с локациями
+│   ├── ModeConverters.cs           		# Конвертеры цветов для активного/неактивного режима: фон, текст, граница, подпись
+│   ├── OperationIconConverter.cs        	# Конвертер типа операции в иконку (эмодзи)
+│   ├── OperationTypeDisplayConverter.cs	# Конвертер типа операции в текст на русском
+│   ├── RetryCountDisplayConverter.cs    	# Конвертер количества попыток в текст
+│   ├── ScanStatusConverters.cs     		# Конвертеры статуса сканирования: фон, граница, иконка, текст, цвет, подсказка
+│   ├── SearchButtonConverter.cs    		# Конвертер текста кнопки поиска сервера ("⏳ Поиск..." / "🔍 Поиск сервера")
+│   └── StatusBarPaddingConverter.cs 		# Конвертер добавления отступа под статус-бар Android
+│   ├── StatusColorConverter.cs          	# Конвертер статуса транзакции в цвет
+│   ├── StatusDisplayConverter.cs        	# Конвертер статуса транзакции в текст
+│   └── StringNotEmptyConverter.cs       	# Конвертер для проверки, что строка не пустая
 │
 ├───Helpers/
 │   ├── Constants.cs                 # Хранение глобальных констант
@@ -58,7 +66,8 @@ F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │   ├── InventoryViewModel.cs        # Инвентаризация
 │   ├── LoginViewModel.cs            # Экран входа
 │   ├── ReceivingViewModel.cs        # Приемка коробок
-│   └── ShippingViewModel.cs         # Отгрузка коробок 
+│   ├── ShippingViewModel.cs         # Отгрузка коробок 
+│   └── SyncQueueViewModel.cs        # ViewModel для страницы очереди синхронизации
 │
 ├───Views/
 │   ├───Behaviors/
@@ -76,7 +85,9 @@ F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │   ├── InventoryPage.xaml           # Страница инвентаризации
 │   ├── InventoryPage.xaml.cs        # Логика InventoryPage
 │   ├── AboutPage.xaml               # Страница "О программе"
-│   └── AboutPage.xaml.cs            # Логика AboutPage
+│   ├── AboutPage.xaml.cs            # Логика AboutPage
+│   ├── SyncQueuePage.xaml           # Страница управления очередью синхронизации
+│   └── SyncQueuePage.xaml.cs        # Логика SyncQueuePage
 │
 ├── App.xaml                       # Ресурсы приложения
 ├── App.xaml.cs                    # Точка входа приложения

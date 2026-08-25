@@ -5,7 +5,7 @@ namespace FlowerWms.Tsd.Helpers;
 public static class VersionInfo
 {
     /// Версия приложения в формате Major.Minor.Build.Revision
-    public const string Version = "1.0.0.2";
+    public const string Version = "1.0.0.3";
     
     // Дата сборки (обновляется автоматически или вручную)
     // Формат: yyyy-MM-dd HH:mm:ss

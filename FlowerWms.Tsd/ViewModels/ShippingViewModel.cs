@@ -87,8 +87,6 @@ public partial class ShippingViewModel : BaseOperationViewModel
                     if (serverBox != null)
                     {
                         box = serverBox;
-                        // Проверяем, является ли коробка частичной на сервере
-                        // (это поле должно приходить от бекенда)
                         isPartial = serverBox.IsPartial;
                         System.Diagnostics.Debug.WriteLine($"📦 Коробка найдена на сервере: #{box.BoxNumber}, isPartial: {isPartial}");
                         await UpdateLocalBox(box);
@@ -106,19 +104,23 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 return;
             }
 
-            // ✅ 3. ЕСЛИ КОРОБКА isPartial — КОЛИЧЕСТВО БЕРЕМ ИЗ БД
+            // ✅ 3. ОПРЕДЕЛЯЕМ КОЛИЧЕСТВО ПО АЛГОРИТМУ
+            int availableQuantity;
+            
             if (isPartial && cachedBox != null)
             {
-                box.CurrentQuantity = cachedBox.current_quantity;
-                System.Diagnostics.Debug.WriteLine($"📦 Частичная коробка: количество из БД = {box.CurrentQuantity}");
+                // ✅ isPartial = true → количество из локальной БД
+                availableQuantity = cachedBox.current_quantity;
+                System.Diagnostics.Debug.WriteLine($"📦 Частичная коробка: количество из БД = {availableQuantity}");
             }
-            // ✅ 4. ЕСЛИ КОРОБКА НЕ isPartial — КОЛИЧЕСТВО БЕРЕМ ИЗ ШК
             else
             {
-                // Количество уже установлено из ШК при парсинге
-                box.CurrentQuantity = box.Quantity > 0 ? box.Quantity : 100;
-                System.Diagnostics.Debug.WriteLine($"📦 Целая коробка: количество из ШК = {box.CurrentQuantity}");
+                // ✅ isPartial = false → количество из ШК (серверное значение)
+                availableQuantity = box.CurrentQuantity > 0 ? box.CurrentQuantity : 100;
+                System.Diagnostics.Debug.WriteLine($"📦 Целая коробка: количество из ШК = {availableQuantity}");
             }
+
+            box.CurrentQuantity = availableQuantity;
 
             // Проверки состояния коробки
             if (box.Status == BoxStatus.Shipped)
@@ -363,82 +365,14 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 int newQuantity = box.CurrentQuantity - quantityToShip;
                 totalShippedQuantity += quantityToShip;
 
-                // ✅ ВАЖНО: СНАЧАЛА ПРОВЕРЯЕМ СТАТУС КОРОБКИ НА СЕРВЕРЕ
-                /*if (IsOnline && !box.Id.StartsWith("local_"))
-                {
-                    try
-                    {
-                        var serverBox = await _apiService.GetBoxByBarcode(box.Barcode);
-                        if (serverBox == null)
-                        {
-                            errors.Add($"Коробка #{box.BoxNumber} не найдена на сервере!");
-                            continue;
-                        }
-                        
-                        if (serverBox.Status != BoxStatus.Active)
-                        {
-                            errors.Add($"Коробка #{box.BoxNumber} имеет статус {serverBox.Status}, отгрузка невозможна!");
-                            continue;
-                        }
-                        
-                        // ✅ Обновляем локальный кэш актуальными данными
-                        box.CurrentQuantity = serverBox.CurrentQuantity;
-                        newQuantity = box.CurrentQuantity - quantityToShip;
-                        if (newQuantity < 0) newQuantity = 0;
-                    }
-                    catch (Exception ex)
-                    {
-                        errors.Add($"Коробка #{box.BoxNumber}: ошибка проверки статуса - {ex.Message}");
-                        continue;
-                    }
-                }*/
-
                 // ✅ СОЗДАЕМ ТРАНЗАКЦИЮ ВСЕГДА (и для онлайн, и для офлайн)
-                bool isLocalBox = box.Id.StartsWith("local_");
-                bool needOnlineSync = IsOnline && !isLocalBox;
-
-                // ✅ 1. СОХРАНЯЕМ В ОЧЕРЕДЬ (гарантированно)
+                // ⚠️ ВСЕ ПРОВЕРКИ БУДУТ ВЫПОЛНЕНЫ В МОМЕНТ СИНХРОНИЗАЦИИ!
+                
+                // ✅ Сохраняем в очередь
                 await SaveLocalShipment(box, quantityToShip, isFullShipment);
                 localCount++;
 
-                // ✅ 2. ЕСЛИ ЕСТЬ ИНТЕРНЕТ - ПЫТАЕМСЯ ОТПРАВИТЬ СРАЗУ
-                if (needOnlineSync)
-                {
-                    try
-                    {
-                        Dictionary<string, object> result;
-                        
-                        if (isFullShipment)
-                        {
-                            result = await _apiService.ShipBox(box.Id, "Полная отгрузка через ТСД");
-                        }
-                        else
-                        {
-                            result = await _apiService.ConsumeBox(box.Id, quantityToShip, $"Частичная отгрузка, остаток: {box.CurrentQuantity - quantityToShip} шт.");
-                        }
-
-                        if (result.TryGetValue("success", out var successObj) && successObj is bool success && success)
-                        {
-                            // ✅ УСПЕШНО - удаляем из очереди
-                            // (нужно будет добавить метод удаления транзакции)
-                            shippedCount++;
-                            localCount--; // уменьшаем счетчик локальных
-                        }
-                        else
-                        {
-                            var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
-                            errors.Add($"Коробка #{box.BoxNumber}: {errorMsg}");
-                            // ✅ ТРАНЗАКЦИЯ ОСТАЕТСЯ В ОЧЕРЕДИ ДЛЯ ПОВТОРНОЙ ПОПЫТКИ
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        errors.Add($"Коробка #{box.BoxNumber}: {ex.Message}");
-                        // ✅ ТРАНЗАКЦИЯ ОСТАЕТСЯ В ОЧЕРЕДИ ДЛЯ ПОВТОРНОЙ ПОПЫТКИ
-                    }
-                }
-
-                // ✅ 3. ОБНОВЛЯЕМ ЛОКАЛЬНЫЙ СТАТУС
+                // ✅ Обновляем локальный статус
                 BoxStatus newStatus;
                 if (isFullShipment)
                     newStatus = BoxStatus.Shipped;
@@ -447,7 +381,13 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 else
                     newStatus = BoxStatus.Active;
 
-                await _dbHelper.ForceUpdateBoxStatus(box.Barcode, newStatus, newQuantity);
+                // ✅ isPartial НЕ ТРОГАЕМ — только статус и количество
+                await _dbHelper.ForceUpdateBoxStatus(
+                    barcode: box.Barcode,
+                    newStatus: newStatus,
+                    newQuantity: newQuantity,
+                    isPartial: box.IsPartial // ⚠️ Сохраняем СТАРОЕ значение
+                );
                 
                 if (isFullShipment)
                     shippedCount++;
@@ -455,13 +395,15 @@ public partial class ShippingViewModel : BaseOperationViewModel
                     partialCount++;
             }
 
-            // Формируем сообщение
+            // ✅ Формируем сообщение
             var message = $"Обработано {boxes.Count} коробок.\nВсего отгружено: {totalShippedQuantity} шт.\n\n";
             if (shippedCount > 0) message += $"✅ Полностью отгружено: {shippedCount}\n";
             if (partialCount > 0) message += $"✂️ Частично отгружено: {partialCount}\n";
             if (localCount > 0) message += $"📴 Сохранено локально: {localCount}\n";
             if (errors.Any()) message += $"\n⚠️ Ошибки:\n{string.Join("\n", errors)}";
-            message += localCount == 0 && !errors.Any() ? "\n✅ Данные синхронизированы с сервером." : "\n📴 Данные сохранены локально.";
+            message += localCount == 0 && !errors.Any() 
+                ? "\n✅ Данные синхронизированы с сервером." 
+                : "\n📴 Данные сохранены локально.";
 
             await Application.Current?.MainPage?.DisplayAlert(
                 errors.Any() ? "Внимание" : localCount == 0 ? "Успешно" : "Внимание",
@@ -562,12 +504,12 @@ public partial class ShippingViewModel : BaseOperationViewModel
         );
 
         // ✅ Обновляем ТОЛЬКО статус и количество в локальной БД
-        // ✅ isPartial НЕ ТРОГАЕМ — он обновится только с сервера после синхронизации
+        // ✅ isPartial НЕ ТРОГАЕМ — он обновится только с сервера после синхронизации!
         await _dbHelper.ForceUpdateBoxStatus(
             barcode: box.Barcode,
             newStatus: newStatus,
             newQuantity: newQuantity,
-            isPartial: box.IsPartial // ⚠️ Сохраняем СТАРОЕ значение isPartial
+            isPartial: box.IsPartial // ⚠️ Сохраняем СТАРОЕ значение isPartial (не меняем!)
         );
         
         System.Diagnostics.Debug.WriteLine($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт., статус: {newStatus}");

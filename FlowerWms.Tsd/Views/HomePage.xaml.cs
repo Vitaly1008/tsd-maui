@@ -127,7 +127,14 @@ public partial class HomePage : BasePage
     // Переход на страницу ожидающих транзакций
     private async void OnNavigateToPending(object? sender, EventArgs e)
     {
-        await DisplayAlertAsync("Информация", "Страница списка транзакций в разработке", "OK");
+        try
+        {
+            await Navigation.PushAsync(new SyncQueuePage());
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("Ошибка", $"Не удалось открыть очередь: {ex.Message}", "OK");
+        }
     }
 
     // Переход на страницу "О программе"

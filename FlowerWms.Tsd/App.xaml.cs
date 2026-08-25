@@ -27,7 +27,9 @@ public partial class App : Application
     {
         Resources = new ResourceDictionary();
 
-        // Регистрация конвертеров
+        // ============================================================
+        // СУЩЕСТВУЮЩИЕ КОНВЕРТЕРЫ
+        // ============================================================
         Resources.Add("InvertBooleanConverter", new InvertBooleanConverter());
         Resources.Add("GreaterThanZeroConverter", new GreaterThanZeroConverter());
         Resources.Add("IsNotNullOrEmptyConverter", new IsNotNullOrEmptyConverter());
@@ -52,7 +54,28 @@ public partial class App : Application
         Resources.Add("BoxStatusBackgroundConverter", new BoxStatusBackgroundConverter());
         Resources.Add("LocationDisplayConverter", new LocationDisplayConverter());
 
-        // Цвета
+        // ============================================================
+        // НОВЫЕ КОНВЕРТЕРЫ ДЛЯ ОЧЕРЕДИ СИНХРОНИЗАЦИИ
+        // ============================================================
+        Resources.Add("OperationIconConverter", new OperationIconConverter());
+        Resources.Add("OperationTypeDisplayConverter", new OperationTypeDisplayConverter());
+        Resources.Add("StatusDisplayConverter", new StatusDisplayConverter());
+        Resources.Add("StatusColorConverter", new StatusColorConverter());
+        Resources.Add("RetryCountDisplayConverter", new RetryCountDisplayConverter());
+        Resources.Add("CreatedAtDisplayConverter", new CreatedAtDisplayConverter());
+        Resources.Add("StringNotEmptyConverter", new StringNotEmptyConverter());
+        Resources.Add("IsZeroConverter", new IsZeroConverter());
+
+        // ============================================================
+        // СТАНДАРТНЫЕ КОНВЕРТЕРЫ
+        // ============================================================
+        Resources.Add("IsNullConverter", new IsNullConverter());
+        Resources.Add("CollectionNotEmptyConverter", new CollectionNotEmptyConverter());
+        Resources.Add("EqualsValueConverter", new EqualsValueConverter());
+
+        // ============================================================
+        // ЦВЕТА
+        // ============================================================
         Resources.Add("PrimaryColor", Color.FromArgb("#2E7D32"));
         Resources.Add("PrimaryDark", Color.FromArgb("#1B5E20"));
         Resources.Add("SecondaryColor", Color.FromArgb("#4CAF50"));
@@ -118,6 +141,39 @@ public partial class App : Application
                 new Setter { Property = Button.HeightRequestProperty, Value = 44.0 },
                 new Setter { Property = Button.CornerRadiusProperty, Value = 10 },
                 new Setter { Property = Button.PaddingProperty, Value = new Thickness(12, 8) }
+            }
+        });
+
+        // Маленькие кнопки для очереди
+        Resources.Add("SmallPrimaryButton", new Style(typeof(Button))
+        {
+            BasedOn = Resources["PrimaryButton"] as Style,
+            Setters = {
+                new Setter { Property = Button.HeightRequestProperty, Value = 32 },
+                new Setter { Property = Button.FontSizeProperty, Value = 11 },
+                new Setter { Property = Button.PaddingProperty, Value = new Thickness(8, 0) }
+            }
+        });
+
+        Resources.Add("SmallSuccessButton", new Style(typeof(Button))
+        {
+            BasedOn = Resources["SuccessButton"] as Style,
+            Setters = {
+                new Setter { Property = Button.HeightRequestProperty, Value = 28 },
+                new Setter { Property = Button.FontSizeProperty, Value = 12 },
+                new Setter { Property = Button.PaddingProperty, Value = new Thickness(0) },
+                new Setter { Property = Button.WidthRequestProperty, Value = 36 }
+            }
+        });
+
+        Resources.Add("SmallDangerButton", new Style(typeof(Button))
+        {
+            BasedOn = Resources["DangerButton"] as Style,
+            Setters = {
+                new Setter { Property = Button.HeightRequestProperty, Value = 28 },
+                new Setter { Property = Button.FontSizeProperty, Value = 12 },
+                new Setter { Property = Button.PaddingProperty, Value = new Thickness(0) },
+                new Setter { Property = Button.WidthRequestProperty, Value = 36 }
             }
         });
     }
