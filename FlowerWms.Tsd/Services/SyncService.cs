@@ -217,7 +217,9 @@ public class SyncService
         }
     }
 
-    // Синхронизирует частично отгруженные коробки (по алгоритму)
+    /// <summary>
+    /// Синхронизирует частично отгруженные коробки (по алгоритму п.1)
+    /// </summary>
     public async Task SyncPartialBoxes()
     {
         try
@@ -233,8 +235,8 @@ public class SyncService
                     updateList.Add((box.Barcode, true, box.CurrentQuantity));
                 }
                 
-                // ✅ Обновляем ТОЛЬКО isPartial и количество с сервера
-                await _dbHelper.UpdateBoxesPartialFromServer(updateList);
+                // ✅ Обновляем ТОЛЬКО isPartial и количество с сервера (НЕ статус!)
+                await _dbHelper.UpdateBoxesPartialOnly(updateList);
                 
                 System.Diagnostics.Debug.WriteLine($"✅ Обновлено {partialBoxes.Count} частичных коробок с сервера");
             }

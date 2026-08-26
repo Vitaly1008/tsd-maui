@@ -11,6 +11,7 @@ public partial class LoginViewModel : ObservableObject
 {
     private readonly AuthService _authService;
     private readonly ServerDiscoveryService _discoveryService;
+    private readonly SyncService _syncService; // ✅ ДОБАВЛЕНО
     private bool _isLoginExecuting;
 
     [ObservableProperty]
@@ -55,12 +56,16 @@ public partial class LoginViewModel : ObservableObject
     [ObservableProperty]
     private bool _isLoginEnabled = true;
 
+    [ObservableProperty]
+    private bool _isSyncingPartialBoxes; // ✅ ДОБАВЛЕНО: индикатор загрузки частичных коробок
+
     public event EventHandler<LoginResponse>? LoginSuccess;
 
     public LoginViewModel()
     {
         _authService = new AuthService();
         _discoveryService = new ServerDiscoveryService();
+        _syncService = new SyncService(); // ✅ ДОБАВЛЕНО
         
         _discoveryService.ScanProgressChanged += OnScanProgressChanged;
 
@@ -207,7 +212,7 @@ public partial class LoginViewModel : ObservableObject
         }
     }
 
-    // Выполняет вход в систему
+    // ✅ ИСПРАВЛЕНО: добавлен вызов SyncPartialBoxes после успешного логина
     [RelayCommand]
     private async Task Login()
     {
@@ -223,6 +228,7 @@ public partial class LoginViewModel : ObservableObject
 
         try
         {
+            // 1. Проверяем доступность сервера
             var serverAvailable = await _discoveryService.PingServer(Constants.ApiBaseUrl);
             if (!serverAvailable)
             {
@@ -230,7 +236,20 @@ public partial class LoginViewModel : ObservableObject
                 return;
             }
 
+            // 2. Выполняем аутентификацию
             var response = await _authService.Login(Username, Password);
+            
+            // 3. Проверяем успешность входа
+            if (response == null || string.IsNullOrEmpty(response.Token))
+            {
+                ErrorMessage = "Неверный логин или пароль";
+                return;
+            }
+
+            // ✅ 4. ПО АЛГОРИТМУ (п.1): загружаем частичные коробки с сервера
+            await LoadPartialBoxesAfterLogin();
+
+            // 5. Уведомляем об успешном входе
             LoginSuccess?.Invoke(this, response);
         }
         catch (Exception ex)
@@ -241,6 +260,41 @@ public partial class LoginViewModel : ObservableObject
         {
             IsLoading = false;
             IsLoginEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// ✅ НОВЫЙ МЕТОД: загружает частичные коробки после логина (по алгоритму п.1)
+    /// </summary>
+    private async Task LoadPartialBoxesAfterLogin()
+    {
+        try
+        {
+            IsSyncingPartialBoxes = true;
+            
+            System.Diagnostics.Debug.WriteLine("📥 Загрузка частичных коробок с сервера...");
+            
+            // Вызываем синхронизацию частичных коробок
+            await _syncService.SyncPartialBoxes();
+            
+            System.Diagnostics.Debug.WriteLine("✅ Частичные коробки загружены");
+        }
+        catch (Exception ex)
+        {
+            // Не блокируем вход, но логируем ошибку
+            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка загрузки частичных коробок: {ex.Message}");
+            
+            // Показываем предупреждение, но не прерываем вход
+            await Application.Current?.MainPage?.DisplayAlert(
+                "Предупреждение",
+                $"Не удалось загрузить частичные коробки:\n{ex.Message}\n\n" +
+                "Вы сможете обновить их позже вручную.",
+                "OK"
+            );
+        }
+        finally
+        {
+            IsSyncingPartialBoxes = false;
         }
     }
 

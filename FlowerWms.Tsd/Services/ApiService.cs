@@ -55,6 +55,7 @@ public class ApiService
         }
     }
 
+    // ✅ ИСПРАВЛЕНО: убрано исключение для Shipping
     // Выполняет запрос с поддержкой офлайн-режима
     private async Task<T?> RequestWithOfflineSupport<T>(
         HttpMethod method,
@@ -94,11 +95,9 @@ public class ApiService
         {
             _isOffline = true;
 
-            // Проверяем, что это не операция отгрузки (Shipping)
-            // Для Shipping транзакции создаются только через SyncQueueService
+            // ✅ ИСПРАВЛЕНО: сохраняем ВСЕ операции, включая Shipping
             if (!string.IsNullOrEmpty(operationType) && 
-                !string.IsNullOrEmpty(barcode) && 
-                operationType != "Shipping") // ← ИСКЛЮЧАЕМ SHIPPING
+                !string.IsNullOrEmpty(barcode))
             {   
                 await _offlineService.SaveTransaction(
                     operationType: operationType,
@@ -701,7 +700,6 @@ public class ApiService
     {
         try
         {
-            // ✅ ИСПРАВЛЕНО: отправляем boxId и quantity, comment опционально
             var request = new Dictionary<string, object>
             {
                 ["boxId"] = boxId,
@@ -899,6 +897,98 @@ public class ApiService
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения частичных коробок: {ex.Message}");
             return new List<Box>();
+        }
+    }
+
+    // ============================================================
+    // МЕТОДЫ ДЛЯ СИНХРОНИЗАЦИИ
+    // ============================================================
+
+    public async Task<DateTime> GetServerLastChanged()
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/tsd/last-changed");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
+                if (data != null && data.TryGetValue("lastChanged", out var value))
+                {
+                    return DateTime.Parse(value?.ToString() ?? DateTime.UtcNow.ToString("O"));
+                }
+            }
+            return DateTime.MinValue;
+        }
+        catch
+        {
+            return DateTime.MinValue;
+        }
+    }
+
+    public async Task<List<Box>> GetAllBoxesForSync()
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/tsd/boxes/all");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
+                
+                if (data != null)
+                {
+                    return data.Select(Box.FromJson).Where(b => b != null).Cast<Box>().ToList();
+                }
+            }
+            return new List<Box>();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка получения коробок: {ex.Message}");
+            return new List<Box>();
+        }
+    }
+
+    public async Task<Dictionary<string, object>> SyncBoxes(List<object> transactions)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var request = new { transactions = transactions };
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/tsd/sync/boxes",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                return JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent) 
+                    ?? new Dictionary<string, object>();
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
         }
     }
 }

@@ -463,6 +463,9 @@ public partial class ShippingViewModel : BaseOperationViewModel
         }
     }
 
+    // ✅ ИСПРАВЛЕНО: убрано дублирование сохранения транзакций
+    // Теперь используется только ApiService (который теперь сохраняет Shipping)
+
     private async Task SaveLocalShipment(Box box, int quantityToShip, bool isFullShipment)
     {
         int newQuantity = box.CurrentQuantity - quantityToShip;
@@ -482,35 +485,50 @@ public partial class ShippingViewModel : BaseOperationViewModel
             newStatus = BoxStatus.Active;
         }
 
-        // ✅ Сохраняем в очередь для синхронизации
-        var payload = new
+        // ✅ ИСПРАВЛЕНО: используем ApiService для отгрузки (он сам сохранит в офлайн при необходимости)
+        try
         {
-            boxId = box.Id,
-            barcode = box.Barcode,
-            boxNumber = box.BoxNumber,
-            quantity = quantityToShip,
-            newQuantity = newQuantity,
-            status = (int)newStatus,
-            isFullShipment = isFullShipment,
-            operationType = "Shipping",
-            currentQuantity = box.CurrentQuantity
-        };
-
-        await _syncQueueService.EnqueueAsync(
-            operationType: "Shipping",
-            barcode: box.Barcode,
-            payload: payload,
-            deviceId: Constants.DeviceId
-        );
-
-        // ✅ Обновляем ТОЛЬКО статус и количество в локальной БД
-        // ✅ isPartial НЕ ТРОГАЕМ — он обновится только с сервера после синхронизации!
-        await _dbHelper.ForceUpdateBoxStatus(
-            barcode: box.Barcode,
-            newStatus: newStatus,
-            newQuantity: newQuantity,
-            isPartial: box.IsPartial // ⚠️ Сохраняем СТАРОЕ значение isPartial (не меняем!)
-        );
+            Dictionary<string, object> result;
+            
+            if (isFullShipment)
+            {
+                result = await _apiService.ShipBox(box.Id, $"Полная отгрузка через ТСД");
+            }
+            else
+            {
+                result = await _apiService.ConsumeBox(box.Id, quantityToShip, $"Частичная отгрузка: {quantityToShip} шт.");
+            }
+            
+            // Если операция выполнена онлайн, обновляем кэш
+            if (result.TryGetValue("success", out var success) && success is bool s && s)
+            {
+                // Обновляем локальный кэш с сервера
+                await RefreshBoxCache(box.Barcode);
+            }
+            else
+            {
+                // Если офлайн, транзакция уже сохранена в OfflineService
+                // Обновляем локальный статус
+                await _dbHelper.ForceUpdateBoxStatus(
+                    barcode: box.Barcode,
+                    newStatus: newStatus,
+                    newQuantity: newQuantity,
+                    isPartial: box.IsPartial
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            // При ошибке сохраняем локально (транзакция уже сохранена в OfflineService через ApiService)
+            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка отгрузки, сохранено локально: {ex.Message}");
+            
+            await _dbHelper.ForceUpdateBoxStatus(
+                barcode: box.Barcode,
+                newStatus: newStatus,
+                newQuantity: newQuantity,
+                isPartial: box.IsPartial
+            );
+        }
         
         System.Diagnostics.Debug.WriteLine($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт., статус: {newStatus}");
     }

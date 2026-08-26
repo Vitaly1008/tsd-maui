@@ -69,12 +69,6 @@ public class SyncQueueService : IDisposable
             PendingCountChanged?.Invoke(this, pendingCount);
             
             System.Diagnostics.Debug.WriteLine($"Транзакция добавлена в очередь: {transactionId}, тип: {operationType}");
-            
-            /*var hasInternet = await _apiService.PingServer();
-            if (hasInternet)
-            {
-                _ = Task.Run(async () => await ProcessQueueAsync());
-            }*/
         }
         catch (Exception ex)
         {
@@ -89,8 +83,7 @@ public class SyncQueueService : IDisposable
         return await _offlineService.GetPendingCount();
     }
 
-    // Обрабатывает очередь операций
-
+    // ✅ ИСПРАВЛЕНО: удаляем транзакции после успешной синхронизации
     public async Task ProcessQueueAsync()
     {
         if (_isProcessing)
@@ -142,9 +135,11 @@ public class SyncQueueService : IDisposable
                 {
                     var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
                     await ProcessReceivingOperation(op, payload);
-                    await _offlineService.MarkAsSynced(op.transaction_id);
+                    
+                    // ✅ ИСПРАВЛЕНО: УДАЛЯЕМ, а не помечаем как синхронизированную
+                    await _offlineService.DeleteTransaction(op.transaction_id);
                     successCount++;
-                    System.Diagnostics.Debug.WriteLine($"✅ Приемка синхронизирована: {op.barcode}");
+                    System.Diagnostics.Debug.WriteLine($"✅ Приемка синхронизирована и удалена: {op.barcode}");
                 }
                 catch (Exception ex)
                 {
@@ -160,9 +155,11 @@ public class SyncQueueService : IDisposable
                 {
                     var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
                     await ProcessShippingOperation(op, payload);
-                    await _offlineService.MarkAsSynced(op.transaction_id);
+                    
+                    // ✅ ИСПРАВЛЕНО: УДАЛЯЕМ, а не помечаем как синхронизированную
+                    await _offlineService.DeleteTransaction(op.transaction_id);
                     successCount++;
-                    System.Diagnostics.Debug.WriteLine($"✅ Отгрузка синхронизирована: {op.barcode}");
+                    System.Diagnostics.Debug.WriteLine($"✅ Отгрузка синхронизирована и удалена: {op.barcode}");
                 }
                 catch (Exception ex)
                 {
@@ -178,7 +175,9 @@ public class SyncQueueService : IDisposable
                 {
                     var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
                     await ProcessOtherOperation(op, payload);
-                    await _offlineService.MarkAsSynced(op.transaction_id);
+                    
+                    // ✅ ИСПРАВЛЕНО: УДАЛЯЕМ, а не помечаем как синхронизированную
+                    await _offlineService.DeleteTransaction(op.transaction_id);
                     successCount++;
                 }
                 catch (Exception ex)
@@ -214,9 +213,9 @@ public class SyncQueueService : IDisposable
         
         if (op.retry_count >= 3)
         {
-            op.is_synced = 1;
-            op.error_message = $"Превышено число попыток: {ex.Message}";
-            await _offlineService.MarkAsSynced(op.transaction_id);
+            // ✅ ИСПРАВЛЕНО: при превышении попыток УДАЛЯЕМ транзакцию
+            System.Diagnostics.Debug.WriteLine($"⚠️ Превышено число попыток для {op.transaction_id}. Транзакция удалена.");
+            await _offlineService.DeleteTransaction(op.transaction_id);
         }
         else
         {
@@ -294,7 +293,7 @@ public class SyncQueueService : IDisposable
         System.Diagnostics.Debug.WriteLine($"✅ Коробка активирована: {barcode}");
     }
 
-    // Обрабатывает операцию отгрузки
+    // ✅ ИСПРАВЛЕНО: ProcessShippingOperation с правильным обновлением isPartial
     private async Task ProcessShippingOperation(OfflineTransaction op, Dictionary<string, object>? payload)
     {
         var barcode = op.barcode;
@@ -388,20 +387,17 @@ public class SyncQueueService : IDisposable
             throw new Exception(errorMsg);
         }
 
-        // ✅ 7. ПОСЛЕ УСПЕШНОЙ ОТГРУЗКИ — ОБНОВЛЯЕМ ВСЮ ЛОКАЛЬНУЮ БД С СЕРВЕРА
-        // ✅ ТОЛЬКО ЗДЕСЬ ОБНОВЛЯЕТСЯ isPartial (сами не вносим изменения!)
-        await RefreshLocalBoxesFromServer();
-
-        // ✅ 8. УДАЛЯЕМ ТРАНЗАКЦИЮ
-        await DeleteTransaction(op.transaction_id);
+        // ✅ 7. ПОСЛЕ УСПЕШНОЙ ОТГРУЗКИ — ОБНОВЛЯЕМ ТОЛЬКО isPartial С СЕРВЕРА
+        // ✅ ИСПРАВЛЕНО: используем UpdateBoxesPartialOnly, который НЕ трогает статус
+        await RefreshLocalBoxesPartialFromServer();
 
         System.Diagnostics.Debug.WriteLine($"✅ Отгружена коробка: {barcode}, кол-во: {quantityToShip}, полная: {isFullShipmentFinal}");
     }
 
     /// <summary>
-    /// Обновляет все частичные коробки с сервера (ТОЛЬКО с сервера!)
+    /// ✅ НОВЫЙ МЕТОД: обновляет ТОЛЬКО isPartial и количество с сервера (НЕ трогает статус!)
     /// </summary>
-    private async Task RefreshLocalBoxesFromServer()
+    private async Task RefreshLocalBoxesPartialFromServer()
     {
         try
         {
@@ -409,17 +405,17 @@ public class SyncQueueService : IDisposable
             var partialBoxes = await _apiService.GetPartialBoxes();
             if (partialBoxes != null && partialBoxes.Any())
             {
-                // ✅ Обновляем ТОЛЬКО isPartial и количество с сервера
+                // ✅ Обновляем ТОЛЬКО isPartial и количество (НЕ статус!)
                 var updateList = partialBoxes.Select(box => (
                     barcode: box.Barcode,
                     isPartial: true,
-                    currentQuantity: box.CurrentQuantity,
-                    status: box.Status
+                    currentQuantity: box.CurrentQuantity
                 )).ToList();
 
-                await _dbHelper.UpdateBoxesFromServer(updateList);
+                // ✅ Используем новый метод, который НЕ трогает статус
+                await _dbHelper.UpdateBoxesPartialOnly(updateList);
                 
-                System.Diagnostics.Debug.WriteLine($"✅ Обновлено {partialBoxes.Count} коробок с сервера");
+                System.Diagnostics.Debug.WriteLine($"✅ Обновлено {partialBoxes.Count} коробок с сервера (только isPartial и количество)");
             }
         }
         catch (Exception ex)
@@ -450,10 +446,10 @@ public class SyncQueueService : IDisposable
             product_name = box.ProductName,
             product_ean13 = box.ProductEan13,
             location_code = box.LocationCode ?? "UNKNOWN",
-            status = box.Status,  // ✅ Статус с сервера (уже Active)
+            status = box.Status,
             created_at = box.CreatedAt,
             updated_at = box.UpdatedAt,
-            isPartial = box.IsPartial ? 1 : 0  // ✅ isPartial с сервера
+            isPartial = box.IsPartial ? 1 : 0
         });
         
         System.Diagnostics.Debug.WriteLine($"Кэш обновлен с сервера: #{box.BoxNumber}, статус: {box.Status}, isPartial: {box.IsPartial}");
@@ -494,27 +490,6 @@ public class SyncQueueService : IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка очистки таблицы синхронизации: {ex.Message}");
             throw;
-        }
-    }
-
-
-    // Обновление статуса после синхронизации
-    private async Task UpdateBoxStatusAfterSync(string barcode, BoxStatus newStatus)
-    {
-        try
-        {
-            var box = await _dbHelper.GetBoxByBarcode(barcode);
-            if (box != null)
-            {
-                box.status = newStatus;
-                box.isPartial = 0;
-                await _dbHelper.SaveBox(box);
-                System.Diagnostics.Debug.WriteLine($"✅ Статус коробки {barcode} обновлен на {newStatus} после синхронизации");
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления статуса: {ex.Message}");
         }
     }
 
@@ -600,8 +575,8 @@ public class SyncQueueService : IDisposable
                 await ProcessOtherOperation(transaction, payload);
             }
 
-            await _offlineService.MarkAsSynced(transactionId);
-            await DeleteTransaction(transactionId);
+            // ✅ ИСПРАВЛЕНО: удаляем после успешной синхронизации
+            await _offlineService.DeleteTransaction(transactionId);
             
             var pendingCount = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, pendingCount);
@@ -615,7 +590,6 @@ public class SyncQueueService : IDisposable
             return false;
         }
     }
-
 
     public void Dispose()
     {
