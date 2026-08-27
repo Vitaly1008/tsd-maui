@@ -1,4 +1,5 @@
-using FlowerWms.Tsd.Helpers;  // Добавляем для BoxCache
+using FlowerWms.Tsd.Helpers;
+using System.Text.Json;
 
 namespace FlowerWms.Tsd.Models;
 
@@ -13,20 +14,14 @@ public class Box
     public int CurrentQuantity { get; set; }
     public string ProductId { get; set; } = string.Empty;
     public string? LocationId { get; set; }
-    
-    // Изменяем int на BoxStatus
     public BoxStatus Status { get; set; } = BoxStatus.Draft;
-    
     public long CreatedAt { get; set; }
     public long UpdatedAt { get; set; }
     public string? OrderId { get; set; }
-    
-    // Вычисляемые поля для отображения (не хранятся в БД)
     public string ProductName { get; set; } = string.Empty;
     public string ProductEan13 { get; set; } = string.Empty;
     public string? LocationCode { get; set; }
 
-    // Алиас для CurrentQuantity
     public int Quantity
     {
         get => CurrentQuantity;
@@ -35,7 +30,6 @@ public class Box
 
     public bool IsPartial { get; set; }
 
-    // Создает модель из JSON-словаря
     public static Box FromJson(Dictionary<string, object> json)
     {
         string id = "";
@@ -57,6 +51,8 @@ public class Box
             boxNumber = n;
         else if (boxNumberObj is double d)
             boxNumber = (int)d;
+        else if (boxNumberObj is JsonElement jeBox && jeBox.ValueKind == JsonValueKind.Number)
+            boxNumber = jeBox.GetInt32();
         
         if (boxNumber == 0 && !string.IsNullOrEmpty(barcode))
         {
@@ -111,6 +107,26 @@ public class Box
                 grade = gradeStr;
             }
         }
+        else if (gradeObj is JsonElement jeGrade)
+        {
+            if (jeGrade.ValueKind == JsonValueKind.String)
+            {
+                grade = jeGrade.GetString() ?? "Premium";
+            }
+            else if (jeGrade.ValueKind == JsonValueKind.Number)
+            {
+                var g = jeGrade.GetInt32();
+                grade = g switch
+                {
+                    9 => "Premium",
+                    1 => "First",
+                    2 => "Second",
+                    3 => "Decorated",
+                    5 => "Rejected",
+                    _ => "Premium"
+                };
+            }
+        }
         
         int currentQuantity = 0;
         int initialQuantity = 0;
@@ -124,6 +140,8 @@ public class Box
             currentQuantity = cqn;
         else if (currentQtyObj is double cqd)
             currentQuantity = (int)cqd;
+        else if (currentQtyObj is JsonElement jeQty && jeQty.ValueKind == JsonValueKind.Number)
+            currentQuantity = jeQty.GetInt32();
         
         var initialQtyObj = json.GetValueOrDefault("initialQuantity", currentQuantity);
         if (initialQtyObj is int iqi)
@@ -134,6 +152,8 @@ public class Box
             initialQuantity = iqn;
         else if (initialQtyObj is double iqd)
             initialQuantity = (int)iqd;
+        else if (initialQtyObj is JsonElement jeInitQty && jeInitQty.ValueKind == JsonValueKind.Number)
+            initialQuantity = jeInitQty.GetInt32();
         
         if (currentQuantity == 0 && !string.IsNullOrEmpty(barcode))
         {
@@ -144,16 +164,24 @@ public class Box
         if (initialQuantity == 0)
             initialQuantity = currentQuantity;
 
-        // Изменяем парсинг статуса - используем BoxStatus
+        // ============================================================
+        // ПАРСИНГ СТАТУСА С ПОДДЕРЖКОЙ JsonElement
+        // ============================================================
         BoxStatus status = BoxStatus.Draft;
         var statusObj = json.GetValueOrDefault("status", 1);
-        
+
         if (statusObj is BoxStatus bs)
+        {
             status = bs;
+        }
         else if (statusObj is int si)
+        {
             status = (BoxStatus)si;
+        }
         else if (statusObj is long sl)
+        {
             status = (BoxStatus)sl;
+        }
         else if (statusObj is string ss)
         {
             if (int.TryParse(ss, out var sn))
@@ -161,21 +189,56 @@ public class Box
             else if (Enum.TryParse<BoxStatus>(ss, true, out var se))
                 status = se;
         }
+        else if (statusObj is JsonElement jeStatus)
+        {
+            if (jeStatus.ValueKind == JsonValueKind.String)
+            {
+                var stringValue = jeStatus.GetString();
+                if (int.TryParse(stringValue, out var sn))
+                    status = (BoxStatus)sn;
+                else if (Enum.TryParse<BoxStatus>(stringValue, true, out var se))
+                    status = se;
+            }
+            else if (jeStatus.ValueKind == JsonValueKind.Number)
+            {
+                var numberValue = jeStatus.GetInt32();
+                status = (BoxStatus)numberValue;
+            }
+        }
 
+        // ============================================================
+        // ПАРСИНГ ДАТ
+        // ============================================================
         long createdAt = 0;
         var createdAtObj = json.GetValueOrDefault("createdAt", 0);
         if (createdAtObj is long cal)
             createdAt = cal;
         else if (createdAtObj is DateTime dt)
             createdAt = new DateTimeOffset(dt).ToUnixTimeMilliseconds();
-        
+        else if (createdAtObj is string dtStr && DateTime.TryParse(dtStr, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dtParsed))
+            createdAt = new DateTimeOffset(dtParsed).ToUnixTimeMilliseconds();
+        else if (createdAtObj is JsonElement jeCreated && jeCreated.ValueKind == JsonValueKind.String)
+        {
+            var jeDtStr = jeCreated.GetString();
+            if (DateTime.TryParse(jeDtStr, null, System.Globalization.DateTimeStyles.RoundtripKind, out var jeDtParsed))
+                createdAt = new DateTimeOffset(jeDtParsed).ToUnixTimeMilliseconds();
+        }
+
         long updatedAt = 0;
         var updatedAtObj = json.GetValueOrDefault("updatedAt", 0);
         if (updatedAtObj is long ual)
             updatedAt = ual;
         else if (updatedAtObj is DateTime udt)
             updatedAt = new DateTimeOffset(udt).ToUnixTimeMilliseconds();
-        
+        else if (updatedAtObj is string udtStr && DateTime.TryParse(udtStr, null, System.Globalization.DateTimeStyles.RoundtripKind, out var udtParsed))
+            updatedAt = new DateTimeOffset(udtParsed).ToUnixTimeMilliseconds();
+        else if (updatedAtObj is JsonElement jeUpdated && jeUpdated.ValueKind == JsonValueKind.String)
+        {
+            var jeUdtStr = jeUpdated.GetString();
+            if (DateTime.TryParse(jeUdtStr, null, System.Globalization.DateTimeStyles.RoundtripKind, out var jeUdtParsed))
+                updatedAt = new DateTimeOffset(jeUdtParsed).ToUnixTimeMilliseconds();
+        }
+
         string productId = json.GetValueOrDefault("productId", "")?.ToString() ?? "";
         string productName = json.GetValueOrDefault("productName", "")?.ToString() ?? "";
         if (string.IsNullOrEmpty(productName))
@@ -204,7 +267,6 @@ public class Box
         };
     }
 
-    // Преобразует модель в словарь для отправки на сервер
     public Dictionary<string, object> ToDictionary()
     {
         return new Dictionary<string, object>
@@ -218,7 +280,7 @@ public class Box
             ["quantity"] = CurrentQuantity,
             ["productId"] = ProductId,
             ["locationId"] = LocationId ?? "",
-            ["status"] = (int)Status,  // Приводим к int для отправки
+            ["status"] = (int)Status,
             ["createdAt"] = CreatedAt,
             ["updatedAt"] = UpdatedAt,
             ["orderId"] = OrderId ?? "",
@@ -228,7 +290,6 @@ public class Box
         };
     }
 
-    // Преобразует Box в BoxCache для локального хранения
     public BoxCache ToCache()
     {
         return new BoxCache
@@ -249,7 +310,6 @@ public class Box
         };
     }
 
-    // Создает Box из BoxCache
     public static Box FromCache(BoxCache cache)
     {
         return new Box
@@ -267,7 +327,7 @@ public class Box
             Status = cache.status,
             CreatedAt = cache.created_at,
             UpdatedAt = cache.updated_at,
-            IsPartial = false // ✅ ВСЕГДА FALSE
+            IsPartial = false
         };
     }
 }

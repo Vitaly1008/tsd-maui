@@ -33,114 +33,78 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                 return;
             }
 
-            // ✅ ЕСЛИ ОФЛАЙН → СОХРАНЯЕМ ЛОКАЛЬНО
-            if (!IsOnline)
-            {
-                System.Diagnostics.Debug.WriteLine($"📴 Офлайн-режим: сохранение коробки #{boxNumber} локально");
-                
-                // Создаем локальную коробку
-                var productName = await GetProductName(ean13);
-                var localBox = CreateLocalBox(ean13, quantity, grade, boxNumber, productName, BoxStatus.Active);
-                
-                // Сохраняем в локальную БД
-                await SaveBoxToCache(localBox);
-                
-                // Добавляем в сессию
-                AddBoxToList(localBox);
-                
-                // Создаем транзакцию для синхронизации
-                await AddToOfflineQueue(localBox);
-                
-                SetWarning($"Коробка #{boxNumber} сохранена локально (офлайн-режим)");
-                return;
-            }
+            // ✅ 2.3. Проверка наличия в локальной БД
+            var existingBox = await _dbHelper.GetBoxByBarcode(barcode);
+            Box box;
 
-            // ✅ ОНЛАЙН: проверка на сервере
-            Box? serverBox = null;
-            try
+            if (existingBox != null)
             {
-                serverBox = await _apiService.GetBoxByBarcode(barcode);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Ошибка проверки коробки: {ex.Message}");
-                // Если ошибка сети, переходим в офлайн-режим
-                if (!await _apiService.PingServer())
+                // ✅ 2.3.2. Есть → проверить статус
+                if (existingBox.status == BoxStatus.Active)
                 {
-                    IsOnline = false;
-                    // Повторяем сканирование в офлайн-режиме
-                    await ProcessBoxScan(barcode);
+                    SetError($"Коробка #{boxNumber} уже активна");
                     return;
                 }
-                throw;
-            }
-
-            // ✅ Если коробки нет на сервере → ошибка
-            if (serverBox == null)
-            {
-                SetError($"Коробка #{boxNumber} не найдена. Сначала напечатайте штрихкод.");
-                return;
-            }
-
-            System.Diagnostics.Debug.WriteLine($"Коробка на сервере: #{serverBox.BoxNumber}, статус: {serverBox.Status}");
-
-            // ✅ Проверка статуса
-            if (serverBox.Status == BoxStatus.Draft)
-            {
-                // ✅ Draft → активируем
-                var result = await _apiService.ActivateBox(
-                    boxId: serverBox.Id,
-                    locationCode: CurrentLocation,
-                    comment: $"Приемка через ТСД, локация: {CurrentLocation}"
-                );
-
-                if (!(result.TryGetValue("success", out var success) && success is bool s && s))
+                if (existingBox.status == BoxStatus.Reserved)
                 {
-                    var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
-                    SetError($"Ошибка активации: {errorMsg}");
+                    SetError($"Коробка #{boxNumber} зарезервирована");
+                    return;
+                }
+                if (existingBox.status == BoxStatus.Shipped || existingBox.status == BoxStatus.Empty)
+                {
+                    SetError($"Коробка #{boxNumber} отгружена/пуста");
                     return;
                 }
 
-                // ✅ Получаем обновленную коробку с сервера
-                var updatedBox = await _apiService.GetBoxByBarcode(barcode);
-                if (updatedBox != null)
+                // ✅ Draft → изменить на Active
+                if (existingBox.status == BoxStatus.Draft)
                 {
-                    serverBox = updatedBox;
+                    System.Diagnostics.Debug.WriteLine($"📦 Коробка #{boxNumber} в статусе Draft, меняем на Active");
+                    
+                    await _dbHelper.ForceUpdateBoxStatus(
+                        barcode: barcode,
+                        newStatus: BoxStatus.Active,
+                        newQuantity: existingBox.current_quantity
+                    );
+                    
+                    var updatedBox = await _dbHelper.GetBoxByBarcode(barcode);
+                    if (updatedBox != null)
+                    {
+                        box = Box.FromCache(updatedBox);
+                    }
+                    else
+                    {
+                        // Неожиданная ситуация — создаем заново
+                        var productName = await GetProductName(ean13);
+                        box = CreateLocalBox(ean13, quantity, grade, boxNumber, productName, BoxStatus.Active);
+                    }
                 }
-                
-                SetStatus($"Коробка #{boxNumber} активирована", "✅", Colors.Green);
-            }
-            else if (serverBox.Status == BoxStatus.Active)
-            {
-                SetError($"Коробка #{boxNumber} уже активна");
-                return;
-            }
-            else if (serverBox.Status == BoxStatus.Reserved)
-            {
-                SetError($"Коробка #{boxNumber} зарезервирована");
-                return;
-            }
-            else if (serverBox.Status == BoxStatus.Shipped || serverBox.Status == BoxStatus.Empty)
-            {
-                SetError($"Коробка #{boxNumber} отгружена/пуста");
-                return;
+                else
+                {
+                    // Неизвестный статус — ошибка
+                    SetError($"Недопустимый статус коробки: {existingBox.status}");
+                    return;
+                }
             }
             else
             {
-                SetError($"Недопустимый статус коробки: {serverBox.Status}");
-                return;
+                // ✅ 2.3.1. Нет → создать коробку со статусом Active
+                System.Diagnostics.Debug.WriteLine($"📦 Создание новой коробки #{boxNumber} локально");
+                
+                var productName = await GetProductName(ean13);
+                box = CreateLocalBox(ean13, quantity, grade, boxNumber, productName, BoxStatus.Active);
+                
+                // ✅ 2.4. Сохранить в локальную БД
+                await SaveBoxToCache(box);
             }
 
-            // ✅ Обновляем локальную БД с сервера
-            await UpdateLocalBox(serverBox);
-
-            // ✅ Добавляем в сессию
-            AddBoxToList(serverBox);
+            // ✅ 2.5. Добавить в сессию
+            AddBoxToList(box);
             
-            // ✅ Создаем транзакцию для синхронизации
-            await AddToOfflineQueue(serverBox);
+            // ✅ 2.6. Создать транзакцию в Queue (тип: Receiving)
+            await AddToOfflineQueue(box);
             
-            SetStatus($"Коробка #{boxNumber} принята", "✅", Colors.Green);
+            SetSuccess($"Коробка #{boxNumber} принята");
         }
         catch (Exception ex)
         {
@@ -205,21 +169,6 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                 message,
                 "OK"
             );
-
-            if (pendingCount > 0 && IsOnline)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await _syncQueueService.ProcessQueueAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Фоновая синхронизация: {ex.Message}");
-                    }
-                });
-            }
 
             ClearSession();
             OnOperationCompleted();

@@ -314,16 +314,30 @@ public class ApiService
         {
             var client = await GetHttpClient();
             
+            // ✅ БЕЗОПАСНОЕ ИЗВЛЕЧЕНИЕ locationCode
+            string locationCode = "UNKNOWN";
+            if (payload.TryGetValue("locationCode", out var locObj))
+            {
+                locationCode = ExtractStringValue(locObj) ?? "UNKNOWN";
+            }
+            else if (payload.TryGetValue("LocationCode", out locObj))
+            {
+                locationCode = ExtractStringValue(locObj) ?? "UNKNOWN";
+            }
+            
+            // ✅ БЕЗОПАСНОЕ ИЗВЛЕЧЕНИЕ status
+            int status = 1; // Active по умолчанию
+            if (payload.TryGetValue("status", out var statusObj))
+            {
+                status = ExtractIntValue(statusObj, 1);
+            }
+            
             var syncRequest = new
             {
                 barcode = barcode,
-                locationCode = payload.ContainsKey("locationCode") 
-                    ? payload["locationCode"]?.ToString() 
-                    : (payload.ContainsKey("LocationCode") ? payload["LocationCode"]?.ToString() : "UNKNOWN"),
+                locationCode = locationCode,
                 operationType = operationType,
-                status = payload.ContainsKey("status") 
-                ? Convert.ToInt32(payload["status"]) 
-                : 1
+                status = status
             };
             
             var json = JsonSerializer.Serialize(syncRequest);
@@ -361,6 +375,61 @@ public class ApiService
         }
     }
 
+    // ============================================================
+    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ БЕЗОПАСНОГО ИЗВЛЕЧЕНИЯ
+    // ============================================================
+
+    private string? ExtractStringValue(object? value)
+    {
+        if (value == null)
+            return null;
+        
+        if (value is string str)
+            return str;
+        
+        if (value is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.String)
+                return jsonElement.GetString();
+            if (jsonElement.ValueKind == JsonValueKind.Number)
+                return jsonElement.GetInt32().ToString();
+            return jsonElement.ToString();
+        }
+        
+        return value.ToString();
+    }
+
+    private int ExtractIntValue(object? value, int defaultValue = 0)
+    {
+        if (value == null)
+            return defaultValue;
+        
+        if (value is int i)
+            return i;
+        
+        if (value is long l)
+            return (int)l;
+        
+        if (value is double d)
+            return (int)d;
+        
+        if (value is string str && int.TryParse(str, out var parsed))
+            return parsed;
+        
+        if (value is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.Number)
+                return jsonElement.GetInt32();
+            if (jsonElement.ValueKind == JsonValueKind.String)
+            {
+                var strVal = jsonElement.GetString();
+                if (int.TryParse(strVal, out var parsed2))
+                    return parsed2;
+            }
+        }
+        
+        return defaultValue;
+    }
     // ============================================================
     // МЕТОДЫ ДЛЯ ИНВЕНТАРИЗАЦИИ И УПРАВЛЕНИЯ КОРОБКАМИ
     // ============================================================
@@ -658,32 +727,52 @@ public class ApiService
     // ОТГРУЗКА С ПОДДЕРЖКОЙ ОФЛАЙН (исправленная версия)
     // ============================================================
 
-    public async Task<Dictionary<string, object>> ShipBox(string boxId, string? comment = null)
+    //ShipBox — ОСНОВНОЙ (для UI, создает транзакцию)
+    public async Task<Dictionary<string, object>> ShipBox(
+        string boxId, 
+        string? comment = null,
+        bool createOfflineTransaction = true)
     {
         try
         {
-            //  ИСПРАВЛЕНО: отправляем только comment как строку
-            var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
-                HttpMethod.Post,
-                $"/api/boxes/{boxId}/ship",
-                new { comment = comment ?? "Отгрузка через ТСД" },
-                "Shipping",
-                boxId
+            // ✅ Для UI используем тот же подход
+            var commentValue = comment ?? "Отгрузка через ТСД";
+            var json = $"\"{commentValue}\"";
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var client = await GetHttpClient();
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/ship",
+                content
             );
             
-            if (result != null && result.TryGetValue("success", out var success) && success is bool s && s)
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
             {
-                var updatedBox = await GetBoxById(boxId);
-                if (updatedBox != null)
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
                 {
-                    result["data"] = updatedBox.ToDictionary();
-                }
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
             }
             
-            return result ?? new Dictionary<string, object>
+            // Если ошибка и нужно сохранить офлайн
+            if (createOfflineTransaction)
+            {
+                await _offlineService.SaveTransaction(
+                    operationType: "Shipping",
+                    barcode: boxId,
+                    payload: new { comment = commentValue },
+                    deviceId: Constants.DeviceId
+                );
+            }
+            
+            return new Dictionary<string, object>
             {
                 ["success"] = false,
-                ["message"] = "Не удалось выполнить отгрузку"
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
             };
         }
         catch (Exception ex)
@@ -696,7 +785,12 @@ public class ApiService
         }
     }
 
-    public async Task<Dictionary<string, object>> ConsumeBox(string boxId, int quantity, string? comment = null)
+    //ConsumeBox — ОСНОВНОЙ (для UI, создает транзакцию)
+    public async Task<Dictionary<string, object>> ConsumeBox(
+        string boxId, 
+        int quantity, 
+        string? comment = null,
+        bool createOfflineTransaction = true)
     {
         try
         {
@@ -715,14 +809,117 @@ public class ApiService
                 HttpMethod.Post,
                 "/api/boxes/consume",
                 request,
-                "Shipping",
-                boxId
+                createOfflineTransaction ? "Shipping" : null,
+                createOfflineTransaction ? boxId : null
             );
             
             return result ?? new Dictionary<string, object>
             {
                 ["success"] = false,
                 ["message"] = "Не удалось выполнить списание"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    //ShipBoxInternal — ВНУТРЕННИЙ (БЕЗ создания транзакции)
+    public async Task<Dictionary<string, object>> ShipBoxInternal(
+        string boxId, 
+        string? comment = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            
+            // ✅ Отправляем как строку (не объект)
+            var commentValue = comment ?? "Отгрузка через ТСД";
+            var json = $"\"{commentValue}\"";
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/ship",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    //ConsumeBoxInternal — ВНУТРЕННИЙ (БЕЗ создания транзакции)
+    public async Task<Dictionary<string, object>> ConsumeBoxInternal(
+        string boxId, 
+        int quantity, 
+        string? comment = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            var request = new Dictionary<string, object>
+            {
+                ["boxId"] = boxId,
+                ["quantity"] = quantity
+            };
+            
+            if (!string.IsNullOrEmpty(comment))
+            {
+                request["comment"] = comment;
+            }
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/boxes/consume",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
             };
         }
         catch (Exception ex)

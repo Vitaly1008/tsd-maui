@@ -70,7 +70,6 @@ public class SyncQueueService : IDisposable
             _isProcessing = true;
             SyncStatusChanged?.Invoke(this, true);
             
-            // ✅ 4.1 Получить все несинхронизированные транзакции
             var operations = await _offlineService.GetUnsyncedTransactions();
             
             if (!operations.Any())
@@ -84,7 +83,7 @@ public class SyncQueueService : IDisposable
             int successCount = 0;
             int errorCount = 0;
             
-            // ✅ 4.2 Разделить: Группа A (Receiving) и Группа B (Shipping)
+            // 4.2 Разделить на группы
             var receivingOps = operations
                 .Where(o => o.operation_type == "Receiving")
                 .OrderBy(o => o.created_at)
@@ -95,7 +94,7 @@ public class SyncQueueService : IDisposable
                 .OrderBy(o => o.created_at)
                 .ToList();
             
-            // ✅ 4.3 ОБРАБОТАТЬ ГРУППУ A (ВСЕ ПРИЕМКИ)
+            // 4.3 Обработка приемок
             foreach (var op in receivingOps)
             {
                 try
@@ -112,7 +111,7 @@ public class SyncQueueService : IDisposable
                 }
             }
             
-            // ✅ 4.4 ОБРАБОТАТЬ ГРУППУ B (ВСЕ ОТГРУЗКИ)
+            // 4.4 Обработка отгрузок
             foreach (var op in shippingOps)
             {
                 try
@@ -129,8 +128,8 @@ public class SyncQueueService : IDisposable
                 }
             }
             
-            // ✅ 4.5 ОБНОВИТЬ ЛОКАЛЬНУЮ БД
-            await RefreshLocalCacheFromServer();
+            // ✅ 4.5 Обновление БД — УДАЛЕНО, теперь вызывается из SyncService!
+            // Обновление БД выполняется в SyncService после вызова ProcessQueueAsync()
             
             Logger.Info($"Синхронизировано: {successCount}, ошибок: {errorCount}");
             
@@ -312,7 +311,7 @@ public class SyncQueueService : IDisposable
         // ✅ 4.4.6. Если статус == Active || Reserved
         if (serverBox.Status == BoxStatus.Active || serverBox.Status == BoxStatus.Reserved)
         {
-            // ✅ Количество ТОЛЬКО из локальной БД (алгоритм п.3.4)
+            // ✅ Количество ТОЛЬКО из локальной БД
             var localBox = await _dbHelper.GetBoxByBarcode(barcode);
             if (localBox == null)
             {
@@ -321,38 +320,42 @@ public class SyncQueueService : IDisposable
 
             int localQuantity = localBox.current_quantity;
             
-            // Проверяем, что количество в локальной БД > 0
             if (localQuantity <= 0)
             {
                 throw new Exception($"Коробка #{serverBox.BoxNumber} пуста (остаток: {localQuantity})");
             }
 
-            // ✅ Определяем количество для списания (ТОЛЬКО из локальной БД)
             int quantityToShip;
             bool isFullShipmentFinal;
             
             if (isFullShipment || quantity <= 0 || quantity >= localQuantity)
             {
-                quantityToShip = localQuantity; // ✅ ТОЛЬКО из локальной БД
+                quantityToShip = localQuantity;
                 isFullShipmentFinal = true;
             }
             else
             {
-                quantityToShip = quantity; // quantity уже проверено <= localQuantity
+                quantityToShip = quantity;
                 isFullShipmentFinal = false;
             }
 
             // ✅ 4.4.6.1. Выполняем отгрузку на сервере
+            // ✅ ИСПОЛЬЗУЕМ Internal-методы (БЕЗ создания транзакций!)
             Dictionary<string, object> result;
             if (isFullShipmentFinal)
             {
-                // ✅ POST /api/boxes/{boxId}/ship
-                result = await _apiService.ShipBox(boxId, $"Полная отгрузка через ТСД");
+                result = await _apiService.ShipBoxInternal(
+                    boxId, 
+                    $"Полная отгрузка через ТСД"
+                );
             }
             else
             {
-                // ✅ POST /api/boxes/consume (по ID)
-                result = await _apiService.ConsumeBox(boxId, quantityToShip, $"Частичная отгрузка: {quantityToShip} шт.");
+                result = await _apiService.ConsumeBoxInternal(
+                    boxId, 
+                    quantityToShip, 
+                    $"Частичная отгрузка: {quantityToShip} шт."
+                );
             }
 
             // ✅ 4.4.6.2. Проверяем результат
@@ -360,7 +363,6 @@ public class SyncQueueService : IDisposable
             {
                 var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
                 
-                // ✅ Добавляем в ProblemBoxes
                 await _apiService.AddToProblemBoxes(
                     barcode: barcode,
                     boxId: boxId,
@@ -397,95 +399,6 @@ public class SyncQueueService : IDisposable
         await _offlineService.MarkAsError(op.transaction_id, ex.Message);
     }
 
-    // ✅ 4.5. ОБНОВЛЕНИЕ ЛОКАЛЬНОЙ БД (по алгоритму)
-    private async Task RefreshLocalCacheFromServer()
-    {
-        try
-        {
-            // ✅ 4.5.1. Получить LastChanged с сервера
-            var serverLastChanged = await _apiService.GetServerLastChanged();
-            
-            // ✅ Безопасное преобразование в Unix timestamp
-            long serverTimestamp;
-            try
-            {
-                serverTimestamp = new DateTimeOffset(serverLastChanged).ToUnixTimeMilliseconds();
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                // Если дата вне диапазона, используем текущее время
-                Logger.Info("⚠️ ServerLastChanged вне допустимого диапазона, используем текущее время");
-                serverTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            }
-            
-            // ✅ 4.5.2. Получить ServerLastChanged из локальной БД
-            var localLastChanged = await _dbHelper.GetServerLastChanged();
-            
-            Logger.Info($"ServerLastChanged: {serverTimestamp}, LocalLastChanged: {localLastChanged}");
-            
-            // ✅ 4.5.3. Если LastChanged > ServerLastChanged
-            if (serverTimestamp > localLastChanged)
-            {
-                Logger.Info("Обновление локального кэша с сервера...");
-                
-                // ✅ 4.5.3.1. Загрузить все коробки с сервера (Draft, Active, Reserved)
-                var boxes = await _apiService.GetAllBoxesForSync();
-                
-                if (boxes != null && boxes.Any())
-                {
-                    // ✅ 4.5.3.2. Очистить локальную boxes_cache
-                    var db = await _dbHelper.GetDatabaseAsync();
-                    await db.ExecuteAsync("DELETE FROM boxes_cache");
-                    
-                    // ✅ 4.5.3.3. Записать загруженные коробки
-                    var boxCacheList = new List<BoxCache>();
-                    foreach (var box in boxes)
-                    {
-                        // Сохраняем только Draft, Active, Reserved (по алгоритму п.1.4.1)
-                        if (box.Status == BoxStatus.Draft || 
-                            box.Status == BoxStatus.Active || 
-                            box.Status == BoxStatus.Reserved)
-                        {
-                            boxCacheList.Add(new BoxCache
-                            {
-                                barcode = box.Barcode,
-                                box_id = box.Id,
-                                box_number = box.BoxNumber,
-                                grade = box.Grade,
-                                initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.CurrentQuantity,
-                                current_quantity = box.CurrentQuantity,
-                                product_id = box.ProductId,
-                                product_name = box.ProductName,
-                                product_ean13 = box.ProductEan13,
-                                location_code = box.LocationCode ?? "UNKNOWN",
-                                status = box.Status,
-                                created_at = box.CreatedAt,
-                                updated_at = box.UpdatedAt
-                            });
-                        }
-                    }
-                    
-                    if (boxCacheList.Any())
-                    {
-                        await _dbHelper.SyncBoxes(boxCacheList);
-                        Logger.Info($"✅ Загружено {boxCacheList.Count} коробок с сервера");
-                    }
-                    
-                    // ✅ 4.5.3.4. Обновить ServerLastChanged
-                    await _dbHelper.UpdateServerLastChanged(serverTimestamp);
-                }
-            }
-            else
-            {
-                Logger.Info("Локальный кэш актуален");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Info($"❌ Ошибка обновления локального кэша: {ex.Message}");
-            throw;
-        }
-    }
 
     // Очищает таблицу синхронизации
     public async Task<int> ClearSyncTable()

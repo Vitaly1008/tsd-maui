@@ -74,11 +74,12 @@ public partial class ShippingViewModel : BaseOperationViewModel
             {
                 // ✅ 3.3.1. Есть в локальной БД
                 box = Box.FromCache(cachedBox);
-                System.Diagnostics.Debug.WriteLine($"📦 Коробка найдена в локальной БД: #{box.BoxNumber}, остаток: {box.CurrentQuantity}, статус: {box.Status}");
+                Logger.Info($"📦 Коробка найдена в локальной БД: #{box.BoxNumber}, остаток: {box.CurrentQuantity}, статус: {box.Status}");
                 
                 // ✅ 3.3.2. Проверка статуса
                 if (box.Status == BoxStatus.Draft)
                 {
+                    Logger.Error($"Коробка #{boxNumber} имеет статус {box.Status}");
                     SetError($"Коробка #{boxNumber} не активирована (Draft)");
                     return;
                 }
@@ -136,25 +137,6 @@ public partial class ShippingViewModel : BaseOperationViewModel
         {
             IsLoading = false;
         }
-    }
-
-    private static Box BoxCacheToBox(BoxCache cached)
-    {
-        return new Box
-        {
-            Id = cached.box_id,
-            Barcode = cached.barcode,
-            BoxNumber = cached.box_number,
-            ProductName = cached.product_name,
-            ProductEan13 = cached.product_ean13,
-            CurrentQuantity = cached.current_quantity,
-            InitialQuantity = cached.initial_quantity,
-            Grade = cached.grade,
-            LocationCode = cached.location_code,
-            Status = cached.status,
-            CreatedAt = cached.created_at,
-            UpdatedAt = cached.updated_at
-        };
     }
 
     private void UpdateModes()
@@ -346,25 +328,8 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 int newQuantity = box.CurrentQuantity - quantityToShip;
                 totalShippedQuantity += quantityToShip;
 
-                // ✅ СОЗДАЕМ ТРАНЗАКЦИЮ
                 await SaveLocalShipment(box, quantityToShip, isFullShipment);
                 localCount++;
-
-                // ✅ Обновляем локальный статус (БЕЗ isPartial!)
-                BoxStatus newStatus;
-                if (isFullShipment)
-                    newStatus = BoxStatus.Shipped;
-                else if (newQuantity == 0)
-                    newStatus = BoxStatus.Empty;
-                else
-                    newStatus = BoxStatus.Active;
-
-                // ✅ НЕ передаем isPartial!
-                await _dbHelper.ForceUpdateBoxStatus(
-                    barcode: box.Barcode,
-                    newStatus: newStatus,
-                    newQuantity: newQuantity
-                );
                 
                 if (isFullShipment)
                     shippedCount++;
@@ -372,9 +337,10 @@ public partial class ShippingViewModel : BaseOperationViewModel
                     partialCount++;
             }
 
-            //  Формируем сообщение
+            // ✅ Получаем количество операций в очереди
             var pendingCount = await _syncQueueService.GetPendingCount();
 
+            // ✅ Формируем сообщение
             var message = $"Обработано {boxes.Count} коробок.\n" +
                         $"Всего отгружено: {totalShippedQuantity} шт.\n\n";
             if (shippedCount > 0) message += $"✅ Полностью отгружено: {shippedCount}\n";
@@ -384,7 +350,8 @@ public partial class ShippingViewModel : BaseOperationViewModel
 
             if (pendingCount > 0)
             {
-                message += $"\n\n📤 Ожидает синхронизации: {pendingCount} операций";
+                message += $"\n\n📤 Ожидает синхронизации: {pendingCount} операций.\n" +
+                        $"Синхронизируйте вручную в разделе 'Очередь'.";
             }
             else
             {
@@ -397,21 +364,10 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 "OK"
             );
 
-            // ✅ Запускаем синхронизацию в фоне
-            if (pendingCount > 0 && IsOnline)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await _syncQueueService.ProcessQueueAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Фоновая синхронизация: {ex.Message}");
-                    }
-                });
-            }
+            // ❌ УДАЛЯЕМ ФОНОВУЮ СИНХРОНИЗАЦИЮ
+            // Синхронизация будет выполнена:
+            // 1. Вручную из SyncQueuePage
+            // 2. Автоматически после логина (если есть транзакции)
 
             ClearSession();
             OnOperationCompleted();
@@ -427,41 +383,6 @@ public partial class ShippingViewModel : BaseOperationViewModel
         finally
         {
             IsLoading = false;
-        }
-    }
-
-    // Новый метод: обновление кэша без лишних запросов
-    private async Task RefreshBoxCache(string barcode)
-    {
-        try
-        {
-            var updatedBox = await _apiService.GetBoxByBarcode(barcode);
-            if (updatedBox != null)
-            {
-                //  Проверяем статус в локальной БД перед обновлением
-                var localBox = await _dbHelper.GetBoxByBarcode(barcode);
-                
-                // Если локальная коробка имеет статус Shipped или Empty, 
-                // а сервер вернул старый статус, то сохраняем локальный статус
-                if (localBox != null && 
-                    (localBox.status == BoxStatus.Shipped || localBox.status == BoxStatus.Empty))
-                {
-                    // Сохраняем локальный статус и количество
-                    updatedBox.Status = localBox.status;
-                    updatedBox.CurrentQuantity = localBox.current_quantity;
-                    System.Diagnostics.Debug.WriteLine($"⚠️ Восстановлен локальный статус {localBox.status} для {barcode}");
-                }
-                
-                await UpdateLocalBox(updatedBox);
-            }
-            else
-            {
-                await _dbHelper.DeleteBoxByBarcode(barcode);
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления кэша: {ex.Message}");
         }
     }
 
@@ -510,7 +431,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
             deviceId: Constants.DeviceId
         );
 
-        System.Diagnostics.Debug.WriteLine($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт.");
+        Logger.Info($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт.");
     }
 
     public override void RemoveBox(object parameter)

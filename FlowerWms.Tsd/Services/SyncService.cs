@@ -3,7 +3,6 @@ using FlowerWms.Tsd.Models;
 
 namespace FlowerWms.Tsd.Services;
 
-// Основной сервис синхронизации
 public class SyncService
 {
     private readonly ApiService _apiService;
@@ -31,130 +30,30 @@ public class SyncService
         }
     }
 
-    // Выполняет полную синхронизацию всех данных
-    public async Task SyncAllData()
+    // ============================================================
+    // ✅ 4.5. ЕДИНЫЙ МЕТОД ОБНОВЛЕНИЯ ЛОКАЛЬНОЙ БД
+    // ============================================================
+    public async Task RefreshLocalCacheFromServer()
     {
         try
         {
-            SetStatus(SyncStatus.Syncing);
-            
-            await SyncProducts();
-            await SyncLocations();
-            await SyncBoxes();
-            
-            SetStatus(SyncStatus.Online);
-            System.Diagnostics.Debug.WriteLine("SyncAllData завершена");
-        }
-        catch (Exception ex)
-        {
-            SetStatus(SyncStatus.Offline);
-            System.Diagnostics.Debug.WriteLine($"Ошибка SyncAllData: {ex.Message}");
-            throw;
-        }
-    }
-
-    // Синхронизирует справочник продуктов
-    public async Task SyncProducts()
-    {
-        try
-        {
-            var products = await _apiService.GetAllProducts();
-            if (products != null && products.Any())
-            {
-                var productCacheList = products.Select(p => new ProductCache
-                {
-                    product_id = p.Id,
-                    ean13 = p.Ean13,
-                    name = p.Name,
-                    short_name = p.ShortName,
-                    onec_guid = p.OneCGuid,
-                    updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                }).ToList();
-                
-                await _dbHelper.SyncProducts(productCacheList);
-                System.Diagnostics.Debug.WriteLine($"Синхронизировано продуктов: {productCacheList.Count}");
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("Нет продуктов для синхронизации");
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации продуктов: {ex.Message}");
-            throw;
-        }
-    }
-
-    // Синхронизирует справочник локаций
-    public async Task SyncLocations()
-    {
-        try
-        {
-            var locations = await _apiService.GetAllLocations();
-            if (locations != null && locations.Any())
-            {
-                var locationCacheList = locations.Select(l => new LocationCache
-                {
-                    location_id = l.Id,
-                    code = l.Code,
-                    name = l.Name,
-                    is_active = l.IsActive ? 1 : 0,
-                    created_at = l.CreatedAt
-                }).ToList();
-                
-                await _dbHelper.SyncLocations(locationCacheList);
-                System.Diagnostics.Debug.WriteLine($"Синхронизировано локаций: {locationCacheList.Count}");
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("Нет локаций для синхронизации");
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации локаций: {ex.Message}");
-            throw;
-        }
-    }
-
-    // Безопасное преобразование timestamp
-    private long SafeGetTimestamp(DateTime dateTime)
-    {
-        try
-        {
-            if (dateTime <= DateTime.MinValue || dateTime > DateTime.MaxValue.AddDays(-1))
-            {
-                System.Diagnostics.Debug.WriteLine("⚠️ DateTime вне допустимого диапазона, используем текущее время");
-                return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            }
-            return new DateTimeOffset(dateTime).ToUnixTimeMilliseconds();
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            System.Diagnostics.Debug.WriteLine("⚠️ ArgumentOutOfRangeException, используем текущее время");
-            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        }
-    }
-
-    // Синхронизирует коробки с сервера (по алгоритму п.1.4)
-    public async Task SyncBoxes()
-    {
-        try
-        {
-            var localLastChanged = await _dbHelper.GetServerLastChanged();
+            // 4.5.1. Получить LastChanged с сервера
             var serverLastChanged = await _apiService.GetServerLastChanged();
-            
-            // ✅ Безопасное преобразование
             long serverTimestamp = SafeGetTimestamp(serverLastChanged);
             
-            System.Diagnostics.Debug.WriteLine($"LocalLastChanged: {localLastChanged}, ServerLastChanged: {serverTimestamp}");
+            // 4.5.2. Получить ServerLastChanged из локальной БД
+            var localLastChanged = await _dbHelper.GetServerLastChanged();
             
+            Logger.Info($"Обновление локальной БД: ServerLastChanged: {serverTimestamp}, LocalLastChanged: {localLastChanged}");
+            
+            // 4.5.3. Если LastChanged > ServerLastChanged
             if (serverTimestamp > localLastChanged)
             {
-                System.Diagnostics.Debug.WriteLine("Обновление локального кэша с сервера...");
+                Logger.Info($"Обновление локального кэша с сервера...");
                 
+                // 4.5.3.1. Загрузить все коробки с сервера
                 var boxes = await _apiService.GetAllBoxesForSync();
+                Logger.Info($"1. количество коробок на сервере {boxes.Count}");
                 
                 if (boxes != null && boxes.Any())
                 {
@@ -184,16 +83,18 @@ public class SyncService
                                 created_at = box.CreatedAt,
                                 updated_at = box.UpdatedAt
                             });
+                            Logger.Info($"2. Добавлена коробка в локальную базу: barcode = {box.Barcode}, status={box.Status}");
                         }
                     }
                     
                     if (boxCacheList.Any())
                     {
                         await _dbHelper.SyncBoxes(boxCacheList);
-                        System.Diagnostics.Debug.WriteLine($"✅ Загружено {boxCacheList.Count} коробок с сервера");
+                        Logger.Info($"✅ Загружено {boxCacheList.Count} коробок");
                     }
                     
                     await _dbHelper.UpdateServerLastChanged(serverTimestamp);
+                    Logger.Info($"✅ ServerLastChanged обновлен: {serverTimestamp}");
                 }
             }
             else
@@ -203,12 +104,167 @@ public class SyncService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации коробок: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления кэша: {ex.Message}");
             throw;
         }
     }
 
-    // Проверяет доступность интернета
+    // ============================================================
+    // ✅ 4. СИНХРОНИЗАЦИЯ (ПОЛНЫЙ ПУНКТ)
+    // ============================================================
+    public async Task SyncAllData()
+    {
+        try
+        {
+            SetStatus(SyncStatus.Syncing);
+            
+            // ✅ Сначала синхронизируем справочники
+            await SyncProducts();
+            await SyncLocations();
+            
+            // ✅ 4.1-4.4 Обрабатываем очередь
+            await _syncQueueService.ProcessQueueAsync();
+            
+            // ✅ 4.5 Обновляем локальную БД
+            await RefreshLocalCacheFromServer();
+            
+            SetStatus(SyncStatus.Online);
+            System.Diagnostics.Debug.WriteLine("SyncAllData завершена");
+        }
+        catch (Exception ex)
+        {
+            SetStatus(SyncStatus.Offline);
+            System.Diagnostics.Debug.WriteLine($"Ошибка SyncAllData: {ex.Message}");
+            throw;
+        }
+    }
+
+    // ============================================================
+    // ✅ 1. СИНХРОНИЗАЦИЯ ПОСЛЕ ЛОГИНА (ВЫПОЛНИТЬ ВЕСЬ п.4)
+    // ============================================================
+    public async Task SyncAfterLogin()
+    {
+        try
+        {
+            System.Diagnostics.Debug.WriteLine("🔄 Синхронизация после логина...");
+            
+            // ✅ Выполняем ВЕСЬ пункт 4
+            await SyncAllData();
+            
+            System.Diagnostics.Debug.WriteLine("✅ Синхронизация после логина завершена");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка синхронизации после логина: {ex.Message}");
+            throw;
+        }
+    }
+
+    // ============================================================
+    // ✅ РУЧНАЯ СИНХРОНИЗАЦИЯ
+    // ============================================================
+    public async Task SyncManual()
+    {
+        try
+        {
+            SetStatus(SyncStatus.Syncing);
+            
+            // ✅ Сначала синхронизируем справочники
+            await SyncProducts();
+            await SyncLocations();
+            
+            // ✅ Обрабатываем очередь
+            await _syncQueueService.ProcessQueueAsync();
+            
+            // ✅ Обновляем локальную БД
+            await RefreshLocalCacheFromServer();
+            
+            SetStatus(SyncStatus.Online);
+            System.Diagnostics.Debug.WriteLine("SyncManual завершена");
+        }
+        catch (Exception ex)
+        {
+            SetStatus(SyncStatus.Offline);
+            System.Diagnostics.Debug.WriteLine($"Ошибка SyncManual: {ex.Message}");
+            throw;
+        }
+    }
+
+    // ============================================================
+    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    // ============================================================
+
+    private long SafeGetTimestamp(DateTime dateTime)
+    {
+        try
+        {
+            if (dateTime <= DateTime.MinValue || dateTime > DateTime.MaxValue.AddDays(-1))
+            {
+                return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+            return new DateTimeOffset(dateTime).ToUnixTimeMilliseconds();
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        }
+    }
+
+    public async Task SyncProducts()
+    {
+        try
+        {
+            var products = await _apiService.GetAllProducts();
+            if (products != null && products.Any())
+            {
+                var productCacheList = products.Select(p => new ProductCache
+                {
+                    product_id = p.Id,
+                    ean13 = p.Ean13,
+                    name = p.Name,
+                    short_name = p.ShortName,
+                    onec_guid = p.OneCGuid,
+                    updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }).ToList();
+                
+                await _dbHelper.SyncProducts(productCacheList);
+                System.Diagnostics.Debug.WriteLine($"Синхронизировано продуктов: {productCacheList.Count}");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации продуктов: {ex.Message}");
+            throw;
+        }
+    }
+
+    public async Task SyncLocations()
+    {
+        try
+        {
+            var locations = await _apiService.GetAllLocations();
+            if (locations != null && locations.Any())
+            {
+                var locationCacheList = locations.Select(l => new LocationCache
+                {
+                    location_id = l.Id,
+                    code = l.Code,
+                    name = l.Name,
+                    is_active = l.IsActive ? 1 : 0,
+                    created_at = l.CreatedAt
+                }).ToList();
+                
+                await _dbHelper.SyncLocations(locationCacheList);
+                System.Diagnostics.Debug.WriteLine($"Синхронизировано локаций: {locationCacheList.Count}");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации локаций: {ex.Message}");
+            throw;
+        }
+    }
+
     public async Task<bool> CheckInternetManual()
     {
         try
@@ -221,60 +277,6 @@ public class SyncService
         {
             SetStatus(SyncStatus.Offline);
             return false;
-        }
-    }
-
-    // Выполняет ручную синхронизацию
-    public async Task SyncManual()
-    {
-        try
-        {
-            await SyncAllData();
-            
-            var pendingCount = await _offlineService.GetPendingCount();
-            if (pendingCount > 0)
-            {
-                await _syncQueueService.ProcessQueueAsync();
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("Нет транзакций для синхронизации");
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка ручной синхронизации: {ex.Message}");
-            throw;
-        }
-    }
-
-    // ✅ НОВЫЙ МЕТОД: синхронизация после логина (по алгоритму п.1)
-    public async Task SyncAfterLogin()
-    {
-        try
-        {
-            System.Diagnostics.Debug.WriteLine("🔄 Синхронизация после логина...");
-            
-            // ✅ 1.1. Проверить очередь
-            var pendingCount = await _offlineService.GetPendingCount();
-            
-            // ✅ 1.2. Если есть несинхронизированные транзакции → синхронизация
-            if (pendingCount > 0)
-            {
-                System.Diagnostics.Debug.WriteLine($"📦 Найдено {pendingCount} несинхронизированных транзакций");
-                await _syncQueueService.ProcessQueueAsync();
-            }
-            
-            // ✅ 1.3. Получить LastChanged с сервера
-            // ✅ 1.4. Если LastChanged > ServerLastChanged → обновить кэш
-            await SyncBoxes();
-            
-            System.Diagnostics.Debug.WriteLine("✅ Синхронизация после логина завершена");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка синхронизации после логина: {ex.Message}");
-            throw;
         }
     }
 }
