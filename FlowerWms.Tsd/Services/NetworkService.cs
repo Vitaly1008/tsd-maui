@@ -41,16 +41,6 @@ public class NetworkService : IDisposable
         }
     }
 
-    // Проверяет сеть и выполняет синхронизацию при подключении
-    private async Task PerformSyncIfNeeded()
-    {
-        var pendingCount = await _offlineService.GetPendingCount();
-        if (pendingCount > 0)
-        {
-            await _syncService.SyncManual();
-        }
-    }
-
     // Проверяет сеть и ищет сервер при необходимости
     public async Task CheckNetworkAsync()
     {
@@ -67,7 +57,7 @@ public class NetworkService : IDisposable
             {
                 _isOnline = true;
                 NetworkStatusChanged?.Invoke(this, true);
-                await PerformSyncIfNeeded();
+                // ✅ УБРАН ВЫЗОВ PerformSyncIfNeeded()
                 return;
             }
 
@@ -79,7 +69,7 @@ public class NetworkService : IDisposable
                 Constants.ApiBaseUrl = newAddress;
                 NetworkStatusChanged?.Invoke(this, true);
                 ServerFound?.Invoke(this, newAddress);
-                await PerformSyncIfNeeded();
+                // ✅ УБРАН ВЫЗОВ PerformSyncIfNeeded()
             }
             else
             {

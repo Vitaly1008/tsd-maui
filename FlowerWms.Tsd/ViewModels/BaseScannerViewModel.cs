@@ -179,6 +179,15 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
         ScanStatusText = message;
     }
 
+    protected void SetWarning(string message, string icon = "⚠️", Color? color = null)
+    {
+        HasError = false;
+        ErrorMessage = string.Empty;
+        ScanStatusIcon = icon;
+        ScanStatusColor = color ?? Colors.Orange;
+        ScanStatusText = message;
+    }
+
     // ===== Вспомогательные методы =====
     protected string GetGradeName(string gradeCode) => gradeCode switch
     {

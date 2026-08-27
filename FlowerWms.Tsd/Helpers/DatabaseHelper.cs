@@ -327,30 +327,6 @@ public class DatabaseHelper
         }
     }
 
-    public async Task<List<BoxCache>> GetDirtyBoxes()
-    {
-        try
-        {
-            var db = await GetDatabaseAsync();
-            var tableInfo = await db.QueryAsync<TableInfo>("PRAGMA table_info(boxes_cache)");
-            var hasDirtyColumn = tableInfo.Any(c => c.name == "is_dirty");
-            
-            if (!hasDirtyColumn)
-            {
-                await db.ExecuteAsync("ALTER TABLE boxes_cache ADD COLUMN is_dirty INTEGER DEFAULT 0");
-            }
-            
-            return await db.Table<BoxCache>()
-                .Where(b => b.isPartial == 1)
-                .ToListAsync();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения dirty коробок: {ex.Message}");
-            return new List<BoxCache>();
-        }
-    }
-
     public async Task MarkBoxSynced(string barcode)
     {
         try
@@ -724,7 +700,7 @@ public class DatabaseHelper
     /// <summary>
     /// Принудительно обновляет статус и количество коробки в локальной БД
     /// </summary>
-    public async Task ForceUpdateBoxStatus(string barcode, BoxStatus newStatus, int newQuantity, bool isPartial = false)
+    public async Task ForceUpdateBoxStatus(string barcode, BoxStatus newStatus, int newQuantity)
     {
         try
         {
@@ -735,26 +711,24 @@ public class DatabaseHelper
             
             if (existingBox != null)
             {
-                // ✅ Обновляем существующую запись, включая isPartial
+                // ✅ НЕ ТРОГАЕМ isPartial
                 await db.ExecuteAsync(
                     @"UPDATE boxes_cache 
                     SET status = ?, 
                         current_quantity = ?, 
-                        updated_at = ?,
-                        isPartial = ?
+                        updated_at = ?
                     WHERE barcode = ?",
                     (int)newStatus,
                     newQuantity,
                     updatedAt,
-                    isPartial ? 1 : 0,
                     barcode
                 );
                 
-                System.Diagnostics.Debug.WriteLine($"✅ Принудительно обновлен статус: {barcode} -> {newStatus}, кол-во: {newQuantity}, isPartial: {isPartial}");
+                System.Diagnostics.Debug.WriteLine($"✅ Обновлен статус: {barcode} -> {newStatus}, кол-во: {newQuantity}");
             }
             else
             {
-                // Создаем новую запись
+                // Создаем новую запись (isPartial = 0 по умолчанию)
                 var newBox = new BoxCache
                 {
                     barcode = barcode,
@@ -769,21 +743,20 @@ public class DatabaseHelper
                     location_code = "UNKNOWN",
                     status = newStatus,
                     created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    updated_at = updatedAt,
-                    isPartial = isPartial ? 1 : 0
+                    updated_at = updatedAt
                 };
                 
                 await db.InsertAsync(newBox);
-                System.Diagnostics.Debug.WriteLine($"✅ Создана новая запись коробки: {barcode} -> {newStatus}, кол-во: {newQuantity}, isPartial: {isPartial}");
+                System.Diagnostics.Debug.WriteLine($"✅ Создана новая запись: {barcode} -> {newStatus}");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка принудительного обновления статуса: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления статуса: {ex.Message}");
             throw;
         }
     }
-    
+
     /// <summary>
     /// Принудительно обновляет статус для нескольких коробок
     /// </summary>
@@ -800,8 +773,7 @@ public class DatabaseHelper
                     @"UPDATE boxes_cache 
                     SET status = ?, 
                         current_quantity = ?, 
-                        updated_at = ?,
-                        is_dirty = 0
+                        updated_at = ?
                     WHERE barcode = ?",
                     (int)newStatus,
                     newQuantity,
@@ -810,210 +782,92 @@ public class DatabaseHelper
                 );
             }
             
-            System.Diagnostics.Debug.WriteLine($"✅ Принудительно обновлено {barcodes.Count} коробок -> {newStatus}, кол-во: {newQuantity}");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка массового обновления статусов: {ex.Message}");
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Обновляет isPartial для коробки ТОЛЬКО с сервера
-    /// </summary>
-    public async Task UpdateBoxPartialFromServer(string barcode, bool isPartial, int currentQuantity)
-    {
-        try
-        {
-            var db = await GetDatabaseAsync();
-            var updatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            
-            await db.ExecuteAsync(
-                @"UPDATE boxes_cache 
-                SET isPartial = ?, 
-                    current_quantity = ?,
-                    updated_at = ?
-                WHERE barcode = ?",
-                isPartial ? 1 : 0,
-                currentQuantity,
-                updatedAt,
-                barcode
-            );
-            
-            System.Diagnostics.Debug.WriteLine($"✅ isPartial обновлен с сервера: {barcode} -> {isPartial}, кол-во: {currentQuantity}");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления isPartial: {ex.Message}");
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Массовое обновление isPartial с сервера
-    /// </summary>
-    public async Task UpdateBoxesPartialFromServer(List<(string barcode, bool isPartial, int currentQuantity)> boxes)
-    {
-        try
-        {
-            var db = await GetDatabaseAsync();
-            var updatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            
-            foreach (var (barcode, isPartial, currentQuantity) in boxes)
-            {
-                await db.ExecuteAsync(
-                    @"UPDATE boxes_cache 
-                    SET isPartial = ?, 
-                        current_quantity = ?,
-                        updated_at = ?
-                    WHERE barcode = ?",
-                    isPartial ? 1 : 0,
-                    currentQuantity,
-                    updatedAt,
-                    barcode
-                );
-            }
-            
-            System.Diagnostics.Debug.WriteLine($"✅ Обновлено {boxes.Count} коробок с сервера");
+            System.Diagnostics.Debug.WriteLine($"✅ Обновлено {barcodes.Count} коробок -> {newStatus}");
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка массового обновления: {ex.Message}");
-        }
-    }
-
-    // ============================================================
-    // ✅ НОВЫЙ МЕТОД: обновляет ТОЛЬКО isPartial и количество (НЕ статус!)
-    // ============================================================
-
-    /// <summary>
-    /// Обновляет ТОЛЬКО isPartial и количество с сервера. НЕ трогает статус!
-    /// </summary>
-    public async Task UpdateBoxesPartialOnly(List<(string barcode, bool isPartial, int currentQuantity)> boxes)
-    {
-        try
-        {
-            var db = await GetDatabaseAsync();
-            var updatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            
-            foreach (var (barcode, isPartial, currentQuantity) in boxes)
-            {
-                // ✅ Проверяем, существует ли коробка в БД
-                var exists = await db.Table<BoxCache>()
-                    .FirstOrDefaultAsync(b => b.barcode == barcode);
-                
-                if (exists != null)
-                {
-                    // ✅ Обновляем ТОЛЬКО isPartial и current_quantity, НЕ status!
-                    await db.ExecuteAsync(
-                        @"UPDATE boxes_cache 
-                        SET isPartial = ?, 
-                            current_quantity = ?,
-                            updated_at = ?
-                        WHERE barcode = ?",
-                        isPartial ? 1 : 0,
-                        currentQuantity,
-                        updatedAt,
-                        barcode
-                    );
-                }
-                else
-                {
-                    // Если коробки нет в кэше, создаем ее с минимальными данными
-                    System.Diagnostics.Debug.WriteLine($"⚠️ Коробка {barcode} не найдена в кэше, создаем новую запись");
-                    await db.InsertAsync(new BoxCache
-                    {
-                        barcode = barcode,
-                        box_id = barcode,
-                        box_number = 0,
-                        grade = "Premium",
-                        initial_quantity = currentQuantity,
-                        current_quantity = currentQuantity,
-                        product_id = string.Empty,
-                        product_name = "Неизвестный продукт",
-                        product_ean13 = string.Empty,
-                        location_code = "UNKNOWN",
-                        status = BoxStatus.Active,
-                        created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                        updated_at = updatedAt,
-                        isPartial = isPartial ? 1 : 0
-                    });
-                }
-            }
-            
-            System.Diagnostics.Debug.WriteLine($"✅ Обновлено {boxes.Count} коробок (только isPartial и количество)");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления isPartial: {ex.Message}");
             throw;
         }
     }
 
+    // ============================================================
+    // МЕТОДЫ ДЛЯ РАБОТЫ С SERVER_LAST_MODIFIED_TIME
+    // ============================================================
+
     /// <summary>
-    /// Обновляет коробки с сервера (isPartial, количество, статус) с проверкой существования
+    /// Получает ServerLastChanged из локальной БД
     /// </summary>
-    public async Task UpdateBoxesFromServer(List<(string barcode, bool isPartial, int currentQuantity, BoxStatus status)> boxes)
+    public async Task<long> GetServerLastChanged()
     {
         try
         {
             var db = await GetDatabaseAsync();
-            var updatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             
-            foreach (var (barcode, isPartial, currentQuantity, status) in boxes)
+            // Проверяем существование таблицы
+            var tableExists = await TableExists("server_last_modified_time");
+            if (!tableExists)
             {
-                // ✅ Проверяем существование коробки
-                var exists = await db.Table<BoxCache>()
-                    .FirstOrDefaultAsync(b => b.barcode == barcode);
-                
-                if (exists != null)
-                {
-                    // ✅ Обновляем все поля
-                    await db.ExecuteAsync(
-                        @"UPDATE boxes_cache 
-                        SET isPartial = ?, 
-                            current_quantity = ?,
-                            status = ?,
-                            updated_at = ?
-                        WHERE barcode = ?",
-                        isPartial ? 1 : 0,
-                        currentQuantity,
-                        (int)status,
-                        updatedAt,
-                        barcode
-                    );
-                }
-                else
-                {
-                    // Если коробки нет, создаем новую
-                    System.Diagnostics.Debug.WriteLine($"⚠️ Коробка {barcode} не найдена в кэше, создаем новую");
-                    await db.InsertAsync(new BoxCache
-                    {
-                        barcode = barcode,
-                        box_id = barcode,
-                        box_number = 0,
-                        grade = "Premium",
-                        initial_quantity = currentQuantity,
-                        current_quantity = currentQuantity,
-                        product_id = string.Empty,
-                        product_name = "Неизвестный продукт",
-                        product_ean13 = string.Empty,
-                        location_code = "UNKNOWN",
-                        status = status,
-                        created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                        updated_at = updatedAt,
-                        isPartial = isPartial ? 1 : 0
-                    });
-                }
+                await db.CreateTableAsync<ServerLastModifiedTime>();
+                // Если таблица только что создана, возвращаем 0
+                return 0;
             }
             
-            System.Diagnostics.Debug.WriteLine($"✅ Обновлено {boxes.Count} коробок с сервера");
+            var record = await db.Table<ServerLastModifiedTime>()
+                .FirstOrDefaultAsync();
+            
+            if (record != null && record.LastChanged > 0)
+            {
+                return record.LastChanged;
+            }
+            
+            return 0;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления с сервера: {ex.Message}");
-            throw;
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения ServerLastChanged: {ex.Message}");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Обновляет ServerLastChanged в локальной БД
+    /// </summary>
+    public async Task UpdateServerLastChanged(long timestamp)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            
+            // Проверяем существование таблицы
+            var tableExists = await TableExists("server_last_modified_time");
+            if (!tableExists)
+            {
+                await db.CreateTableAsync<ServerLastModifiedTime>();
+            }
+            
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            
+            // ✅ Проверяем, что timestamp в допустимом диапазоне
+            if (timestamp < 0 || timestamp > 253402300799999) // Максимальный timestamp для 9999 года
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ Неверный timestamp: {timestamp}, используем текущее время");
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+            
+            // Обновляем или вставляем запись
+            await db.ExecuteAsync(
+                @"INSERT OR REPLACE INTO server_last_modified_time (Id, LastChanged, UpdatedAt) 
+                VALUES ('1', ?, ?)",
+                timestamp,
+                now
+            );
+            
+            System.Diagnostics.Debug.WriteLine($"✅ ServerLastChanged обновлен: {timestamp}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления ServerLastChanged: {ex.Message}");
         }
     }
 

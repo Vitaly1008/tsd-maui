@@ -11,7 +11,7 @@ public partial class LoginViewModel : ObservableObject
 {
     private readonly AuthService _authService;
     private readonly ServerDiscoveryService _discoveryService;
-    private readonly SyncService _syncService; // ✅ ДОБАВЛЕНО
+    private readonly SyncService _syncService; //  ДОБАВЛЕНО
     private bool _isLoginExecuting;
 
     [ObservableProperty]
@@ -57,7 +57,7 @@ public partial class LoginViewModel : ObservableObject
     private bool _isLoginEnabled = true;
 
     [ObservableProperty]
-    private bool _isSyncingPartialBoxes; // ✅ ДОБАВЛЕНО: индикатор загрузки частичных коробок
+    private bool _isSyncingPartialBoxes; //  ДОБАВЛЕНО: индикатор загрузки частичных коробок
 
     public event EventHandler<LoginResponse>? LoginSuccess;
 
@@ -65,7 +65,7 @@ public partial class LoginViewModel : ObservableObject
     {
         _authService = new AuthService();
         _discoveryService = new ServerDiscoveryService();
-        _syncService = new SyncService(); // ✅ ДОБАВЛЕНО
+        _syncService = new SyncService(); //  ДОБАВЛЕНО
         
         _discoveryService.ScanProgressChanged += OnScanProgressChanged;
 
@@ -212,7 +212,7 @@ public partial class LoginViewModel : ObservableObject
         }
     }
 
-    // ✅ ИСПРАВЛЕНО: добавлен вызов SyncPartialBoxes после успешного логина
+    //  ИСПРАВЛЕНО: добавлен вызов SyncPartialBoxes после успешного логина
     [RelayCommand]
     private async Task Login()
     {
@@ -246,8 +246,8 @@ public partial class LoginViewModel : ObservableObject
                 return;
             }
 
-            // ✅ 4. ПО АЛГОРИТМУ (п.1): загружаем частичные коробки с сервера
-            await LoadPartialBoxesAfterLogin();
+            //  4. ПО АЛГОРИТМУ (п.1): загружаем частичные коробки с сервера
+            await SyncAfterLogin();
 
             // 5. Уведомляем об успешном входе
             LoginSuccess?.Invoke(this, response);
@@ -264,31 +264,31 @@ public partial class LoginViewModel : ObservableObject
     }
 
     /// <summary>
-    /// ✅ НОВЫЙ МЕТОД: загружает частичные коробки после логина (по алгоритму п.1)
+    /// СИНХРОНИЗАЦИЯ ПОСЛЕ ЛОГИНА (по алгоритму п.1)
     /// </summary>
-    private async Task LoadPartialBoxesAfterLogin()
+    private async Task SyncAfterLogin()
     {
         try
         {
             IsSyncingPartialBoxes = true;
             
-            System.Diagnostics.Debug.WriteLine("📥 Загрузка частичных коробок с сервера...");
+            System.Diagnostics.Debug.WriteLine("🔄 Синхронизация после логина...");
             
-            // Вызываем синхронизацию частичных коробок
-            await _syncService.SyncPartialBoxes();
+            // ✅ ВЫЗЫВАЕМ СИНХРОНИЗАЦИЮ ПОСЛЕ ЛОГИНА
+            // Она проверит очередь и обновит кэш
+            await _syncService.SyncAfterLogin();
             
-            System.Diagnostics.Debug.WriteLine("✅ Частичные коробки загружены");
+            System.Diagnostics.Debug.WriteLine("✅ Синхронизация после логина завершена");
         }
         catch (Exception ex)
         {
-            // Не блокируем вход, но логируем ошибку
-            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка загрузки частичных коробок: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка синхронизации после логина: {ex.Message}");
             
             // Показываем предупреждение, но не прерываем вход
             await Application.Current?.MainPage?.DisplayAlert(
                 "Предупреждение",
-                $"Не удалось загрузить частичные коробки:\n{ex.Message}\n\n" +
-                "Вы сможете обновить их позже вручную.",
+                $"Не удалось выполнить синхронизацию:\n{ex.Message}\n\n" +
+                "Вы сможете синхронизировать данные позже вручную.",
                 "OK"
             );
         }

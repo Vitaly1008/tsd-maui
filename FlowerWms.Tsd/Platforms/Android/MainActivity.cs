@@ -2,6 +2,7 @@
 using Android.Content;
 using Android.Content.PM;
 using Android.OS;
+using FlowerWms.Tsd.Helpers;
 using FlowerWms.Tsd.Platforms.Android;
 
 namespace FlowerWms.Tsd;
@@ -18,6 +19,15 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
         
+        // ✅ Настройка логирования для Android
+        // Теперь все Console.WriteLine и Logger будут видны в adb logcat
+        Console.SetOut(new AndroidLogWriter());
+        
+        Logger.Info("🚀 Приложение запущено на Android");
+        Logger.Info($"📱 Модель: {DeviceInfo.Current.Model}");
+        Logger.Info($"📱 Версия ОС: {DeviceInfo.Current.VersionString}");
+
+
         // Сохраняет контекст для BarcodeService
         AndroidContext.Current = this.ApplicationContext;
         
@@ -42,6 +52,32 @@ public class MainActivity : MauiAppCompatActivity
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"DataWedge ошибка: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Перенаправляет Console.WriteLine в Android Log
+    /// </summary>
+    public class AndroidLogWriter : StringWriter
+    {
+        public override void WriteLine(string? value)
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                Android.Util.Log.Info("FlowerWms", value);
+            }
+        }
+
+        public override void Write(char[]? buffer, int index, int count)
+        {
+            if (buffer != null && count > 0)
+            {
+                var value = new string(buffer, index, count);
+                if (!string.IsNullOrEmpty(value))
+                {
+                    Android.Util.Log.Info("FlowerWms", value);
+                }
+            }
         }
     }
 }

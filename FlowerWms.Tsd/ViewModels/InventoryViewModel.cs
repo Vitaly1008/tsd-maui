@@ -112,7 +112,7 @@ public partial class InventoryViewModel : BaseScannerViewModel
                 {
                     foreach (var box in serverBoxes)
                     {
-                        await SaveBoxToCache(box, isLocal: false);
+                        await SaveBoxToCache(box);
                     }
                     boxes = serverBoxes;
                 }
@@ -192,7 +192,7 @@ public partial class InventoryViewModel : BaseScannerViewModel
                 var serverBox = await _apiService.FindBoxByBarcode(barcode);
                 if (serverBox != null)
                 {
-                    await SaveBoxToCache(serverBox, isLocal: false);
+                    await SaveBoxToCache(serverBox);
                     return serverBox;
                 }
             }
@@ -421,7 +421,7 @@ public partial class InventoryViewModel : BaseScannerViewModel
         };
     }
 
-    private async Task SaveBoxToCache(Box box, bool isLocal)
+    private async Task SaveBoxToCache(Box box)
     {
         var boxCache = new BoxCache
         {
@@ -437,8 +437,7 @@ public partial class InventoryViewModel : BaseScannerViewModel
             location_code = box.LocationCode ?? "UNKNOWN",
             status = box.Status,
             created_at = box.CreatedAt,
-            updated_at = box.UpdatedAt,
-            isPartial = isLocal ? 1 : 0
+            updated_at = box.UpdatedAt
         };
         await _dbHelper.SaveBox(boxCache);
     }

@@ -176,7 +176,7 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
 
     protected abstract Task ProcessBoxScan(string barcode);
 
-    protected virtual async Task SaveBoxToCache(Box box, bool isLocal)
+    protected virtual async Task SaveBoxToCache(Box box)
     {
         var boxCache = new BoxCache
         {
@@ -192,15 +192,14 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             location_code = box.LocationCode ?? CurrentLocation,
             status = box.Status,
             created_at = box.CreatedAt,
-            updated_at = box.UpdatedAt,
-            isPartial = isLocal ? 1 : 0
+            updated_at = box.UpdatedAt
         };
         await _dbHelper.SaveBox(boxCache);
     }
 
     protected virtual async Task UpdateLocalBox(Box updatedBox)
     {
-        await SaveBoxToCache(updatedBox, isLocal: false);
+        await SaveBoxToCache(updatedBox);
     }
 
     protected virtual void AddBoxToList(Box box)

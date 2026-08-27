@@ -54,7 +54,7 @@ public class OfflineService
         {
             var db = await _dbHelper.GetDatabaseAsync();
             return await db.QueryAsync<OfflineTransaction>(
-                "SELECT * FROM offline_transactions WHERE is_synced = 0 AND retry_count < 5 ORDER BY created_at ASC LIMIT 100"
+                "SELECT * FROM offline_transactions WHERE is_synced = 0 ORDER BY created_at ASC"
             );
         }
         catch (Exception ex)

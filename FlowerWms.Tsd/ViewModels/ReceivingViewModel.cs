@@ -18,7 +18,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
     {
         try
         {
-            // ✅ 3.3. Проверка на дублирование сканирования в сессии
+            // ✅ 2.2. Проверка дублирования в сессии
             if (ScannedBoxes.Any(b => b.Barcode == barcode))
             {
                 SetError("Коробка уже отсканирована в этой сессии");
@@ -33,19 +33,114 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                 return;
             }
 
-            var productName = await GetProductName(ean13);
+            // ✅ ЕСЛИ ОФЛАЙН → СОХРАНЯЕМ ЛОКАЛЬНО
+            if (!IsOnline)
+            {
+                System.Diagnostics.Debug.WriteLine($"📴 Офлайн-режим: сохранение коробки #{boxNumber} локально");
+                
+                // Создаем локальную коробку
+                var productName = await GetProductName(ean13);
+                var localBox = CreateLocalBox(ean13, quantity, grade, boxNumber, productName, BoxStatus.Active);
+                
+                // Сохраняем в локальную БД
+                await SaveBoxToCache(localBox);
+                
+                // Добавляем в сессию
+                AddBoxToList(localBox);
+                
+                // Создаем транзакцию для синхронизации
+                await AddToOfflineQueue(localBox);
+                
+                SetWarning($"Коробка #{boxNumber} сохранена локально (офлайн-режим)");
+                return;
+            }
 
-            // ✅ 3.2. Добавление в сессию (без проверок)
-            // Создаем локальную коробку со статусом DRAFT
-            var box = CreateLocalBox(ean13, quantity, grade, boxNumber, productName, BoxStatus.Draft);
-            
-            // ✅ Добавляем в очередь синхронизации (НЕ сохраняем в локальную БД вручную!)
-            await AddToOfflineQueue(box);
+            // ✅ ОНЛАЙН: проверка на сервере
+            Box? serverBox = null;
+            try
+            {
+                serverBox = await _apiService.GetBoxByBarcode(barcode);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка проверки коробки: {ex.Message}");
+                // Если ошибка сети, переходим в офлайн-режим
+                if (!await _apiService.PingServer())
+                {
+                    IsOnline = false;
+                    // Повторяем сканирование в офлайн-режиме
+                    await ProcessBoxScan(barcode);
+                    return;
+                }
+                throw;
+            }
 
-            // ✅ Добавляем коробку в список сессии
-            AddBoxToList(box);
+            // ✅ Если коробки нет на сервере → ошибка
+            if (serverBox == null)
+            {
+                SetError($"Коробка #{boxNumber} не найдена. Сначала напечатайте штрихкод.");
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"Коробка на сервере: #{serverBox.BoxNumber}, статус: {serverBox.Status}");
+
+            // ✅ Проверка статуса
+            if (serverBox.Status == BoxStatus.Draft)
+            {
+                // ✅ Draft → активируем
+                var result = await _apiService.ActivateBox(
+                    boxId: serverBox.Id,
+                    locationCode: CurrentLocation,
+                    comment: $"Приемка через ТСД, локация: {CurrentLocation}"
+                );
+
+                if (!(result.TryGetValue("success", out var success) && success is bool s && s))
+                {
+                    var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                    SetError($"Ошибка активации: {errorMsg}");
+                    return;
+                }
+
+                // ✅ Получаем обновленную коробку с сервера
+                var updatedBox = await _apiService.GetBoxByBarcode(barcode);
+                if (updatedBox != null)
+                {
+                    serverBox = updatedBox;
+                }
+                
+                SetStatus($"Коробка #{boxNumber} активирована", "✅", Colors.Green);
+            }
+            else if (serverBox.Status == BoxStatus.Active)
+            {
+                SetError($"Коробка #{boxNumber} уже активна");
+                return;
+            }
+            else if (serverBox.Status == BoxStatus.Reserved)
+            {
+                SetError($"Коробка #{boxNumber} зарезервирована");
+                return;
+            }
+            else if (serverBox.Status == BoxStatus.Shipped || serverBox.Status == BoxStatus.Empty)
+            {
+                SetError($"Коробка #{boxNumber} отгружена/пуста");
+                return;
+            }
+            else
+            {
+                SetError($"Недопустимый статус коробки: {serverBox.Status}");
+                return;
+            }
+
+            // ✅ Обновляем локальную БД с сервера
+            await UpdateLocalBox(serverBox);
+
+            // ✅ Добавляем в сессию
+            AddBoxToList(serverBox);
             
-            SetStatus($"Коробка #{box.BoxNumber} добавлена (ожидает синхронизации)", "📴", Colors.Orange);
+            // ✅ Создаем транзакцию для синхронизации
+            await AddToOfflineQueue(serverBox);
+            
+            SetStatus($"Коробка #{boxNumber} принята", "✅", Colors.Green);
         }
         catch (Exception ex)
         {
@@ -63,9 +158,10 @@ public partial class ReceivingViewModel : BaseOperationViewModel
         var payload = new
         {
             barcode = box.Barcode,
+            boxId = box.Id,
             boxNumber = box.BoxNumber,
             ean13 = box.ProductEan13,
-            quantity = box.Quantity,
+            quantity = box.CurrentQuantity,
             grade = GetGradeCode(box.Grade),
             locationCode = box.LocationCode ?? CurrentLocation,
             productName = box.ProductName,
@@ -96,21 +192,34 @@ public partial class ReceivingViewModel : BaseOperationViewModel
 
         try
         {
-            // ✅ 3.4. Синхронизация (запускаем обработку очереди)
-            await _syncQueueService.ProcessQueueAsync();
-            
-            // Проверяем, сколько коробок еще в очереди
             var pendingCount = await _syncQueueService.GetPendingCount();
 
             var message = pendingCount > 0
-                ? $"{ScannedBoxes.Count} коробок добавлено. Ожидает синхронизации: {pendingCount} коробок."
+                ? $"{ScannedBoxes.Count} коробок принято. " +
+                $"Ожидает синхронизации: {pendingCount} коробок.\n\n" +
+                "Синхронизация будет выполнена автоматически."
                 : $"Принято {ScannedBoxes.Count} коробок. Все синхронизированы! ✅";
 
             await Application.Current?.MainPage?.DisplayAlert(
-                pendingCount > 0 ? "Офлайн-режим" : "Успешно",
+                pendingCount > 0 ? "Операция сохранена" : "Успешно",
                 message,
                 "OK"
             );
+
+            if (pendingCount > 0 && IsOnline)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _syncQueueService.ProcessQueueAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Фоновая синхронизация: {ex.Message}");
+                    }
+                });
+            }
 
             ClearSession();
             OnOperationCompleted();

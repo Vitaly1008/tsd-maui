@@ -48,7 +48,6 @@ public class BoxCache
     
     public long created_at { get; set; }
     public long updated_at { get; set; }
-    public int isPartial { get; set; } = 0; // 0 - синхронизирована, 1 - есть локальные изменения
 }
 
 // Модель для кэша локаций
@@ -105,4 +104,14 @@ public class BoxOperationCache
     public long created_at { get; set; }
     public int is_synced { get; set; } = 0;
     public long? synced_at { get; set; }
+}
+
+// Модель для хранения времени последнего изменения на сервере
+[Table("server_last_modified_time")]
+public class ServerLastModifiedTime
+{
+    [PrimaryKey]
+    public string Id { get; set; } = "1"; // всегда одна запись
+    public long LastChanged { get; set; } // Unix timestamp (миллисекунды)
+    public long UpdatedAt { get; set; }
 }

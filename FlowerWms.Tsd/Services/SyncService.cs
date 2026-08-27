@@ -40,7 +40,6 @@ public class SyncService
             
             await SyncProducts();
             await SyncLocations();
-            await SyncPartialBoxes();
             await SyncBoxes();
             
             SetStatus(SyncStatus.Online);
@@ -119,53 +118,87 @@ public class SyncService
         }
     }
 
-    // Синхронизирует активные коробки
+    // Безопасное преобразование timestamp
+    private long SafeGetTimestamp(DateTime dateTime)
+    {
+        try
+        {
+            if (dateTime <= DateTime.MinValue || dateTime > DateTime.MaxValue.AddDays(-1))
+            {
+                System.Diagnostics.Debug.WriteLine("⚠️ DateTime вне допустимого диапазона, используем текущее время");
+                return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+            return new DateTimeOffset(dateTime).ToUnixTimeMilliseconds();
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            System.Diagnostics.Debug.WriteLine("⚠️ ArgumentOutOfRangeException, используем текущее время");
+            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        }
+    }
+
+    // Синхронизирует коробки с сервера (по алгоритму п.1.4)
     public async Task SyncBoxes()
     {
         try
         {
-            var boxes = await _apiService.GetAllBoxes();
-            if (boxes != null && boxes.Any())
+            var localLastChanged = await _dbHelper.GetServerLastChanged();
+            var serverLastChanged = await _apiService.GetServerLastChanged();
+            
+            // ✅ Безопасное преобразование
+            long serverTimestamp = SafeGetTimestamp(serverLastChanged);
+            
+            System.Diagnostics.Debug.WriteLine($"LocalLastChanged: {localLastChanged}, ServerLastChanged: {serverTimestamp}");
+            
+            if (serverTimestamp > localLastChanged)
             {
-                var boxCacheList = new List<BoxCache>();
+                System.Diagnostics.Debug.WriteLine("Обновление локального кэша с сервера...");
                 
-                foreach (var box in boxes)
+                var boxes = await _apiService.GetAllBoxesForSync();
+                
+                if (boxes != null && boxes.Any())
                 {
-                    if (box.Status == BoxStatus.Active || box.Status == BoxStatus.Empty)
+                    var db = await _dbHelper.GetDatabaseAsync();
+                    await db.ExecuteAsync("DELETE FROM boxes_cache");
+                    
+                    var boxCacheList = new List<BoxCache>();
+                    foreach (var box in boxes)
                     {
-                        boxCacheList.Add(new BoxCache
+                        if (box.Status == BoxStatus.Draft || 
+                            box.Status == BoxStatus.Active || 
+                            box.Status == BoxStatus.Reserved)
                         {
-                            barcode = box.Barcode,
-                            box_id = box.Id,
-                            box_number = box.BoxNumber,
-                            grade = box.Grade,
-                            initial_quantity = box.InitialQuantity,
-                            current_quantity = box.CurrentQuantity,
-                            product_id = box.ProductId,
-                            product_name = box.ProductName,
-                            product_ean13 = box.ProductEan13,
-                            location_code = box.LocationCode ?? "UNKNOWN",
-                            status = box.Status,
-                            created_at = box.CreatedAt,
-                            updated_at = box.UpdatedAt,
-                            isPartial = 0
-                        });
+                            boxCacheList.Add(new BoxCache
+                            {
+                                barcode = box.Barcode,
+                                box_id = box.Id,
+                                box_number = box.BoxNumber,
+                                grade = box.Grade,
+                                initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.CurrentQuantity,
+                                current_quantity = box.CurrentQuantity,
+                                product_id = box.ProductId,
+                                product_name = box.ProductName,
+                                product_ean13 = box.ProductEan13,
+                                location_code = box.LocationCode ?? "UNKNOWN",
+                                status = box.Status,
+                                created_at = box.CreatedAt,
+                                updated_at = box.UpdatedAt
+                            });
+                        }
                     }
-                }
-                
-                if (boxCacheList.Any())
-                {
-                    await _dbHelper.SyncBoxes(boxCacheList);
-                    System.Diagnostics.Debug.WriteLine($"Синхронизировано коробок: {boxCacheList.Count}");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("Нет активных коробок для синхронизации");
+                    
+                    if (boxCacheList.Any())
+                    {
+                        await _dbHelper.SyncBoxes(boxCacheList);
+                        System.Diagnostics.Debug.WriteLine($"✅ Загружено {boxCacheList.Count} коробок с сервера");
+                    }
+                    
+                    await _dbHelper.UpdateServerLastChanged(serverTimestamp);
                 }
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("Нет коробок для синхронизации");
+                System.Diagnostics.Debug.WriteLine("Локальный кэш актуален");
             }
         }
         catch (Exception ex)
@@ -196,10 +229,8 @@ public class SyncService
     {
         try
         {
-            // Сначала синхронизируем справочники
             await SyncAllData();
             
-            // Проверяем, есть ли транзакции для синхронизации
             var pendingCount = await _offlineService.GetPendingCount();
             if (pendingCount > 0)
             {
@@ -217,37 +248,32 @@ public class SyncService
         }
     }
 
-    /// <summary>
-    /// Синхронизирует частично отгруженные коробки (по алгоритму п.1)
-    /// </summary>
-    public async Task SyncPartialBoxes()
+    // ✅ НОВЫЙ МЕТОД: синхронизация после логина (по алгоритму п.1)
+    public async Task SyncAfterLogin()
     {
         try
         {
-            // ✅ Загружаем частичные коробки с сервера
-            var partialBoxes = await _apiService.GetPartialBoxes();
-            if (partialBoxes != null && partialBoxes.Any())
+            System.Diagnostics.Debug.WriteLine("🔄 Синхронизация после логина...");
+            
+            // ✅ 1.1. Проверить очередь
+            var pendingCount = await _offlineService.GetPendingCount();
+            
+            // ✅ 1.2. Если есть несинхронизированные транзакции → синхронизация
+            if (pendingCount > 0)
             {
-                var updateList = new List<(string barcode, bool isPartial, int currentQuantity)>();
-                
-                foreach (var box in partialBoxes)
-                {
-                    updateList.Add((box.Barcode, true, box.CurrentQuantity));
-                }
-                
-                // ✅ Обновляем ТОЛЬКО isPartial и количество с сервера (НЕ статус!)
-                await _dbHelper.UpdateBoxesPartialOnly(updateList);
-                
-                System.Diagnostics.Debug.WriteLine($"✅ Обновлено {partialBoxes.Count} частичных коробок с сервера");
+                System.Diagnostics.Debug.WriteLine($"📦 Найдено {pendingCount} несинхронизированных транзакций");
+                await _syncQueueService.ProcessQueueAsync();
             }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("Нет частичных коробок для синхронизации");
-            }
+            
+            // ✅ 1.3. Получить LastChanged с сервера
+            // ✅ 1.4. Если LastChanged > ServerLastChanged → обновить кэш
+            await SyncBoxes();
+            
+            System.Diagnostics.Debug.WriteLine("✅ Синхронизация после логина завершена");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации частичных коробок: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка синхронизации после логина: {ex.Message}");
             throw;
         }
     }

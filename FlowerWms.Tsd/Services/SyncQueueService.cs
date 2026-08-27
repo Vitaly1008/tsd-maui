@@ -21,36 +21,9 @@ public class SyncQueueService : IDisposable
     {
         _dbHelper = new DatabaseHelper();
         _apiService = new ApiService();
-        _offlineService = new OfflineService();
+        _offlineService = new OfflineService();     
         
-        _autoSyncTimer = new System.Timers.Timer(30000);
-        _autoSyncTimer.Elapsed += async (sender, e) => await AutoSync();
-        _autoSyncTimer.AutoReset = true;
-        _autoSyncTimer.Start();
-        
-        System.Diagnostics.Debug.WriteLine("SyncQueueService инициализирован");
-    }
-
-    // Автоматическая синхронизация
-    private async Task AutoSync()
-    {
-        try
-        {
-            var hasInternet = await _apiService.PingServer();
-            if (hasInternet)
-            {
-                var pendingCount = await _offlineService.GetPendingCount();
-                if (pendingCount > 0)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Автосинхронизация: {pendingCount} операций");
-                    await ProcessQueueAsync();
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка автосинхронизации: {ex.Message}");
-        }
+        Logger.Info("SyncQueueService инициализирован");
     }
 
     // Добавляет операцию в очередь
@@ -68,11 +41,11 @@ public class SyncQueueService : IDisposable
             var pendingCount = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, pendingCount);
             
-            System.Diagnostics.Debug.WriteLine($"Транзакция добавлена в очередь: {transactionId}, тип: {operationType}");
+            Logger.Info($"Транзакция добавлена в очередь: {transactionId}, тип: {operationType}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка добавления в очередь: {ex.Message}");
+            Logger.Info($"Ошибка добавления в очередь: {ex.Message}");
             throw;
         }
     }
@@ -83,12 +56,12 @@ public class SyncQueueService : IDisposable
         return await _offlineService.GetPendingCount();
     }
 
-    // ✅ ИСПРАВЛЕНО: удаляем транзакции после успешной синхронизации
+    // ✅ ИСПРАВЛЕНО: строго по алгоритму п.4
     public async Task ProcessQueueAsync()
     {
         if (_isProcessing)
         {
-            System.Diagnostics.Debug.WriteLine("Обработка очереди уже выполняется");
+            Logger.Info("Обработка очереди уже выполняется");
             return;
         }
 
@@ -97,49 +70,40 @@ public class SyncQueueService : IDisposable
             _isProcessing = true;
             SyncStatusChanged?.Invoke(this, true);
             
+            // ✅ 4.1 Получить все несинхронизированные транзакции
             var operations = await _offlineService.GetUnsyncedTransactions();
             
             if (!operations.Any())
             {
-                System.Diagnostics.Debug.WriteLine("Нет операций для синхронизации");
+                Logger.Info("Нет операций для синхронизации");
                 return;
             }
             
-            System.Diagnostics.Debug.WriteLine($"Обработка {operations.Count} офлайн-операций");
+            Logger.Info($"Обработка {operations.Count} офлайн-операций");
             
             int successCount = 0;
             int errorCount = 0;
             
-            // ✅ 1. СНАЧАЛА ВСЕ ПРИЕМКИ (сортировка по времени)
+            // ✅ 4.2 Разделить: Группа A (Receiving) и Группа B (Shipping)
             var receivingOps = operations
                 .Where(o => o.operation_type == "Receiving")
                 .OrderBy(o => o.created_at)
                 .ToList();
             
-            // ✅ 2. ПОТОМ ВСЕ ОТГРУЗКИ (сортировка по времени)
             var shippingOps = operations
                 .Where(o => o.operation_type == "Shipping")
                 .OrderBy(o => o.created_at)
                 .ToList();
             
-            // ✅ 3. ОСТАЛЬНЫЕ ОПЕРАЦИИ
-            var otherOps = operations
-                .Where(o => o.operation_type != "Receiving" && o.operation_type != "Shipping")
-                .OrderBy(o => o.created_at)
-                .ToList();
-            
-            // ✅ ОБРАБОТКА ПРИЕМОК
+            // ✅ 4.3 ОБРАБОТАТЬ ГРУППУ A (ВСЕ ПРИЕМКИ)
             foreach (var op in receivingOps)
             {
                 try
                 {
-                    var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
-                    await ProcessReceivingOperation(op, payload);
-                    
-                    // ✅ ИСПРАВЛЕНО: УДАЛЯЕМ, а не помечаем как синхронизированную
+                    await ProcessReceivingOperation(op);
                     await _offlineService.DeleteTransaction(op.transaction_id);
                     successCount++;
-                    System.Diagnostics.Debug.WriteLine($"✅ Приемка синхронизирована и удалена: {op.barcode}");
+                    Logger.Info($"✅ Приемка обработана: {op.barcode}");
                 }
                 catch (Exception ex)
                 {
@@ -148,18 +112,15 @@ public class SyncQueueService : IDisposable
                 }
             }
             
-            // ✅ ОБРАБОТКА ОТГРУЗОК
+            // ✅ 4.4 ОБРАБОТАТЬ ГРУППУ B (ВСЕ ОТГРУЗКИ)
             foreach (var op in shippingOps)
             {
                 try
                 {
-                    var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
-                    await ProcessShippingOperation(op, payload);
-                    
-                    // ✅ ИСПРАВЛЕНО: УДАЛЯЕМ, а не помечаем как синхронизированную
+                    await ProcessShippingOperation(op);
                     await _offlineService.DeleteTransaction(op.transaction_id);
                     successCount++;
-                    System.Diagnostics.Debug.WriteLine($"✅ Отгрузка синхронизирована и удалена: {op.barcode}");
+                    Logger.Info($"✅ Отгрузка обработана: {op.barcode}");
                 }
                 catch (Exception ex)
                 {
@@ -168,33 +129,17 @@ public class SyncQueueService : IDisposable
                 }
             }
             
-            // ✅ ОБРАБОТКА ОСТАЛЬНЫХ ОПЕРАЦИЙ
-            foreach (var op in otherOps)
-            {
-                try
-                {
-                    var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
-                    await ProcessOtherOperation(op, payload);
-                    
-                    // ✅ ИСПРАВЛЕНО: УДАЛЯЕМ, а не помечаем как синхронизированную
-                    await _offlineService.DeleteTransaction(op.transaction_id);
-                    successCount++;
-                }
-                catch (Exception ex)
-                {
-                    await HandleError(op, ex);
-                    errorCount++;
-                }
-            }
+            // ✅ 4.5 ОБНОВИТЬ ЛОКАЛЬНУЮ БД
+            await RefreshLocalCacheFromServer();
             
-            System.Diagnostics.Debug.WriteLine($"Синхронизировано: {successCount}, ошибок: {errorCount}");
+            Logger.Info($"Синхронизировано: {successCount}, ошибок: {errorCount}");
             
             var pending = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, pending);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка обработки очереди: {ex.Message}");
+            Logger.Info($"Ошибка обработки очереди: {ex.Message}");
         }
         finally
         {
@@ -203,34 +148,19 @@ public class SyncQueueService : IDisposable
         }
     }
 
-    // Обрабатывает ошибку синхронизации
-    private async Task HandleError(OfflineTransaction op, Exception ex)
+    // ✅ 4.3. ОБРАБОТКА ПРИЕМКИ (строго по алгоритму)
+    private async Task ProcessReceivingOperation(OfflineTransaction op)
     {
-        op.retry_count++;
-        op.error_message = ex.Message;
-        
-        System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации {op.transaction_id}: {ex.Message}");
-        
-        if (op.retry_count >= 3)
-        {
-            // ✅ ИСПРАВЛЕНО: при превышении попыток УДАЛЯЕМ транзакцию
-            System.Diagnostics.Debug.WriteLine($"⚠️ Превышено число попыток для {op.transaction_id}. Транзакция удалена.");
-            await _offlineService.DeleteTransaction(op.transaction_id);
-        }
-        else
-        {
-            await _offlineService.MarkAsError(op.transaction_id, ex.Message);
-        }
-    }
-
-    // Обрабатывает операцию приемки
-    private async Task ProcessReceivingOperation(OfflineTransaction op, Dictionary<string, object>? payload)
-    {
+        var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
         var barcode = op.barcode;
         var locationCode = payload?.GetValueOrDefault("locationCode")?.ToString() ?? "UNKNOWN";
-        var boxNumber = 0;
-        
-        if (boxNumber == 0 && !string.IsNullOrEmpty(barcode))
+        var quantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
+        var grade = payload?.GetValueOrDefault("grade")?.ToString() ?? "Premium";
+        var productName = payload?.GetValueOrDefault("productName")?.ToString() ?? "Неизвестный товар";
+        var productEan13 = payload?.GetValueOrDefault("ean13")?.ToString() ?? "";
+        var boxNumber = payload?.GetValueOrDefault("boxNumber", 0) is int bn ? bn : 0;
+
+        if (boxNumber <= 0)
         {
             var parts = barcode.Split('-');
             if (parts.Length == 4 && int.TryParse(parts[3], out var n))
@@ -240,247 +170,346 @@ public class SyncQueueService : IDisposable
         if (boxNumber <= 0)
             throw new Exception("Не удалось определить номер коробки");
 
-        // ✅ 1. ПРОВЕРКА: коробка есть на сервере со статусом Draft?
-        Box? serverBox = null;
+        // ✅ 4.3.1-4.3.2. Получить коробку на сервере
+        Box? serverBox;
         try
         {
             serverBox = await _apiService.GetBoxByBarcode(barcode);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка проверки коробки: {ex.Message}");
+            Logger.Info($"Ошибка запроса коробки: {ex.Message}");
+            throw new Exception($"Не удалось проверить коробку на сервере: {ex.Message}");
         }
 
+        // ✅ 4.3.3. Если коробки нет → ПРИНУДИТЕЛЬНАЯ ПРИЕМКА
         if (serverBox == null)
         {
-            throw new Exception($"Коробка #{boxNumber} не найдена на сервере! Сначала напечатайте штрихкод.");
+            Logger.Info($"⚠️ Коробка #{boxNumber} не найдена на сервере. Принудительная приемка...");
+            
+            // ✅ СОЗДАЕМ КОРОБКУ НА СЕРВЕРЕ
+            var createResult = await _apiService.ForceCreateBox(
+                ean13: productEan13,
+                quantity: quantity,
+                grade: grade,
+                boxNumber: boxNumber,
+                locationCode: locationCode,
+                comment: $"Коробка принята принудительно: не найдена на сервере"
+            );
+
+            if (createResult.TryGetValue("success", out var success) && success is bool s && s)
+            {
+                Logger.Info($"✅ Принудительно создана коробка #{boxNumber}");
+                
+                // ✅ Обновляем локальную БД
+                var createdBox = await _apiService.GetBoxByBarcode(barcode);
+                if (createdBox != null)
+                {
+                    await _dbHelper.SaveBox(createdBox.ToCache());
+                    Logger.Info($"✅ Локальная БД обновлена для #{boxNumber}");
+                }
+                return; // ✅ Удаляем транзакцию (она успешно обработана)
+            }
+            else
+            {
+                var errorMsg = createResult.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                throw new Exception($"Принудительная приемка не удалась: {errorMsg}");
+            }
         }
 
-        System.Diagnostics.Debug.WriteLine($"Коробка найдена на сервере: #{serverBox.BoxNumber}, статус: {serverBox.Status}");
+        Logger.Info($"Коробка найдена на сервере: #{serverBox.BoxNumber}, статус: {serverBox.Status}");
 
-        // ✅ 2. ПРОВЕРКА СТАТУСА: должен быть Draft
-        if (serverBox.Status != BoxStatus.Draft)
+        // ✅ 4.3.4. Если статус == Draft → Активировать
+        if (serverBox.Status == BoxStatus.Draft)
         {
-            throw new Exception($"Коробка #{boxNumber} имеет статус {serverBox.Status}, приемка невозможна");
-        }
+            var result = await _apiService.ActivateBox(
+                boxId: serverBox.Id,
+                locationCode: locationCode,
+                comment: $"Приемка через ТСД, локация: {locationCode}"
+            );
 
-        // ✅ 3. АКТИВАЦИЯ на сервере
-        var result = await _apiService.ActivateBox(
-            boxId: serverBox.Id,
-            locationCode: locationCode,
-            comment: $"Приемка через ТСД, локация: {locationCode}"
-        );
+            if (!(result.TryGetValue("success", out var success) && success is bool s && s))
+            {
+                var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                throw new Exception($"Ошибка активации: {errorMsg}");
+            }
 
-        if (!(result.TryGetValue("success", out var success) && success is bool s && s))
-        {
-            var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
-            throw new Exception($"Ошибка активации: {errorMsg}");
+            Logger.Info($"✅ Коробка активирована: {barcode}");
         }
-
-        // ✅ 4. Получаем обновленную коробку с сервера
-        var updatedBox = await _apiService.GetBoxByBarcode(barcode);
-        if (updatedBox != null)
-        {
-            // ✅ 5. Обновляем локальную БД ТОЛЬКО с сервера
-            await UpdateBoxCache(updatedBox);
-            System.Diagnostics.Debug.WriteLine($"✅ Коробка активирована и обновлена в кэше: {barcode}");
-        }
+        // ✅ 4.3.5. Если статус != Draft → ОШИБКА + PROBLEM BOXES
         else
         {
-            throw new Exception($"Не удалось получить обновленную коробку {barcode} с сервера");
+            var errorMsg = $"Попытка приемки коробки: серверный статус {serverBox.Status}";
+            
+            // ✅ ДОБАВЛЯЕМ В PROBLEM BOXES
+            await _apiService.AddToProblemBoxes(
+                barcode: barcode,
+                boxId: serverBox.Id,
+                errorType: "ReceivingError",
+                comment: errorMsg,
+                boxNumber: serverBox.BoxNumber,
+                productName: serverBox.ProductName
+            );
+            
+            throw new Exception($"Коробка #{serverBox.BoxNumber} имеет статус {serverBox.Status}, приемка невозможна");
         }
-
-        System.Diagnostics.Debug.WriteLine($"✅ Коробка активирована: {barcode}");
     }
 
-    // ✅ ИСПРАВЛЕНО: ProcessShippingOperation с правильным обновлением isPartial
-    private async Task ProcessShippingOperation(OfflineTransaction op, Dictionary<string, object>? payload)
+    // ✅ 4.4. ОБРАБОТКА ОТГРУЗКИ (строго по алгоритму)
+    private async Task ProcessShippingOperation(OfflineTransaction op)
     {
+        var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
         var barcode = op.barcode;
         var boxId = payload?.GetValueOrDefault("boxId")?.ToString();
         var quantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
         var isFullShipment = payload?.GetValueOrDefault("isFullShipment", false) is bool f && f;
-        var currentQuantity = payload?.GetValueOrDefault("currentQuantity", 0) is int cq ? cq : 0;
 
         if (string.IsNullOrEmpty(boxId))
         {
             throw new Exception("Не указан boxId для операции отгрузки");
         }
 
-        // ✅ 1. ПОЛУЧАЕМ АКТУАЛЬНОЕ СОСТОЯНИЕ КОРОБКИ С СЕРВЕРА (все проверки здесь!)
-        var serverBox = await _apiService.GetBoxByBarcode(barcode);
+        // ✅ 4.4.2. Запросить коробку на сервере
+        Box? serverBox;
+        try
+        {
+            serverBox = await _apiService.GetBoxById(boxId);
+            if (serverBox == null)
+            {
+                serverBox = await _apiService.GetBoxByBarcode(barcode);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Info($"Ошибка запроса коробки: {ex.Message}");
+            throw new Exception($"Не удалось проверить коробку на сервере: {ex.Message}");
+        }
+
+        // ✅ 4.4.3. Если коробки нет → ОШИБКА
         if (serverBox == null)
         {
             throw new Exception($"Коробка {barcode} не найдена на сервере");
         }
 
-        // ✅ 2. ПРОВЕРЯЕМ СТАТУС
-        if (serverBox.Status != BoxStatus.Active)
+        Logger.Info($"Коробка на сервере: #{serverBox.BoxNumber}, статус: {serverBox.Status}, кол-во: {serverBox.CurrentQuantity}");
+
+        // ✅ 4.4.4. Если статус == Draft → ОШИБКА
+        if (serverBox.Status == BoxStatus.Draft)
         {
-            throw new Exception($"Коробка {barcode} имеет статус {serverBox.Status}, отгрузка невозможна");
+            throw new Exception($"Коробка #{serverBox.BoxNumber} не активирована (Draft)");
         }
 
-        // ✅ 3. ОПРЕДЕЛЯЕМ ДОСТУПНОЕ КОЛИЧЕСТВО
-        int availableQuantity;
-        bool isPartial = false;
-        
-        // Если коробка isPartial на сервере — количество берем из локальной БД
-        if (serverBox.IsPartial)
+        // ✅ 4.4.5. Если статус == Shipped || Empty → ОШИБКА
+        if (serverBox.Status == BoxStatus.Shipped)
         {
-            isPartial = true;
+            throw new Exception($"Коробка #{serverBox.BoxNumber} уже отгружена");
+        }
+        if (serverBox.Status == BoxStatus.Empty)
+        {
+            throw new Exception($"Коробка #{serverBox.BoxNumber} пуста");
+        }
+
+        // ✅ 4.4.6. Если статус == Active || Reserved
+        if (serverBox.Status == BoxStatus.Active || serverBox.Status == BoxStatus.Reserved)
+        {
+            // ✅ Количество ТОЛЬКО из локальной БД (алгоритм п.3.4)
             var localBox = await _dbHelper.GetBoxByBarcode(barcode);
-            if (localBox != null)
+            if (localBox == null)
             {
-                availableQuantity = localBox.current_quantity;
-                System.Diagnostics.Debug.WriteLine($"📦 Частичная коробка: количество из БД = {availableQuantity}");
+                throw new Exception($"Коробка {barcode} не найдена в локальной БД");
+            }
+
+            int localQuantity = localBox.current_quantity;
+            
+            // Проверяем, что количество в локальной БД > 0
+            if (localQuantity <= 0)
+            {
+                throw new Exception($"Коробка #{serverBox.BoxNumber} пуста (остаток: {localQuantity})");
+            }
+
+            // ✅ Определяем количество для списания (ТОЛЬКО из локальной БД)
+            int quantityToShip;
+            bool isFullShipmentFinal;
+            
+            if (isFullShipment || quantity <= 0 || quantity >= localQuantity)
+            {
+                quantityToShip = localQuantity; // ✅ ТОЛЬКО из локальной БД
+                isFullShipmentFinal = true;
             }
             else
             {
-                availableQuantity = serverBox.CurrentQuantity;
-                System.Diagnostics.Debug.WriteLine($"⚠️ Частичная коробка не найдена в БД, используем серверное значение: {availableQuantity}");
+                quantityToShip = quantity; // quantity уже проверено <= localQuantity
+                isFullShipmentFinal = false;
             }
+
+            // ✅ 4.4.6.1. Выполняем отгрузку на сервере
+            Dictionary<string, object> result;
+            if (isFullShipmentFinal)
+            {
+                // ✅ POST /api/boxes/{boxId}/ship
+                result = await _apiService.ShipBox(boxId, $"Полная отгрузка через ТСД");
+            }
+            else
+            {
+                // ✅ POST /api/boxes/consume (по ID)
+                result = await _apiService.ConsumeBox(boxId, quantityToShip, $"Частичная отгрузка: {quantityToShip} шт.");
+            }
+
+            // ✅ 4.4.6.2. Проверяем результат
+            if (!(result.TryGetValue("success", out var success) && success is bool s && s))
+            {
+                var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
+                
+                // ✅ Добавляем в ProblemBoxes
+                await _apiService.AddToProblemBoxes(
+                    barcode: barcode,
+                    boxId: boxId,
+                    errorType: "ShippingError",
+                    comment: errorMsg,
+                    boxNumber: serverBox.BoxNumber,
+                    productName: serverBox.ProductName
+                );
+                
+                throw new Exception(errorMsg);
+            }
+
+            Logger.Info($"✅ Отгружена коробка: {barcode}, кол-во: {quantityToShip}, полная: {isFullShipmentFinal}");
+        }
+        // ✅ 4.4.7. Если статус == Discarded → ОШИБКА
+        else if (serverBox.Status == BoxStatus.Discarded)
+        {
+            throw new Exception($"Коробка #{serverBox.BoxNumber} списана");
         }
         else
         {
-            // Целая коробка — количество из ШК (серверное значение)
-            availableQuantity = serverBox.CurrentQuantity;
-            System.Diagnostics.Debug.WriteLine($"📦 Целая коробка: количество из сервера = {availableQuantity}");
+            throw new Exception($"Неизвестный статус коробки: {serverBox.Status}");
         }
-
-        // ✅ 4. ПРОВЕРЯЕМ КОЛИЧЕСТВО (все проверки здесь!)
-        if (!isFullShipment && quantity > 0 && quantity > availableQuantity)
-        {
-            throw new Exception($"Недостаточно товара. Доступно: {availableQuantity}, запрошено: {quantity}");
-        }
-
-        // Определяем количество для списания
-        int quantityToShip;
-        bool isFullShipmentFinal;
-        
-        if (isFullShipment || quantity <= 0 || quantity >= availableQuantity)
-        {
-            quantityToShip = availableQuantity;
-            isFullShipmentFinal = true;
-        }
-        else
-        {
-            quantityToShip = quantity;
-            isFullShipmentFinal = false;
-        }
-
-        // ✅ 5. ВЫПОЛНЯЕМ ОТГРУЗКУ НА СЕРВЕРЕ
-        Dictionary<string, object> result;
-        
-        if (isFullShipmentFinal)
-        {
-            result = await _apiService.ShipBox(boxId, "Синхронизация из офлайн-режима");
-        }
-        else
-        {
-            result = await _apiService.ConsumeBox(boxId, quantityToShip, $"Частичная отгрузка, остаток: {availableQuantity - quantityToShip} шт.");
-        }
-
-        // ✅ 6. ПРОВЕРЯЕМ РЕЗУЛЬТАТ
-        if (!(result.TryGetValue("success", out var success) && success is bool s && s))
-        {
-            var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
-            throw new Exception(errorMsg);
-        }
-
-        // ✅ 7. ПОСЛЕ УСПЕШНОЙ ОТГРУЗКИ — ОБНОВЛЯЕМ ТОЛЬКО isPartial С СЕРВЕРА
-        // ✅ ИСПРАВЛЕНО: используем UpdateBoxesPartialOnly, который НЕ трогает статус
-        await RefreshLocalBoxesPartialFromServer();
-
-        System.Diagnostics.Debug.WriteLine($"✅ Отгружена коробка: {barcode}, кол-во: {quantityToShip}, полная: {isFullShipmentFinal}");
     }
 
-    /// <summary>
-    /// ✅ НОВЫЙ МЕТОД: обновляет ТОЛЬКО isPartial и количество с сервера (НЕ трогает статус!)
-    /// </summary>
-    private async Task RefreshLocalBoxesPartialFromServer()
+    // Обрабатывает ошибку синхронизации
+    private async Task HandleError(OfflineTransaction op, Exception ex)
+    {
+        op.retry_count++;
+        op.error_message = ex.Message;
+        
+        Logger.Info($"Ошибка синхронизации {op.transaction_id}: {ex.Message}");
+        
+        await _offlineService.MarkAsError(op.transaction_id, ex.Message);
+    }
+
+    // ✅ 4.5. ОБНОВЛЕНИЕ ЛОКАЛЬНОЙ БД (по алгоритму)
+    private async Task RefreshLocalCacheFromServer()
     {
         try
         {
-            // ✅ Получаем ВСЕ частичные коробки с сервера
-            var partialBoxes = await _apiService.GetPartialBoxes();
-            if (partialBoxes != null && partialBoxes.Any())
+            // ✅ 4.5.1. Получить LastChanged с сервера
+            var serverLastChanged = await _apiService.GetServerLastChanged();
+            
+            // ✅ Безопасное преобразование в Unix timestamp
+            long serverTimestamp;
+            try
             {
-                // ✅ Обновляем ТОЛЬКО isPartial и количество (НЕ статус!)
-                var updateList = partialBoxes.Select(box => (
-                    barcode: box.Barcode,
-                    isPartial: true,
-                    currentQuantity: box.CurrentQuantity
-                )).ToList();
-
-                // ✅ Используем новый метод, который НЕ трогает статус
-                await _dbHelper.UpdateBoxesPartialOnly(updateList);
+                serverTimestamp = new DateTimeOffset(serverLastChanged).ToUnixTimeMilliseconds();
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // Если дата вне диапазона, используем текущее время
+                Logger.Info("⚠️ ServerLastChanged вне допустимого диапазона, используем текущее время");
+                serverTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+            
+            // ✅ 4.5.2. Получить ServerLastChanged из локальной БД
+            var localLastChanged = await _dbHelper.GetServerLastChanged();
+            
+            Logger.Info($"ServerLastChanged: {serverTimestamp}, LocalLastChanged: {localLastChanged}");
+            
+            // ✅ 4.5.3. Если LastChanged > ServerLastChanged
+            if (serverTimestamp > localLastChanged)
+            {
+                Logger.Info("Обновление локального кэша с сервера...");
                 
-                System.Diagnostics.Debug.WriteLine($"✅ Обновлено {partialBoxes.Count} коробок с сервера (только isPartial и количество)");
+                // ✅ 4.5.3.1. Загрузить все коробки с сервера (Draft, Active, Reserved)
+                var boxes = await _apiService.GetAllBoxesForSync();
+                
+                if (boxes != null && boxes.Any())
+                {
+                    // ✅ 4.5.3.2. Очистить локальную boxes_cache
+                    var db = await _dbHelper.GetDatabaseAsync();
+                    await db.ExecuteAsync("DELETE FROM boxes_cache");
+                    
+                    // ✅ 4.5.3.3. Записать загруженные коробки
+                    var boxCacheList = new List<BoxCache>();
+                    foreach (var box in boxes)
+                    {
+                        // Сохраняем только Draft, Active, Reserved (по алгоритму п.1.4.1)
+                        if (box.Status == BoxStatus.Draft || 
+                            box.Status == BoxStatus.Active || 
+                            box.Status == BoxStatus.Reserved)
+                        {
+                            boxCacheList.Add(new BoxCache
+                            {
+                                barcode = box.Barcode,
+                                box_id = box.Id,
+                                box_number = box.BoxNumber,
+                                grade = box.Grade,
+                                initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.CurrentQuantity,
+                                current_quantity = box.CurrentQuantity,
+                                product_id = box.ProductId,
+                                product_name = box.ProductName,
+                                product_ean13 = box.ProductEan13,
+                                location_code = box.LocationCode ?? "UNKNOWN",
+                                status = box.Status,
+                                created_at = box.CreatedAt,
+                                updated_at = box.UpdatedAt
+                            });
+                        }
+                    }
+                    
+                    if (boxCacheList.Any())
+                    {
+                        await _dbHelper.SyncBoxes(boxCacheList);
+                        Logger.Info($"✅ Загружено {boxCacheList.Count} коробок с сервера");
+                    }
+                    
+                    // ✅ 4.5.3.4. Обновить ServerLastChanged
+                    await _dbHelper.UpdateServerLastChanged(serverTimestamp);
+                }
+            }
+            else
+            {
+                Logger.Info("Локальный кэш актуален");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления коробок с сервера: {ex.Message}");
+            Logger.Info($"❌ Ошибка обновления локального кэша: {ex.Message}");
+            throw;
         }
     }
-    
-    // Обрабатывает другие типы операций
-    private async Task ProcessOtherOperation(OfflineTransaction op, Dictionary<string, object>? payload)
-    {
-        System.Diagnostics.Debug.WriteLine($"Неизвестный тип операции: {op.operation_type}");
-    }
 
-    // Обновляет кэш коробки
-    private async Task UpdateBoxCache(Box box)
-    {
-        // ✅ Сохраняем в локальный кэш ТОЛЬКО то, что пришло с сервера
-        await _dbHelper.SaveBox(new BoxCache
-        {
-            barcode = box.Barcode,
-            box_id = box.Id,
-            box_number = box.BoxNumber,
-            grade = box.Grade,
-            initial_quantity = box.InitialQuantity,
-            current_quantity = box.CurrentQuantity,
-            product_id = box.ProductId,
-            product_name = box.ProductName,
-            product_ean13 = box.ProductEan13,
-            location_code = box.LocationCode ?? "UNKNOWN",
-            status = box.Status,
-            created_at = box.CreatedAt,
-            updated_at = box.UpdatedAt,
-            isPartial = box.IsPartial ? 1 : 0
-        });
-        
-        System.Diagnostics.Debug.WriteLine($"Кэш обновлен с сервера: #{box.BoxNumber}, статус: {box.Status}, isPartial: {box.IsPartial}");
-    }
-
-    // Очищает таблицу синхронизации (удаляет все несинхронизированные транзакции)
+    // Очищает таблицу синхронизации
     public async Task<int> ClearSyncTable()
     {
         try
         {
             var db = await _dbHelper.GetDatabaseAsync();
             
-            // Получаем количество записей для очистки
             var count = await db.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM offline_transactions WHERE is_synced = 0"
             );
             
             if (count == 0)
             {
-                System.Diagnostics.Debug.WriteLine("Нет несинхронизированных транзакций для очистки");
+                Logger.Info("Нет несинхронизированных транзакций для очистки");
                 return 0;
             }
             
-            // Удаляем несинхронизированные транзакции
             var deleted = await db.ExecuteAsync(
                 "DELETE FROM offline_transactions WHERE is_synced = 0"
             );
             
-            System.Diagnostics.Debug.WriteLine($"✅ Очищено {deleted} несинхронизированных транзакций");
+            Logger.Info($"✅ Очищено {deleted} несинхронизированных транзакций");
             
-            // Обновляем счетчик ожидающих операций
             var pendingCount = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, pendingCount);
             
@@ -488,12 +517,12 @@ public class SyncQueueService : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка очистки таблицы синхронизации: {ex.Message}");
+            Logger.Info($"❌ Ошибка очистки таблицы синхронизации: {ex.Message}");
             throw;
         }
     }
 
-    // Удаляет транзакцию из очереди (после успешной синхронизации)
+    // Удаляет транзакцию
     public async Task DeleteTransaction(string transactionId)
     {
         try
@@ -501,22 +530,22 @@ public class SyncQueueService : IDisposable
             await _offlineService.DeleteTransaction(transactionId);
             var pendingCount = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, pendingCount);
-            System.Diagnostics.Debug.WriteLine($"✅ Транзакция удалена из очереди: {transactionId}");
+            Logger.Info($"✅ Транзакция удалена: {transactionId}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка удаления транзакции: {ex.Message}");
+            Logger.Info($"❌ Ошибка удаления транзакции: {ex.Message}");
             throw;
         }
     }
 
-    // Возвращает все несинхронизированные транзакции для отображения
+    // Возвращает все несинхронизированные транзакции
     public async Task<List<OfflineTransaction>> GetAllPendingTransactions()
     {
         return await _offlineService.GetAllUnsyncedTransactions();
     }
 
-    // Удаляет конкретную транзакцию из очереди
+    // Удаляет конкретную транзакцию
     public async Task<bool> DeletePendingTransaction(string transactionId)
     {
         try
@@ -524,13 +553,13 @@ public class SyncQueueService : IDisposable
             var transaction = await _offlineService.GetTransactionById(transactionId);
             if (transaction == null)
             {
-                System.Diagnostics.Debug.WriteLine($"Транзакция {transactionId} не найдена");
+                Logger.Info($"Транзакция {transactionId} не найдена");
                 return false;
             }
 
             if (transaction.is_synced == 1)
             {
-                System.Diagnostics.Debug.WriteLine($"Транзакция {transactionId} уже синхронизирована");
+                Logger.Info($"Транзакция {transactionId} уже синхронизирована");
                 return false;
             }
 
@@ -539,12 +568,12 @@ public class SyncQueueService : IDisposable
             var pendingCount = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, pendingCount);
             
-            System.Diagnostics.Debug.WriteLine($"✅ Транзакция удалена: {transactionId}");
+            Logger.Info($"✅ Транзакция удалена: {transactionId}");
             return true;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка удаления транзакции: {ex.Message}");
+            Logger.Info($"❌ Ошибка удаления транзакции: {ex.Message}");
             return false;
         }
     }
@@ -560,22 +589,20 @@ public class SyncQueueService : IDisposable
                 return false;
             }
 
-            var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(transaction.payload);
-            
             if (transaction.operation_type == "Receiving")
             {
-                await ProcessReceivingOperation(transaction, payload);
+                await ProcessReceivingOperation(transaction);
             }
             else if (transaction.operation_type == "Shipping")
             {
-                await ProcessShippingOperation(transaction, payload);
+                await ProcessShippingOperation(transaction);
             }
             else
             {
-                await ProcessOtherOperation(transaction, payload);
+                Logger.Info($"Неизвестный тип операции: {transaction.operation_type}");
+                return false;
             }
 
-            // ✅ ИСПРАВЛЕНО: удаляем после успешной синхронизации
             await _offlineService.DeleteTransaction(transactionId);
             
             var pendingCount = await _offlineService.GetPendingCount();
@@ -585,7 +612,7 @@ public class SyncQueueService : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации транзакции {transactionId}: {ex.Message}");
+            Logger.Info($"❌ Ошибка синхронизации транзакции {transactionId}: {ex.Message}");
             await _offlineService.MarkAsError(transactionId, ex.Message);
             return false;
         }

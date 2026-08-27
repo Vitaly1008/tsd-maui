@@ -55,7 +55,7 @@ public class ApiService
         }
     }
 
-    // ✅ ИСПРАВЛЕНО: убрано исключение для Shipping
+    //  ИСПРАВЛЕНО: убрано исключение для Shipping
     // Выполняет запрос с поддержкой офлайн-режима
     private async Task<T?> RequestWithOfflineSupport<T>(
         HttpMethod method,
@@ -95,7 +95,7 @@ public class ApiService
         {
             _isOffline = true;
 
-            // ✅ ИСПРАВЛЕНО: сохраняем ВСЕ операции, включая Shipping
+            //  ИСПРАВЛЕНО: сохраняем ВСЕ операции, включая Shipping
             if (!string.IsNullOrEmpty(operationType) && 
                 !string.IsNullOrEmpty(barcode))
             {   
@@ -662,7 +662,7 @@ public class ApiService
     {
         try
         {
-            // ✅ ИСПРАВЛЕНО: отправляем только comment как строку
+            //  ИСПРАВЛЕНО: отправляем только comment как строку
             var result = await RequestWithOfflineSupport<Dictionary<string, object>>(
                 HttpMethod.Post,
                 $"/api/boxes/{boxId}/ship",
@@ -735,7 +735,7 @@ public class ApiService
         }
     }
 
-    // ✅ НОВЫЙ МЕТОД: обновление количества коробки
+    //  НОВЫЙ МЕТОД: обновление количества коробки
     public async Task<Dictionary<string, object>> UpdateBoxQuantity(string boxId, int quantity, string? comment = null)
     {
         try
@@ -847,63 +847,11 @@ public class ApiService
         }
     }
 
-    public async Task<Dictionary<string, object>> ActivateBox(
-        string boxId, 
-        string locationCode = "UNKNOWN",
-        string? comment = null)
-    {
-        return await ExecutePostRequest(
-            $"{Constants.ApiBaseUrl}/api/barcodes/activate-box/{boxId}",
-            new 
-            { 
-                comment = comment ?? $"Активация через ТСД, локация: {locationCode}",
-                locationCode = locationCode
-            }
-        );
-    }
-
-    //получение коробок isPartial
-    public async Task<List<Box>> GetPartialBoxes()
-    {
-        try
-        {
-            var client = await GetHttpClient();
-            var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/stock/partial-boxes");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                var data = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(content);
-                
-                if (data != null)
-                {
-                    var boxes = new List<Box>();
-                    foreach (var item in data)
-                    {
-                        var box = Box.FromJson(item);
-                        if (box != null)
-                        {
-                            box.IsPartial = true;
-                            boxes.Add(box);
-                        }
-                    }
-                    return boxes;
-                }
-            }
-            
-            return new List<Box>();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения частичных коробок: {ex.Message}");
-            return new List<Box>();
-        }
-    }
-
     // ============================================================
     // МЕТОДЫ ДЛЯ СИНХРОНИЗАЦИИ
     // ============================================================
 
+    // 1.2. Получение timestamp последнего изменения
     public async Task<DateTime> GetServerLastChanged()
     {
         try
@@ -917,10 +865,27 @@ public class ApiService
                 var data = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
                 if (data != null && data.TryGetValue("lastChanged", out var value))
                 {
-                    return DateTime.Parse(value?.ToString() ?? DateTime.UtcNow.ToString("O"));
+                    // Пробуем распарсить разными способами
+                    if (value is long longValue)
+                    {
+                        return DateTimeOffset.FromUnixTimeMilliseconds(longValue).UtcDateTime;
+                    }
+                    else if (value is string strValue)
+                    {
+                        // Пробуем парсить ISO формат
+                        if (DateTime.TryParse(strValue, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dt))
+                        {
+                            return dt.ToUniversalTime();
+                        }
+                        // Пробуем парсить как Unix timestamp
+                        if (long.TryParse(strValue, out var unixTime))
+                        {
+                            return DateTimeOffset.FromUnixTimeMilliseconds(unixTime).UtcDateTime;
+                        }
+                    }
                 }
             }
-            return DateTime.MinValue;
+            return DateTime.UtcNow;
         }
         catch
         {
@@ -928,6 +893,7 @@ public class ApiService
         }
     }
 
+    // 1.1. Получение всех коробок для синхронизации (уже есть, но проверим)
     public async Task<List<Box>> GetAllBoxesForSync()
     {
         try
@@ -953,6 +919,194 @@ public class ApiService
             return new List<Box>();
         }
     }
+
+    // 1.3. ПРИНУДИТЕЛЬНОЕ СОЗДАНИЕ КОРОБКИ (для приемки)
+    public async Task<Dictionary<string, object>> ForceCreateBox(
+        string ean13,
+        int quantity,
+        string grade,
+        int boxNumber,
+        string locationCode = "UNKNOWN",
+        string? comment = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            
+            // Конвертируем grade в числовой код
+            int gradeCode = grade switch
+            {
+                "Premium" => 9,
+                "First" => 1,
+                "Second" => 2,
+                "Decorated" => 3,
+                "Rejected" => 5,
+                _ => int.TryParse(grade, out var g) ? g : 9
+            };
+            
+            var request = new
+            {
+                ean13 = ean13,
+                quantity = quantity,
+                grade = gradeCode,
+                boxNumber = boxNumber,
+                locationCode = locationCode,
+                comment = comment ?? $"Принудительная приемка через ТСД"
+            };
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            // ✅ Используем /api/barcodes/create-box (см. API docs)
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/barcodes/create-box",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>(),
+                    ["message"] = "Коробка создана принудительно"
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+    // 1.4. ДОБАВЛЕНИЕ В PROBLEM BOXES
+    public async Task<Dictionary<string, object>> AddToProblemBoxes(
+        string barcode,
+        string boxId,
+        string errorType,
+        string comment,
+        int? boxNumber = null,
+        string? productName = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            
+            var request = new
+            {
+                barcode = barcode,
+                boxId = boxId,
+                errorType = errorType,
+                comment = comment,
+                boxNumber = boxNumber ?? 0,
+                productName = productName ?? "Неизвестный продукт"
+            };
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            // ✅ Используем /api/tsd/problem-boxes (см. API docs)
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/tsd/problem-boxes",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+
+    // 1.6. АКТИВАЦИЯ КОРОБКИ (Draft → Active)
+    public async Task<Dictionary<string, object>> ActivateBox(
+        string boxId,
+        string locationCode = "UNKNOWN",
+        string? comment = null)
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            
+            var request = new
+            {
+                comment = comment ?? $"Активация через ТСД, локация: {locationCode}",
+                locationCode = locationCode
+            };
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            // ✅ Используем /api/barcodes/activate-box/{boxId} (см. API docs)
+            var response = await client.PostAsync(
+                $"{Constants.ApiBaseUrl}/api/barcodes/activate-box/{boxId}",
+                content
+            );
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
+                return new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["data"] = data ?? new Dictionary<string, object>()
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = ex.Message
+            };
+        }
+    }
+
+
 
     public async Task<Dictionary<string, object>> SyncBoxes(List<object> transactions)
     {

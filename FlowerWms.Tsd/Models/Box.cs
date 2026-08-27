@@ -245,8 +245,7 @@ public class Box
             location_code = LocationCode ?? "UNKNOWN",
             status = Status,
             created_at = CreatedAt,
-            updated_at = UpdatedAt,
-            isPartial = IsPartial ? 1 : 0
+            updated_at = UpdatedAt
         };
     }
 
@@ -268,7 +267,7 @@ public class Box
             Status = cache.status,
             CreatedAt = cache.created_at,
             UpdatedAt = cache.updated_at,
-            IsPartial = cache.isPartial == 1
+            IsPartial = false // ✅ ВСЕГДА FALSE
         };
     }
 }
