@@ -25,7 +25,7 @@ public partial class SyncQueueViewModel : ObservableObject
     private bool _isOnline;
 
     [ObservableProperty]
-    private string _statusMessage = "Загрузка...";
+    private string _statusMessage = string.Empty;
 
     [ObservableProperty]
     private int _totalCount;
@@ -39,7 +39,11 @@ public partial class SyncQueueViewModel : ObservableObject
     [ObservableProperty]
     private bool _isRefreshing;
 
+    [ObservableProperty]
+    private bool _hasPendingTransactions;
+
     public event EventHandler? BackRequested;
+    public event EventHandler<OfflineTransaction>? ShowTransactionDetailRequested;
 
     public SyncQueueViewModel()
     {
@@ -52,9 +56,15 @@ public partial class SyncQueueViewModel : ObservableObject
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 UpdateCounts();
-                if (count == 0)
+                HasPendingTransactions = PendingTransactions.Count > 0;
+                
+                if (PendingTransactions.Count == 0)
                 {
-                    StatusMessage = "Нет операций для синхронизации";
+                    StatusMessage = "Все данные синхронизированы";
+                }
+                else
+                {
+                    StatusMessage = $"Ожидает синхронизации: {PendingTransactions.Count}";
                 }
             });
         };
@@ -68,10 +78,11 @@ public partial class SyncQueueViewModel : ObservableObject
             IsOnline = await _syncService.CheckInternetManual();
             await LoadPendingTransactions();
             UpdateCounts();
+            HasPendingTransactions = PendingTransactions.Count > 0;
 
             if (PendingTransactions.Count == 0)
             {
-                StatusMessage = "Нет операций для синхронизации";
+                StatusMessage = "Все данные синхронизированы";
             }
             else
             {
@@ -93,20 +104,48 @@ public partial class SyncQueueViewModel : ObservableObject
     {
         try
         {
+            Logger.Info("🔍 НАЧАЛО загрузки транзакций...");
+            
             var transactions = await _syncQueueService.GetAllPendingTransactions();
+            
+            Logger.Info($"📋 Загружено {transactions.Count} транзакций для синхронизации");
+            
+            // Выводим детали каждой транзакции
+            foreach (var tx in transactions)
+            {
+                Logger.Info($"  - ID: {tx.transaction_id}, Тип: {tx.operation_type}, ШК: {tx.barcode}, Synced: {tx.is_synced}, Ошибок: {tx.retry_count}");
+            }
             
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
+                Logger.Info($"🔄 Очистка коллекции, текущее кол-во: {PendingTransactions.Count}");
                 PendingTransactions.Clear();
+                
+                Logger.Info($"➕ Добавление {transactions.Count} транзакций в коллекцию");
                 foreach (var tx in transactions)
                 {
                     PendingTransactions.Add(tx);
+                    Logger.Info($"  ✅ Добавлена: {tx.transaction_id}");
                 }
+                
+                HasPendingTransactions = PendingTransactions.Count > 0;
+                Logger.Info($"📊 HasPendingTransactions = {HasPendingTransactions}");
+                Logger.Info($"📊 TotalCount = {TotalCount}");
+                
+                // Принудительно обновляем UI
+                OnPropertyChanged(nameof(PendingTransactions));
+                OnPropertyChanged(nameof(HasPendingTransactions));
+                OnPropertyChanged(nameof(TotalCount));
+                OnPropertyChanged(nameof(ReceivingCount));
+                OnPropertyChanged(nameof(ShippingCount));
             });
+            
+            Logger.Info("✅ КОНЕЦ загрузки транзакций");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка загрузки транзакций: {ex.Message}");
+            Logger.Info($"❌ ОШИБКА загрузки транзакций: {ex.Message}");
+            Logger.Info($"StackTrace: {ex.StackTrace}");
         }
     }
 
@@ -115,6 +154,7 @@ public partial class SyncQueueViewModel : ObservableObject
         TotalCount = PendingTransactions.Count;
         ReceivingCount = PendingTransactions.Count(t => t.operation_type == "Receiving");
         ShippingCount = PendingTransactions.Count(t => t.operation_type == "Shipping");
+        HasPendingTransactions = PendingTransactions.Count > 0;
     }
 
     public async Task Refresh()
@@ -122,16 +162,86 @@ public partial class SyncQueueViewModel : ObservableObject
         IsRefreshing = true;
         await LoadPendingTransactions();
         UpdateCounts();
-        StatusMessage = PendingTransactions.Count > 0 
-            ? $"Ожидает синхронизации: {PendingTransactions.Count}"
-            : "Нет операций для синхронизации";
+        
+        if (PendingTransactions.Count == 0)
+        {
+            StatusMessage = "Все данные синхронизированы";
+        }
+        else
+        {
+            StatusMessage = $"Ожидает синхронизации: {PendingTransactions.Count}";
+        }
+        
         IsRefreshing = false;
+    }
+
+    public async Task ForceRefresh()
+    {
+        Logger.Info("🔄 ForceRefresh - НАЧАЛО");
+        
+        try
+        {
+            // Загружаем транзакции напрямую через OfflineService
+            var offlineService = new OfflineService();
+            var transactions = await offlineService.GetAllUnsyncedTransactions();
+            
+            Logger.Info($"📋 ForceRefresh: найдено {transactions.Count} транзакций");
+            
+            foreach (var tx in transactions)
+            {
+                Logger.Info($"  - {tx.transaction_id}: {tx.operation_type}, {tx.barcode}, is_synced={tx.is_synced}");
+            }
+            
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                PendingTransactions.Clear();
+                foreach (var tx in transactions)
+                {
+                    PendingTransactions.Add(tx);
+                }
+                
+                TotalCount = PendingTransactions.Count;
+                ReceivingCount = PendingTransactions.Count(t => t.operation_type == "Receiving");
+                ShippingCount = PendingTransactions.Count(t => t.operation_type == "Shipping");
+                HasPendingTransactions = PendingTransactions.Count > 0;
+                
+                StatusMessage = PendingTransactions.Count > 0 
+                    ? $"Ожидает синхронизации: {PendingTransactions.Count}" 
+                    : "Все данные синхронизированы";
+                
+                // ПРИНУДИТЕЛЬНО обновляем UI
+                OnPropertyChanged(nameof(PendingTransactions));
+                OnPropertyChanged(nameof(HasPendingTransactions));
+                OnPropertyChanged(nameof(TotalCount));
+                OnPropertyChanged(nameof(ReceivingCount));
+                OnPropertyChanged(nameof(ShippingCount));
+                OnPropertyChanged(nameof(StatusMessage));
+                
+                Logger.Info($"📊 UI обновлен: HasPendingTransactions={HasPendingTransactions}, TotalCount={TotalCount}");
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Info($"❌ ForceRefresh ошибка: {ex.Message}");
+        }
+        
+        Logger.Info("🔄 ForceRefresh - КОНЕЦ");
+    }
+
+    [RelayCommand]
+    private void ShowTransactionDetail(OfflineTransaction transaction)
+    {
+        if (transaction != null)
+        {
+            ShowTransactionDetailRequested?.Invoke(this, transaction);
+        }
     }
 
     [RelayCommand]
     private async Task SyncAll()
     {
         if (IsSyncing) return;
+        
         if (PendingTransactions.Count == 0)
         {
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
@@ -143,7 +253,7 @@ public partial class SyncQueueViewModel : ObservableObject
         }
 
         IsSyncing = true;
-        StatusMessage = "Синхронизация...";
+        StatusMessage = "Выполняется синхронизация...";
 
         try
         {
@@ -175,7 +285,7 @@ public partial class SyncQueueViewModel : ObservableObject
 
             if (PendingTransactions.Count == 0)
             {
-                StatusMessage = "Все операции синхронизированы! ✅";
+                StatusMessage = "✅ Все данные синхронизированы";
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "Синхронизация завершена",
                     "Все операции успешно синхронизированы.",
@@ -184,7 +294,7 @@ public partial class SyncQueueViewModel : ObservableObject
             }
             else
             {
-                StatusMessage = $"Осталось: {PendingTransactions.Count}";
+                StatusMessage = $"⏳ Осталось: {PendingTransactions.Count}";
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "Частичная синхронизация",
                     $"Осталось {PendingTransactions.Count} операций.\nПроверьте подключение и попробуйте снова.",
@@ -194,7 +304,7 @@ public partial class SyncQueueViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Ошибка: {ex.Message}";
+            StatusMessage = $"❌ Ошибка: {ex.Message}";
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Ошибка",
                 $"Не удалось выполнить синхронизацию:\n{ex.Message}",
@@ -229,7 +339,7 @@ public partial class SyncQueueViewModel : ObservableObject
                 await Refresh();
                 StatusMessage = PendingTransactions.Count > 0 
                     ? $"Ожидает синхронизации: {PendingTransactions.Count}"
-                    : "Нет операций для синхронизации";
+                    : "Все данные синхронизированы";
             }
             else
             {
@@ -294,7 +404,7 @@ public partial class SyncQueueViewModel : ObservableObject
             }
             else
             {
-                StatusMessage = "Ошибка синхронизации";
+                StatusMessage = "❌ Ошибка синхронизации";
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "Ошибка",
                     "Не удалось синхронизировать операцию.",
@@ -304,7 +414,7 @@ public partial class SyncQueueViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Ошибка: {ex.Message}";
+            StatusMessage = $"❌ Ошибка: {ex.Message}";
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Ошибка",
                 ex.Message,
@@ -335,7 +445,7 @@ public partial class SyncQueueViewModel : ObservableObject
         {
             var deleted = await _syncQueueService.ClearSyncTable();
             await Refresh();
-            StatusMessage = "Очередь очищена";
+            StatusMessage = "✅ Очередь очищена";
             
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Очистка выполнена",
@@ -357,62 +467,5 @@ public partial class SyncQueueViewModel : ObservableObject
     private void GoBack()
     {
         BackRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    // Вспомогательные методы для UI
-    public string GetOperationIcon(string operationType)
-    {
-        return operationType switch
-        {
-            "Receiving" => "📥",
-            "Shipping" => "📤",
-            _ => "📋"
-        };
-    }
-
-    public string GetOperationTypeDisplay(string operationType)
-    {
-        return operationType switch
-        {
-            "Receiving" => "Приемка",
-            "Shipping" => "Отгрузка",
-            _ => operationType
-        };
-    }
-
-    public string GetStatusDisplay(OfflineTransaction transaction)
-    {
-        if (transaction.is_synced == 1)
-            return "✅ Синхронизирована";
-        
-        if (!string.IsNullOrEmpty(transaction.error_message))
-            return $"❌ Ошибка: {transaction.error_message}";
-        
-        return "⏳ Ожидает";
-    }
-
-    public Color GetStatusColor(OfflineTransaction transaction)
-    {
-        if (transaction.is_synced == 1)
-            return Colors.Green;
-        
-        if (!string.IsNullOrEmpty(transaction.error_message))
-            return Colors.Red;
-        
-        return Colors.Orange;
-    }
-
-    public string GetRetryCountDisplay(OfflineTransaction transaction)
-    {
-        if (transaction.retry_count == 0)
-            return "Попыток: 0";
-        
-        return $"Попыток: {transaction.retry_count}";
-    }
-
-    public string GetCreatedAtDisplay(OfflineTransaction transaction)
-    {
-        var date = DateTimeOffset.FromUnixTimeMilliseconds(transaction.created_at).LocalDateTime;
-        return date.ToString("dd.MM.yyyy HH:mm");
     }
 }

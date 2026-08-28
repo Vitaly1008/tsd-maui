@@ -9,216 +9,337 @@
                 x:DataType="viewmodel:SyncQueueViewModel"
                 Title="Очередь синхронизации">
 
-    <!-- Регистрируем конвертеры как статические ресурсы -->
-    <views:BasePage.Resources>
-        <ResourceDictionary>
-            <converters:OperationIconConverter x:Key="OperationIconConverter" />
-            <converters:OperationTypeDisplayConverter x:Key="OperationTypeDisplayConverter" />
-            <converters:StatusDisplayConverter x:Key="StatusDisplayConverter" />
-            <converters:StatusColorConverter x:Key="StatusColorConverter" />
-            <converters:RetryCountDisplayConverter x:Key="RetryCountDisplayConverter" />
-            <converters:CreatedAtDisplayConverter x:Key="CreatedAtDisplayConverter" />
-            <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter" />
-            <converters:IsZeroConverter x:Key="IsZeroConverter" />
-            <converters:GreaterThanZeroConverter x:Key="GreaterThanZeroConverter" />
-            <converters:InvertBooleanConverter x:Key="InvertBooleanConverter" />
-        </ResourceDictionary>
-    </views:BasePage.Resources>
+    <Grid RowDefinitions="Auto, *">
 
-    <Grid RowDefinitions="Auto, Auto, *">
-        
         <!-- Верхняя панель -->
         <Grid Grid.Row="0" 
               Padding="16,12" 
               BackgroundColor="{StaticResource PrimaryColor}"
-              ColumnDefinitions="Auto, *">
+              ColumnDefinitions="Auto, *, Auto">
             
-            <Button Grid.Column="0"
-                    Text="‹ Назад"
-                    Command="{Binding GoBackCommand}"
-                    BackgroundColor="Transparent"
-                    TextColor="White"
-                    FontSize="16"
-                    Padding="0"
-                    HorizontalOptions="Start" />
+            <Label Grid.Column="0" 
+                   Text="📋" 
+                   FontSize="22"
+                   TextColor="White"
+                   VerticalOptions="Center" />
 
             <Label Grid.Column="1" 
-                   Text="📋 Очередь синхронизации" 
+                   Text="Очередь синхронизации" 
                    TextColor="White" 
-                   FontSize="18" 
+                   FontSize="20" 
                    FontAttributes="Bold"
-                   HorizontalOptions="Center"
-                   VerticalOptions="Center" />
+                   VerticalOptions="Center"
+                   Margin="12,0,0,0" />
+
+            <HorizontalStackLayout Grid.Column="2" Spacing="8" VerticalOptions="Center">
+                <Label Text="{Binding TotalCount, StringFormat='📦 {0}'}" 
+                       TextColor="White" 
+                       FontSize="14"
+                       FontAttributes="Bold" />
+                <Label Text="{Binding IsOnline, Converter={StaticResource ConnectionIconConverter}}" 
+                       FontSize="18" />
+            </HorizontalStackLayout>
         </Grid>
 
-        <!-- Статистика -->
-        <Grid Grid.Row="1" 
-              Padding="12,8" 
-              BackgroundColor="#F5F5F5"
-              ColumnDefinitions="*, *, *">
-            
-            <VerticalStackLayout Grid.Column="0" Spacing="2" HorizontalOptions="Center">
-                <Label Text="Всего" FontSize="11" TextColor="Gray" />
-                <Label Text="{Binding TotalCount}" FontSize="18" FontAttributes="Bold" TextColor="{StaticResource PrimaryColor}" />
-            </VerticalStackLayout>
-            
-            <VerticalStackLayout Grid.Column="1" Spacing="2" HorizontalOptions="Center">
-                <Label Text="📥 Приемка" FontSize="11" TextColor="Gray" />
-                <Label Text="{Binding ReceivingCount}" FontSize="18" FontAttributes="Bold" TextColor="{StaticResource SuccessColor}" />
-            </VerticalStackLayout>
-            
-            <VerticalStackLayout Grid.Column="2" Spacing="2" HorizontalOptions="Center">
-                <Label Text="📤 Отгрузка" FontSize="11" TextColor="Gray" />
-                <Label Text="{Binding ShippingCount}" FontSize="18" FontAttributes="Bold" TextColor="{StaticResource WarningColor}" />
-            </VerticalStackLayout>
-        </Grid>
+        <!-- Основной контент -->
+        <Grid Grid.Row="1" Padding="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-        <!-- Список транзакций -->
-        <RefreshView Grid.Row="2" 
-                     IsRefreshing="{Binding IsRefreshing}"
-                     Command="{Binding RefreshCommand}">
-            
-            <ScrollView>
-                <VerticalStackLayout Spacing="12" Padding="12">
-                    
-                    <!-- Статус и кнопки управления -->
-                    <Grid ColumnDefinitions="*, Auto">
-                        <Label Grid.Column="0" 
-                               Text="{Binding StatusMessage}" 
-                               FontSize="14" 
-                               TextColor="Gray"
-                               VerticalOptions="Center" />
-                        
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6">
-                            <Button Text="🔄 Синхр."
-                                    Command="{Binding SyncAllCommand}"
-                                    IsEnabled="{Binding IsSyncing, Converter={StaticResource InvertBooleanConverter}}"
-                                    BackgroundColor="{StaticResource PrimaryColor}"
-                                    TextColor="White"
-                                    CornerRadius="6"
-                                    HeightRequest="32"
-                                    FontSize="11"
-                                    Padding="8,0" />
-                            
-                            <Button Text="🗑️ Очистить"
-                                    Command="{Binding ClearAllCommand}"
-                                    IsEnabled="{Binding PendingTransactions.Count, Converter={StaticResource GreaterThanZeroConverter}}"
-                                    BackgroundColor="{StaticResource DangerColor}"
-                                    TextColor="White"
-                                    CornerRadius="6"
-                                    HeightRequest="32"
-                                    FontSize="11"
-                                    Padding="8,0" />
-                        </HorizontalStackLayout>
-                    </Grid>
+            <!-- Статистика -->
+            <Grid Grid.Row="0" 
+                  Padding="0,0,0,12"
+                  ColumnDefinitions="*, *, *"
+                  ColumnSpacing="8">
+                
+                <Frame Grid.Column="0" 
+                       CornerRadius="8" 
+                       Padding="8" 
+                       HasShadow="True"
+                       BackgroundColor="White">
+                    <VerticalStackLayout Spacing="2" HorizontalOptions="Center">
+                        <Label Text="Всего" FontSize="11" TextColor="Gray" HorizontalOptions="Center" />
+                        <Label Text="{Binding TotalCount}" FontSize="20" FontAttributes="Bold" TextColor="{StaticResource PrimaryColor}" HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Frame>
+                
+                <Frame Grid.Column="1" 
+                       CornerRadius="8" 
+                       Padding="8" 
+                       HasShadow="True"
+                       BackgroundColor="White">
+                    <VerticalStackLayout Spacing="2" HorizontalOptions="Center">
+                        <Label Text="📥 Приемка" FontSize="11" TextColor="Gray" HorizontalOptions="Center" />
+                        <Label Text="{Binding ReceivingCount}" FontSize="20" FontAttributes="Bold" TextColor="{StaticResource SuccessColor}" HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Frame>
+                
+                <Frame Grid.Column="2" 
+                       CornerRadius="8" 
+                       Padding="8" 
+                       HasShadow="True"
+                       BackgroundColor="White">
+                    <VerticalStackLayout Spacing="2" HorizontalOptions="Center">
+                        <Label Text="📤 Отгрузка" FontSize="11" TextColor="Gray" HorizontalOptions="Center" />
+                        <Label Text="{Binding ShippingCount}" FontSize="20" FontAttributes="Bold" TextColor="{StaticResource WarningColor}" HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Frame>
+            </Grid>
 
-                    <!-- Индикатор синхронизации -->
-                    <Grid IsVisible="{Binding IsSyncing}" Padding="8">
-                        <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
-                            <ActivityIndicator IsRunning="True" Color="{StaticResource PrimaryColor}" HeightRequest="20" />
-                            <Label Text="Выполняется синхронизация..." FontSize="14" TextColor="{StaticResource PrimaryColor}" />
-                        </HorizontalStackLayout>
-                    </Grid>
+            <!-- Кнопки управления (разнесены) -->
+            <Grid Grid.Row="1" Padding="0,0,0,12" ColumnDefinitions="*, *">
+                <Button Grid.Column="0"
+                        Text="🔄 Синхр."
+                        Command="{Binding SyncAllCommand}"
+                        IsEnabled="{Binding IsSyncing, Converter={StaticResource InvertBooleanConverter}}"
+                        BackgroundColor="{StaticResource PrimaryColor}"
+                        TextColor="White"
+                        CornerRadius="8"
+                        HeightRequest="44"
+                        FontSize="14"
+                        FontAttributes="Bold"
+                        Margin="0,0,6,0" />
 
-                    <!-- Список транзакций -->
-                    <CollectionView ItemsSource="{Binding PendingTransactions}"
-                                    IsVisible="{Binding PendingTransactions.Count, Converter={StaticResource GreaterThanZeroConverter}}">
-                        <CollectionView.ItemTemplate>
-                            <DataTemplate>
-                                <Frame Padding="12"
-                                       CornerRadius="8"
-                                       HasShadow="True"
-                                       BackgroundColor="White"
-                                       Margin="0,4">
+                <Button Grid.Column="1"
+                        Text="🗑️ Очистить все"
+                        Command="{Binding ClearAllCommand}"
+                        IsEnabled="{Binding HasPendingTransactions}"
+                        BackgroundColor="{StaticResource DangerColor}"
+                        TextColor="White"
+                        CornerRadius="8"
+                        HeightRequest="44"
+                        FontSize="14"
+                        FontAttributes="Bold"
+                        Margin="6,0,0,0" />
+            </Grid>
+
+            <!-- Индикатор синхронизации -->
+            <Grid Grid.Row="2" 
+                  IsVisible="{Binding IsSyncing}"
+                  Padding="8"
+                  VerticalOptions="Start">
+                <HorizontalStackLayout Spacing="12" HorizontalOptions="Center">
+                    <ActivityIndicator IsRunning="True" Color="{StaticResource PrimaryColor}" HeightRequest="24" />
+                    <Label Text="🔄 Выполняется синхронизация..." 
+                           FontSize="14" 
+                           FontAttributes="Bold"
+                           TextColor="{StaticResource PrimaryColor}" 
+                           VerticalOptions="Center" />
+                </HorizontalStackLayout>
+            </Grid>
+
+            <!-- Список транзакций -->
+            <RefreshView Grid.Row="2" 
+                         IsRefreshing="{Binding IsRefreshing}"
+                         Command="{Binding RefreshCommand}">
+                
+                <CollectionView ItemsSource="{Binding PendingTransactions}"
+                                IsVisible="{Binding HasPendingTransactions}">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Frame Padding="0"
+                                   CornerRadius="8"
+                                   HasShadow="True"
+                                   BackgroundColor="White"
+                                   Margin="0,4">
+                                
+                                <!-- Grid с GestureRecognizers вместо Frame -->
+                                <Grid Padding="12" BackgroundColor="White">
+                                    <Grid.GestureRecognizers>
+                                        <TapGestureRecognizer Command="{Binding BindingContext.ShowTransactionDetailCommand, Source={RelativeSource AncestorType={x:Type views:SyncQueuePage}}}"
+                                                              CommandParameter="{Binding .}" />
+                                    </Grid.GestureRecognizers>
                                     
-                                    <Grid RowDefinitions="Auto, Auto, Auto"
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Иконка операции -->
+                                    <Label Grid.Row="0" Grid.Column="0" Grid.RowSpan="2"
+                                           FontSize="28"
+                                           VerticalOptions="Center"
+                                           Margin="0,0,12,0">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label"
+                                                         Binding="{Binding operation_type}"
+                                                         Value="Receiving">
+                                                <Setter Property="Text" Value="📥" />
+                                            </DataTrigger>
+                                            <DataTrigger TargetType="Label"
+                                                         Binding="{Binding operation_type}"
+                                                         Value="Shipping">
+                                                <Setter Property="Text" Value="📤" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+
+                                    <!-- Информация об операции -->
+                                    <VerticalStackLayout Grid.Row="0" Grid.Column="1" Spacing="2">
+                                        <Label FontSize="15" FontAttributes="Bold">
+                                            <Label.Triggers>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding operation_type}"
+                                                             Value="Receiving">
+                                                    <Setter Property="Text" Value="📥 Приемка" />
+                                                </DataTrigger>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding operation_type}"
+                                                             Value="Shipping">
+                                                    <Setter Property="Text" Value="📤 Отгрузка" />
+                                                </DataTrigger>
+                                            </Label.Triggers>
+                                        </Label>
+                                        <Label Text="{Binding barcode}" FontSize="12" TextColor="Gray" />
+                                    </VerticalStackLayout>
+
+                                    <!-- Статус -->
+                                    <Label Grid.Row="0" Grid.Column="2" 
+                                           FontSize="16"
+                                           VerticalOptions="Center"
+                                           HorizontalOptions="End">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label"
+                                                         Binding="{Binding is_synced}"
+                                                         Value="1">
+                                                <Setter Property="Text" Value="✅" />
+                                            </DataTrigger>
+                                            <DataTrigger TargetType="Label"
+                                                         Binding="{Binding is_synced}"
+                                                         Value="0">
+                                                <Setter Property="Text" Value="⏳" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+
+                                    <!-- Детали операции -->
+                                    <Grid Grid.Row="1" Grid.Column="1" 
+                                          Margin="0,4,0,0"
                                           ColumnDefinitions="Auto, *, Auto">
                                         
-                                        <!-- Иконка операции -->
-                                        <Label Grid.Row="0" Grid.Column="0" 
-                                               Text="{Binding operation_type, Converter={StaticResource OperationIconConverter}}"
-                                               FontSize="24"
-                                               VerticalOptions="Center"
-                                               Margin="0,0,12,0" />
+                                        <Label Grid.Column="0" 
+                                               FontSize="11">
+                                            <Label.Triggers>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding error_message}"
+                                                             Value="{x:Null}">
+                                                    <Setter Property="Text" Value="✅ Готово" />
+                                                    <Setter Property="TextColor" Value="{StaticResource SuccessColor}" />
+                                                </DataTrigger>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding error_message}"
+                                                             Value="">
+                                                    <Setter Property="Text" Value="✅ Готово" />
+                                                    <Setter Property="TextColor" Value="{StaticResource SuccessColor}" />
+                                                </DataTrigger>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding error_message}">
+                                                    <Setter Property="Text" Value="❌ Ошибка" />
+                                                    <Setter Property="TextColor" Value="{StaticResource DangerColor}" />
+                                                </DataTrigger>
+                                            </Label.Triggers>
+                                        </Label>
                                         
-                                        <!-- Информация об операции -->
-                                        <VerticalStackLayout Grid.Row="0" Grid.Column="1" Spacing="2">
-                                            <Label Text="{Binding operation_type, Converter={StaticResource OperationTypeDisplayConverter}}"
-                                                   FontSize="15" FontAttributes="Bold" />
-                                            <Label Text="{Binding barcode, StringFormat='ШК: {0}'}" FontSize="12" TextColor="Gray" />
-                                        </VerticalStackLayout>
+                                        <Label Grid.Column="1" 
+                                               FontSize="11"
+                                               TextColor="Gray"
+                                               HorizontalOptions="Center">
+                                            <Label.Triggers>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding retry_count}"
+                                                             Value="0">
+                                                    <Setter Property="Text" Value="Попыток: 0" />
+                                                </DataTrigger>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding retry_count}">
+                                                    <Setter Property="Text" Value="{Binding retry_count, StringFormat='Попыток: {0}'}" />
+                                                </DataTrigger>
+                                            </Label.Triggers>
+                                        </Label>
                                         
-                                        <!-- Кнопки действий -->
-                                        <HorizontalStackLayout Grid.Row="0" Grid.Column="2" Spacing="4">
-                                            <Button Text="🔄"
-                                                    Command="{Binding BindingContext.SyncSingleTransactionCommand, Source={RelativeSource AncestorType={x:Type views:SyncQueuePage}}}"
-                                                    CommandParameter="{Binding transaction_id}"
-                                                    BackgroundColor="{StaticResource SuccessColor}"
-                                                    TextColor="White"
-                                                    CornerRadius="4"
-                                                    HeightRequest="28"
-                                                    WidthRequest="36"
-                                                    FontSize="12"
-                                                    Padding="0" />
-                                            <Button Text="✕"
-                                                    Command="{Binding BindingContext.DeleteTransactionCommand, Source={RelativeSource AncestorType={x:Type views:SyncQueuePage}}}"
-                                                    CommandParameter="{Binding transaction_id}"
-                                                    BackgroundColor="{StaticResource DangerColor}"
-                                                    TextColor="White"
-                                                    CornerRadius="4"
-                                                    HeightRequest="28"
-                                                    WidthRequest="36"
-                                                    FontSize="12"
-                                                    Padding="0" />
-                                        </HorizontalStackLayout>
-                                        
-                                        <!-- Детали операции -->
-                                        <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
-                                              Margin="0,4,0,0"
-                                              ColumnDefinitions="Auto, *, Auto">
-                                            
-                                            <Label Grid.Column="0" 
-                                                   Text="{Binding Converter={StaticResource StatusDisplayConverter}}"
-                                                   FontSize="11"
-                                                   TextColor="{Binding Converter={StaticResource StatusColorConverter}}" />
-                                            
-                                            <Label Grid.Column="1" 
-                                                   Text="{Binding Converter={StaticResource RetryCountDisplayConverter}}"
-                                                   FontSize="11"
-                                                   TextColor="Gray"
-                                                   HorizontalOptions="Center" />
-                                            
-                                            <Label Grid.Column="2" 
-                                                   Text="{Binding Converter={StaticResource CreatedAtDisplayConverter}}"
-                                                   FontSize="11"
-                                                   TextColor="Gray" />
-                                        </Grid>
-
-                                        <!-- Сообщение об ошибке -->
-                                        <Label Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
-                                               Text="{Binding error_message}"
-                                               IsVisible="{Binding error_message, Converter={StaticResource StringNotEmptyConverter}}"
-                                               FontSize="12"
-                                               TextColor="Red"
-                                               Margin="0,4,0,0" />
+                                        <Label Grid.Column="2" 
+                                               FontSize="11"
+                                               TextColor="Gray"
+                                               HorizontalOptions="End">
+                                            <Label.Triggers>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding created_at}">
+                                                    <Setter Property="Text" Value="{Binding created_at, Converter={StaticResource CreatedAtDisplayConverter}}" />
+                                                </DataTrigger>
+                                            </Label.Triggers>
+                                        </Label>
                                     </Grid>
-                                </Frame>
-                            </DataTemplate>
-                        </CollectionView.ItemTemplate>
-                    </CollectionView>
 
-                    <!-- Пустое состояние -->
-                    <VerticalStackLayout IsVisible="{Binding PendingTransactions.Count, Converter={StaticResource IsZeroConverter}}"
-                                         Spacing="12"
-                                         HorizontalOptions="Center"
-                                         VerticalOptions="Center"
-                                         Padding="0,40">
-                        <Label Text="✅" FontSize="48" HorizontalOptions="Center" />
-                        <Label Text="Нет операций для синхронизации" FontSize="16" TextColor="Gray" HorizontalOptions="Center" />
-                        <Label Text="Все данные синхронизированы" FontSize="13" TextColor="Gray" Opacity="0.6" HorizontalOptions="Center" />
-                    </VerticalStackLayout>
-                </VerticalStackLayout>
-            </ScrollView>
-        </RefreshView>
+                                    <!-- Кнопки действий -->
+                                    <HorizontalStackLayout Grid.Row="0" Grid.Column="2" 
+                                                           Spacing="4"
+                                                           VerticalOptions="Center">
+                                        <Button Style="{StaticResource SmallSuccessButton}"
+                                                Command="{Binding BindingContext.SyncSingleTransactionCommand, Source={RelativeSource AncestorType={x:Type views:SyncQueuePage}}}"
+                                                CommandParameter="{Binding transaction_id}"
+                                                Text="🔄" />
+                                        <Button Style="{StaticResource SmallDangerButton}"
+                                                Command="{Binding BindingContext.DeleteTransactionCommand, Source={RelativeSource AncestorType={x:Type views:SyncQueuePage}}}"
+                                                CommandParameter="{Binding transaction_id}"
+                                                Text="✕" />
+                                    </HorizontalStackLayout>
+
+                                    <!-- Сообщение об ошибке -->
+                                    <Label Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                                           FontSize="12"
+                                           TextColor="{StaticResource DangerColor}"
+                                           Margin="0,4,0,0">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label"
+                                                         Binding="{Binding error_message}"
+                                                         Value="{x:Null}">
+                                                <Setter Property="IsVisible" Value="False" />
+                                            </DataTrigger>
+                                            <DataTrigger TargetType="Label"
+                                                         Binding="{Binding error_message}"
+                                                         Value="">
+                                                <Setter Property="IsVisible" Value="False" />
+                                            </DataTrigger>
+                                            <DataTrigger TargetType="Label"
+                                                         Binding="{Binding error_message}">
+                                                <Setter Property="Text" Value="{Binding error_message}" />
+                                                <Setter Property="IsVisible" Value="True" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </Grid>
+                            </Frame>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </RefreshView>
+
+            <!-- Пустое состояние -->
+            <VerticalStackLayout Grid.Row="2" 
+                                 IsVisible="{Binding HasPendingTransactions, Converter={StaticResource InvertBooleanConverter}}"
+                                 Spacing="8"
+                                 HorizontalOptions="Center"
+                                 VerticalOptions="Center"
+                                 Padding="0,20">
+                <Label Text="📭" FontSize="48" HorizontalOptions="Center" />
+                <Label Text="Нет операций для синхронизации" FontSize="16" TextColor="Gray" HorizontalOptions="Center" />
+                <Label Text="Все данные синхронизированы" FontSize="13" TextColor="{StaticResource SuccessColor}" HorizontalOptions="Center" Opacity="0.7" />
+            </VerticalStackLayout>
+
+            <ActivityIndicator Grid.Row="2" 
+                               IsRunning="{Binding IsLoading}" 
+                               Color="{StaticResource PrimaryColor}" 
+                               HorizontalOptions="Center"
+                               VerticalOptions="Center" />
+        </Grid>
     </Grid>
 </views:BasePage>

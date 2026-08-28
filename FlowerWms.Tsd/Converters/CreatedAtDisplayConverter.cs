@@ -1,6 +1,6 @@
 using System.Globalization;
-using Microsoft.Maui.Controls;
 using FlowerWms.Tsd.Helpers;
+using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.Converters;
 
@@ -9,18 +9,33 @@ public class CreatedAtDisplayConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        if (value is not OfflineTransaction transaction)
-            return string.Empty;
+        if (value is long timestamp && timestamp > 0)
+        {
+            try
+            {
+                var date = DateTimeOffset.FromUnixTimeMilliseconds(timestamp).LocalDateTime;
+                return date.ToString("dd.MM.yyyy HH:mm");
+            }
+            catch
+            {
+                return "Дата неизвестна";
+            }
+        }
         
-        try
+        if (value is OfflineTransaction transaction)
         {
-            var date = DateTimeOffset.FromUnixTimeMilliseconds(transaction.created_at).LocalDateTime;
-            return date.ToString("dd.MM.yyyy HH:mm");
+            try
+            {
+                var date = DateTimeOffset.FromUnixTimeMilliseconds(transaction.created_at).LocalDateTime;
+                return date.ToString("dd.MM.yyyy HH:mm");
+            }
+            catch
+            {
+                return "Дата неизвестна";
+            }
         }
-        catch
-        {
-            return "Дата неизвестна";
-        }
+        
+        return string.Empty;
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
