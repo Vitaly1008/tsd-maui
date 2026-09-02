@@ -5,11 +5,14 @@ namespace FlowerWms.Tsd.Views;
 // Страница "О программе"
 public partial class AboutPage : BasePage
 {
-    private AboutViewModel? _viewModel;
+    private AboutViewModel _viewModel;
 
-    public AboutPage()
+    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
+    public AboutPage(AboutViewModel viewModel)
     {
         InitializeComponent();
-        _viewModel = BindingContext as AboutViewModel;
+        
+        _viewModel = viewModel;
+        BindingContext = _viewModel;
     }
 }

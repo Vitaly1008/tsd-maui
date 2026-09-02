@@ -1,5 +1,6 @@
 using FlowerWms.Tsd.ViewModels;
 using FlowerWms.Tsd.Services;
+using Microsoft.Extensions.DependencyInjection; // ← ДОБАВИТЬ
 
 namespace FlowerWms.Tsd.Views;
 
@@ -7,12 +8,16 @@ namespace FlowerWms.Tsd.Views;
 public partial class HomePage : BasePage
 {
     private HomeViewModel? _viewModel;
+    private readonly IServiceProvider _serviceProvider; // ← ДОБАВИТЬ
 
-    public HomePage()
+    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
+    public HomePage(HomeViewModel viewModel, IServiceProvider serviceProvider)
     {
         InitializeComponent();
         
-        _viewModel = BindingContext as HomeViewModel;
+        _viewModel = viewModel;
+        BindingContext = _viewModel; // ← ВАЖНО: устанавливаем BindingContext
+        _serviceProvider = serviceProvider;
         
         if (_viewModel != null)
         {
@@ -79,7 +84,8 @@ public partial class HomePage : BasePage
         try
         {
             var barcodeService = GetBarcodeService();
-            var receivingPage = new ReceivingPage(barcodeService);
+            var viewModel = _serviceProvider.GetService<ReceivingViewModel>();
+            var receivingPage = new ReceivingPage(barcodeService, viewModel);
             await Navigation.PushAsync(receivingPage);
         }
         catch (Exception ex)
@@ -96,7 +102,8 @@ public partial class HomePage : BasePage
         try
         {
             var barcodeService = GetBarcodeService();
-            var shippingPage = new ShippingPage(barcodeService);
+            var viewModel = _serviceProvider.GetService<ShippingViewModel>();
+            var shippingPage = new ShippingPage(barcodeService, viewModel);
             await Navigation.PushAsync(shippingPage);
         }
         catch (Exception ex)
@@ -129,7 +136,16 @@ public partial class HomePage : BasePage
     {
         try
         {
-            await Navigation.PushAsync(new SyncQueuePage());
+            // ✅ ПОЛУЧАЕМ ViewModel через DI
+            var viewModel = _serviceProvider.GetService<SyncQueueViewModel>();
+            if (viewModel == null)
+            {
+                await DisplayAlertAsync("Ошибка", "Не удалось создать страницу очереди", "OK");
+                return;
+            }
+            
+            var syncQueuePage = new SyncQueuePage(viewModel);
+            await Navigation.PushAsync(syncQueuePage);
         }
         catch (Exception ex)
         {
@@ -142,7 +158,16 @@ public partial class HomePage : BasePage
     {
         try
         {
-            await Navigation.PushAsync(new AboutPage());
+            // ✅ ПОЛУЧАЕМ AboutViewModel через DI
+            var viewModel = _serviceProvider.GetService<AboutViewModel>();
+            if (viewModel == null)
+            {
+                await DisplayAlertAsync("Ошибка", "Не удалось создать страницу", "OK");
+                return;
+            }
+            
+            var aboutPage = new AboutPage(viewModel);
+            await Navigation.PushAsync(aboutPage);
         }
         catch (Exception ex)
         {
@@ -153,8 +178,12 @@ public partial class HomePage : BasePage
     // Выход из системы
     private async void OnLogoutRequested(object? sender, EventArgs e)
     {
+        // ✅ СОЗДАЕМ LoginPage через DI
+        var loginViewModel = _serviceProvider.GetService<LoginViewModel>();
+        var loginPage = new LoginPage(loginViewModel, _serviceProvider);
+        
         await Navigation.PopToRootAsync();
-        await Navigation.PushAsync(new LoginPage());
+        await Navigation.PushAsync(loginPage);
         
         var homePage = Navigation.NavigationStack.FirstOrDefault(p => p is HomePage);
         if (homePage != null)

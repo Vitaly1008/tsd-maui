@@ -10,10 +10,6 @@
                 BackgroundColor="#2E7D32"
                 Shell.NavBarIsVisible="False"
                 Title="">
-    
-    <views:LoginPage.BindingContext>
-        <viewmodel:LoginViewModel />
-    </views:LoginPage.BindingContext>
 
     <Grid Padding="20">
         <Grid.RowDefinitions>

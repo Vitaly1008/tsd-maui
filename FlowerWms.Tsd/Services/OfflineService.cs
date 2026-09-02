@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FlowerWms.Tsd.Helpers;
+using FlowerWms.Tsd.Models;
 
 namespace FlowerWms.Tsd.Services;
 
@@ -207,6 +208,53 @@ public class OfflineService
         {
             System.Diagnostics.Debug.WriteLine($"Ошибка получения транзакций: {ex.Message}");
             return new List<OfflineTransaction>();
+        }
+    }
+
+    /// <summary>
+    /// Откатывает изменения, связанные с транзакцией
+    /// </summary>
+    public async Task<bool> RevertTransaction(string transactionId)
+    {
+        try
+        {
+            var transaction = await GetTransactionById(transactionId);
+            if (transaction == null) return false;
+
+            // Парсим payload
+            var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(transaction.payload);
+            var barcode = transaction.barcode;
+
+            if (transaction.operation_type == "Receiving")
+            {
+                // Приемка: удаляем коробку из локальной БД
+                await _dbHelper.DeleteBoxByBarcode(barcode);
+                System.Diagnostics.Debug.WriteLine($"🗑️ Откат приемки: удалена коробка {barcode}");
+            }
+            else if (transaction.operation_type == "Shipping")
+            {
+                // Отгрузка: восстанавливаем количество
+                var box = await _dbHelper.GetBoxByBarcode(barcode);
+                if (box != null)
+                {
+                    var shippedQuantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
+                    var restoredQuantity = box.current_quantity + shippedQuantity;
+                    
+                    await _dbHelper.ForceUpdateBoxStatus(
+                        barcode: barcode,
+                        newStatus: BoxStatus.Active,
+                        newQuantity: restoredQuantity
+                    );
+                    System.Diagnostics.Debug.WriteLine($"🔄 Откат отгрузки: восстановлено {shippedQuantity} шт. для {barcode}");
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка отката транзакции: {ex.Message}");
+            return false;
         }
     }
 }

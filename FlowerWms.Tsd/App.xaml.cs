@@ -1,18 +1,29 @@
 using Microsoft.Maui;
 using Microsoft.Maui.Controls;
 using FlowerWms.Tsd.Converters;
+using FlowerWms.Tsd.Views;
+using FlowerWms.Tsd.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FlowerWms.Tsd;
 
-// Точка входа приложения
 public partial class App : Application
 {
-    public App()
+    private readonly IServiceProvider _serviceProvider;
+
+    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
+    public App(IServiceProvider serviceProvider)
     {
+        _serviceProvider = serviceProvider;
+        
         try
         {
             InitializeResources();
-            MainPage = new NavigationPage(new Views.LoginPage());
+            
+            // ✅ СОЗДАЕМ LoginPage ЧЕРЕЗ DI
+            var loginViewModel = _serviceProvider.GetService<LoginViewModel>();
+            var loginPage = new LoginPage(loginViewModel, _serviceProvider);
+            MainPage = new NavigationPage(loginPage);
         }
         catch (Exception ex)
         {

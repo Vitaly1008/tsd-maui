@@ -735,12 +735,13 @@ public class ApiService
     {
         try
         {
-            // ✅ Для UI используем тот же подход
-            var commentValue = comment ?? "Отгрузка через ТСД";
-            var json = $"\"{commentValue}\"";
+            var client = await GetHttpClient();
+            
+            // ✅ Сервер ожидает { "boxId": "guid" }
+            var request = new { boxId = boxId };
+            var json = JsonSerializer.Serialize(request);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             
-            var client = await GetHttpClient();
             var response = await client.PostAsync(
                 $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/ship",
                 content
@@ -764,7 +765,7 @@ public class ApiService
                 await _offlineService.SaveTransaction(
                     operationType: "Shipping",
                     barcode: boxId,
-                    payload: new { comment = commentValue },
+                    payload: new { boxId = boxId, comment = comment },
                     deviceId: Constants.DeviceId
                 );
             }
@@ -830,17 +831,15 @@ public class ApiService
     }
 
     //ShipBoxInternal — ВНУТРЕННИЙ (БЕЗ создания транзакции)
-    public async Task<Dictionary<string, object>> ShipBoxInternal(
-        string boxId, 
-        string? comment = null)
+    public async Task<Dictionary<string, object>> ShipBoxInternal(string boxId, string? comment = null)
     {
         try
         {
             var client = await GetHttpClient();
             
-            // ✅ Отправляем как строку (не объект)
-            var commentValue = comment ?? "Отгрузка через ТСД";
-            var json = $"\"{commentValue}\"";
+            // ✅ Сервер ожидает { "boxId": "guid" }
+            var request = new { boxId = boxId };
+            var json = JsonSerializer.Serialize(request);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             
             var response = await client.PostAsync(

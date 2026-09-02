@@ -1,25 +1,26 @@
 using FlowerWms.Tsd.Models;
 using FlowerWms.Tsd.ViewModels;
 using Microsoft.Maui.Controls;
+using Microsoft.Extensions.DependencyInjection; // ← ДОБАВИТЬ
 
 namespace FlowerWms.Tsd.Views;
 
 // Страница входа
 public partial class LoginPage : BasePage
 {
-    private LoginViewModel? _viewModel;
+    private LoginViewModel _viewModel;
+    private readonly IServiceProvider _serviceProvider; // ← ДОБАВИТЬ
 
-    public LoginPage()
+    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
+    public LoginPage(LoginViewModel viewModel, IServiceProvider serviceProvider)
     {
         InitializeComponent();
         
-        _viewModel = BindingContext as LoginViewModel;
+        _viewModel = viewModel;
+        _serviceProvider = serviceProvider;
+        BindingContext = _viewModel;
         
-        if (_viewModel != null)
-        {
-            _viewModel.LoginSuccess += OnLoginSuccess;
-        }
-
+        _viewModel.LoginSuccess += OnLoginSuccess;
         Loaded += OnPageLoaded;
     }
 
@@ -27,24 +28,8 @@ public partial class LoginPage : BasePage
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
         var passwordEntry = this.FindByName<Entry>("PasswordEntry");
-        if (passwordEntry != null)
-        {
-            passwordEntry.Completed += OnPasswordEntryCompleted;
-        }
         
-        if (_viewModel != null)
-        {
-            await _viewModel.CheckServerAsync();
-        }
-    }
-
-    // Обработчик нажатия Enter в поле пароля
-    private async void OnPasswordEntryCompleted(object? sender, EventArgs e)
-    {
-        if (_viewModel != null && !_viewModel.IsLoading)
-        {
-            await _viewModel.LoginCommand.ExecuteAsync(null);
-        }
+        await _viewModel.CheckServerAsync();
     }
 
     // Обработчик успешного входа
@@ -52,7 +37,15 @@ public partial class LoginPage : BasePage
     {
         try
         {
-            var homePage = new HomePage();
+            // ✅ ПОЛУЧАЕМ HomeViewModel через DI
+            var homeViewModel = _serviceProvider.GetService<HomeViewModel>();
+            if (homeViewModel == null)
+            {
+                await DisplayAlertAsync("Ошибка", "Не удалось создать главную страницу", "OK");
+                return;
+            }
+            
+            var homePage = new HomePage(homeViewModel, _serviceProvider);
             await Navigation.PushAsync(homePage);
             Navigation.RemovePage(this);
         }

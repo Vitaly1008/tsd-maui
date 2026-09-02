@@ -6,13 +6,17 @@ namespace FlowerWms.Tsd.Views;
 // Страница инвентаризации
 public partial class InventoryPage : BasePage
 {
-    private InventoryViewModel? _viewModel;
-    private readonly IBarcodeService? _barcodeService;
+    private InventoryViewModel _viewModel;
+    private readonly IBarcodeService _barcodeService;
 
-    public InventoryPage(IBarcodeService barcodeService)
+    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
+    public InventoryPage(IBarcodeService barcodeService, InventoryViewModel viewModel)
     {
         InitializeComponent();
+        
         _barcodeService = barcodeService;
+        _viewModel = viewModel;
+        BindingContext = _viewModel;
         
         Loaded += OnPageLoaded;
         Unloaded += OnPageUnloaded;
@@ -23,11 +27,10 @@ public partial class InventoryPage : BasePage
     {
         try
         {
-            _viewModel = new InventoryViewModel(_barcodeService);
-            BindingContext = _viewModel;
+            // ✅ Инициализируем ViewModel с barcodeService
+            await _viewModel.Initialize(_barcodeService);
             
             _viewModel.OperationCancelled += OnOperationCancelled;
-            await _viewModel.Initialize();
         }
         catch (Exception ex)
         {

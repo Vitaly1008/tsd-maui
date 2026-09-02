@@ -8,10 +8,6 @@
                 NavigationPage.HasNavigationBar="False"
                 x:DataType="viewmodel:HomeViewModel"
                 Title="">
-    
-    <views:HomePage.BindingContext>
-        <viewmodel:HomeViewModel />
-    </views:HomePage.BindingContext>
 
     <Grid>
         <Grid.RowDefinitions>

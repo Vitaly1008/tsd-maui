@@ -476,12 +476,16 @@ public class SyncQueueService : IDisposable
                 return false;
             }
 
+            // ✅ ОТКАТЫВАЕМ ИЗМЕНЕНИЯ
+            await _offlineService.RevertTransaction(transactionId);
+
+            // ✅ УДАЛЯЕМ ТРАНЗАКЦИЮ
             await _offlineService.DeleteTransaction(transactionId);
             
             var pendingCount = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, pendingCount);
             
-            Logger.Info($"✅ Транзакция удалена: {transactionId}");
+            Logger.Info($"✅ Транзакция удалена и откачена: {transactionId}");
             return true;
         }
         catch (Exception ex)

@@ -1,267 +1,379 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using FlowerWms.Tsd.Helpers;
 using FlowerWms.Tsd.Models;
 using FlowerWms.Tsd.Services;
+using FlowerWms.Tsd.Helpers;
+using System.Collections.ObjectModel;
 using Microsoft.Maui.Devices;
+using Microsoft.Maui.Controls;
 
 namespace FlowerWms.Tsd.ViewModels;
 
-// Базовый ViewModel для страниц, использующих сканер штрихкодов
+/// <summary>
+/// Базовый ViewModel для страниц, использующих сканер штрихкодов
+/// </summary>
 public abstract partial class BaseScannerViewModel : ObservableObject, IDisposable
 {
-    protected readonly IBarcodeService? _barcodeService;
     protected readonly DatabaseHelper _dbHelper;
     protected readonly ApiService _apiService;
     protected readonly SyncQueueService _syncQueueService;
     protected readonly SyncService _syncService;
-    protected bool _isScannerStarted;
+    protected IBarcodeService? _barcodeService;
     protected bool _isInitialized;
-    protected bool _disposed;
-
-    // ===== Общие свойства =====
-    [ObservableProperty]
-    private bool _isLoading;
+    protected bool _isScannerStarted;
+    private bool _disposed;
 
     [ObservableProperty]
-    private string? _lastScannedBarcode;
-
-    [ObservableProperty]
-    private bool _isOnline = true;
-
-    [ObservableProperty]
-    private string _scanStatusText = string.Empty;
-
-    [ObservableProperty]
-    private string _scanStatusIcon = "📷";
+    private string _scanStatusText = "Готов к сканированию";
 
     [ObservableProperty]
     private Color _scanStatusColor = Colors.Gray;
 
     [ObservableProperty]
-    private bool _hasError;
+    private string _scanStatusIcon = "📷";
 
     [ObservableProperty]
     private string _errorMessage = string.Empty;
 
+    [ObservableProperty]
+    private bool _hasError;
+
+    [ObservableProperty]
+    private bool _isLoading;
+
+    [ObservableProperty]
+    private bool _isOnline;
+
+    [ObservableProperty]
+    private string _lastScannedBarcode = string.Empty;
+
+    [ObservableProperty]
+    private bool _isBoxScanned;
+
+    [ObservableProperty]
+    private string _boxInfoText = string.Empty;
+
+    [ObservableProperty]
+    private ObservableCollection<Box> _scannedBoxes = new();
+
+    [ObservableProperty]
+    private int _scannedCount;
+
+    [ObservableProperty]
+    private bool _isBoxListExpanded = true;
+
     public BaseScannerViewModel(IBarcodeService? barcodeService = null)
     {
-        _barcodeService = barcodeService;
         _dbHelper = new DatabaseHelper();
         _apiService = new ApiService();
         _syncQueueService = new SyncQueueService();
         _syncService = new SyncService();
-
-        if (_barcodeService != null)
-        {
-            _barcodeService.OnBarcodeScanned += OnBarcodeScanned;
-        }
+        _barcodeService = barcodeService;
+        _isInitialized = false;
+        _isScannerStarted = false;
+        
+        ScannedBoxes = new ObservableCollection<Box>();
     }
 
-    // ===== Общие методы =====
+    // ✅ ИНИЦИАЛИЗАЦИЯ С ПЕРЕДАЧЕЙ BARCODESERVICE
+    public virtual async Task Initialize(IBarcodeService? barcodeService = null)
+    {
+        if (_isInitialized) return;
+        
+        if (barcodeService != null)
+        {
+            _barcodeService = barcodeService;
+        }
+        
+        if (_barcodeService != null && !_isScannerStarted)
+        {
+            // ✅ ИСПРАВЛЕНО: OnBarcodeScanned, StartListening
+            _barcodeService.OnBarcodeScanned += OnBarcodeScanned;
+            _barcodeService.StartListening();
+            _isScannerStarted = true;
+            SetStatus("Сканер готов", "📷", Colors.Gray);
+        }
+        
+        IsOnline = await _syncService.CheckInternetManual();
+        _isInitialized = true;
+        
+        await OnInitialized();
+    }
+
+    protected virtual Task OnInitialized()
+    {
+        return Task.CompletedTask;
+    }
+
+    // Обработчик сканирования штрихкода
     protected virtual void OnBarcodeScanned(string barcode)
     {
+        if (string.IsNullOrEmpty(barcode)) return;
+        if (IsLoading) return;
+        
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            await ProcessBarcode(barcode);
+            try
+            {
+                await ProcessBarcode(barcode);
+            }
+            catch (Exception ex)
+            {
+                SetError($"Ошибка: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Ошибка обработки штрихкода: {ex.Message}");
+            }
         });
     }
 
-    // Обработка сканированного штрихкода (должен быть переопределён в наследниках)
+    // Абстрактный метод обработки штрихкода
     protected abstract Task ProcessBarcode(string barcode);
 
-    public virtual void StartScanner()
+    // Установка статуса
+    protected void SetStatus(string text, string icon, Color color)
     {
-        if (_barcodeService == null || _isScannerStarted) return;
-
-        try
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            _barcodeService.StartListening();
-            _isScannerStarted = true;
-            System.Diagnostics.Debug.WriteLine($"Сканер запущен в {GetType().Name}");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка запуска сканера: {ex.Message}");
-        }
+            ScanStatusText = text;
+            ScanStatusIcon = icon;
+            ScanStatusColor = color;
+            HasError = false;
+            ErrorMessage = string.Empty;
+        });
     }
 
+    // Установка ошибки
+    protected void SetError(string error)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            ErrorMessage = error;
+            HasError = true;
+            ScanStatusText = "Ошибка";
+            ScanStatusIcon = "❌";
+            ScanStatusColor = Colors.Red;
+        });
+        Vibration.Vibrate(TimeSpan.FromMilliseconds(200));
+    }
+
+    // Установка предупреждения
+    protected void SetWarning(string text, string icon, Color color)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            ScanStatusText = text;
+            ScanStatusIcon = icon;
+            ScanStatusColor = color;
+            HasError = false;
+            ErrorMessage = string.Empty;
+        });
+        Vibration.Vibrate(TimeSpan.FromMilliseconds(100));
+    }
+
+    // Установка успеха
+    protected void SetSuccess(string text)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            ScanStatusText = text;
+            ScanStatusIcon = "✅";
+            ScanStatusColor = Colors.Green;
+            HasError = false;
+            ErrorMessage = string.Empty;
+        });
+        Vibration.Vibrate(TimeSpan.FromMilliseconds(50));
+    }
+
+    // Остановка сканера
     public virtual void StopScanner()
     {
-        if (_barcodeService == null || !_isScannerStarted) return;
-
-        try
+        if (_barcodeService != null && _isScannerStarted)
         {
+            // ✅ ИСПРАВЛЕНО: OnBarcodeScanned, StopListening
+            _barcodeService.OnBarcodeScanned -= OnBarcodeScanned;
             _barcodeService.StopListening();
             _isScannerStarted = false;
-            System.Diagnostics.Debug.WriteLine($"Сканер остановлен в {GetType().Name}");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка остановки сканера: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine("Сканер остановлен");
         }
     }
 
-    public virtual async Task Initialize()
+    // Очистка сессии
+    public virtual void ClearSession()
     {
-        if (_isInitialized) return;
-
-        try
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            IsOnline = await _syncService.CheckInternetManual();
-            
-            if (_barcodeService != null)
+            ScannedBoxes.Clear();
+            ScannedCount = 0;
+            IsBoxScanned = false;
+            BoxInfoText = string.Empty;
+            ErrorMessage = string.Empty;
+            HasError = false;
+            SetStatus("Готов к сканированию", "📷", Colors.Gray);
+        });
+    }
+
+    // Переключение списка коробок
+    [RelayCommand]
+    public void ToggleBoxList()
+    {
+        IsBoxListExpanded = !IsBoxListExpanded;
+    }
+
+    // Удаление коробки из списка
+    public virtual void RemoveBox(object parameter)
+    {
+        if (parameter is Box box && ScannedBoxes.Contains(box))
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
             {
-                StartScanner();
-            }
-
-            _isInitialized = true;
-            System.Diagnostics.Debug.WriteLine($"{GetType().Name} инициализирован");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка инициализации {GetType().Name}: {ex.Message}");
+                ScannedBoxes.Remove(box);
+                ScannedCount = ScannedBoxes.Count;
+                if (ScannedCount == 0)
+                {
+                    ClearSession();
+                }
+            });
         }
     }
 
-    // Проверка, является ли штрихкод локацией
-    protected virtual bool IsLocationBarcode(string barcode)
+    // Парсинг штрихкода
+    protected virtual (string ean13, int quantity, string grade, int boxNumber) ParseBarcode(string barcode)
     {
-        if (string.IsNullOrEmpty(barcode)) return false;
-
-        // EAN13 - всегда продукт/коробка
-        if (System.Text.RegularExpressions.Regex.IsMatch(barcode, @"^\d{13}$"))
-            return false;
-
-        // Формат коробки: EAN13-Количество-Сорт-Номер
         var parts = barcode.Split('-');
         if (parts.Length == 4)
         {
-            if (System.Text.RegularExpressions.Regex.IsMatch(parts[0], @"^\d{13}") &&
-                int.TryParse(parts[3], out _))
-            {
-                return false;
-            }
+            return (parts[0], int.Parse(parts[1]), parts[2], int.Parse(parts[3]));
+        }
+        return (barcode, 1, "Premium", 0);
+    }
+
+    // ✅ ИСПРАВЛЕНО: используем GetAllProducts() вместо GetProductByEan13
+    protected virtual async Task<string> GetProductName(string ean13)
+    {
+        if (string.IsNullOrEmpty(ean13)) return "Неизвестный товар";
+
+        var product = await _dbHelper.GetProductByEan13(ean13);
+        if (product != null && !string.IsNullOrEmpty(product.name))
+        {
+            return product.name;
         }
 
-        // Если это чисто число - скорее всего коробка
-        if (int.TryParse(barcode, out _))
-            return false;
-
-        return true;
-    }
-
-    protected void SetError(string message, string icon = "❌", Color? color = null)
-    {
-        HasError = true;
-        ErrorMessage = message;
-        ScanStatusIcon = icon;
-        ScanStatusColor = color ?? Colors.Red;
-        ScanStatusText = message;
-        Vibration.Vibrate(200);
-    }
-
-    protected void SetSuccess(string message, string icon = "✅", Color? color = null)
-    {
-        HasError = false;
-        ErrorMessage = string.Empty;
-        ScanStatusIcon = icon;
-        ScanStatusColor = color ?? Colors.Green;
-        ScanStatusText = message;
-    }
-
-    protected void SetStatus(string message, string icon = "📷", Color? color = null)
-    {
-        HasError = false;
-        ErrorMessage = string.Empty;
-        ScanStatusIcon = icon;
-        ScanStatusColor = color ?? Colors.Gray;
-        ScanStatusText = message;
-    }
-
-    protected void SetWarning(string message, string icon = "⚠️", Color? color = null)
-    {
-        HasError = false;
-        ErrorMessage = string.Empty;
-        ScanStatusIcon = icon;
-        ScanStatusColor = color ?? Colors.Orange;
-        ScanStatusText = message;
-    }
-
-    // ===== Вспомогательные методы =====
-    protected string GetGradeName(string gradeCode) => gradeCode switch
-    {
-        "1" => "First",
-        "2" => "Second",
-        "3" => "Decorated",
-        "5" => "Rejected",
-        "9" => "Premium",
-        _ => gradeCode
-    };
-
-    protected string GetGradeCode(string gradeName) => gradeName switch
-    {
-        "First" => "1",
-        "Second" => "2",
-        "Decorated" => "3",
-        "Rejected" => "5",
-        "Premium" => "9",
-        _ => gradeName
-    };
-
-    protected (string ean13, int quantity, string grade, int boxNumber) ParseBarcode(string barcode)
-    {
-        var parts = barcode.Split('-');
-
-        string ean13 = parts.Length > 0 ? parts[0] : "0000000000000";
-        int quantity = parts.Length > 1 && int.TryParse(parts[1], out var q) ? q : 0;
-        string grade = parts.Length > 2 ? GetGradeName(parts[2]) : "Premium";
-        int boxNumber = parts.Length > 3 && int.TryParse(parts[3], out var n) ? n : 0;
-
-        return (ean13, quantity, grade, boxNumber);
-    }
-
-    protected async Task<string> GetProductName(string ean13)
-    {
-        try
+        if (IsOnline)
         {
-            var product = await _dbHelper.GetProductByEan13(ean13);
-            if (product != null && !string.IsNullOrEmpty(product.name))
+            try
             {
-                return product.name;
-            }
-
-            if (IsOnline)
-            {
-                var synced = await _apiService.SyncProducts();
-                if (synced)
+                var allProducts = await _apiService.GetAllProducts();
+                var serverProduct = allProducts.FirstOrDefault(p => p.Ean13 == ean13);
+                
+                if (serverProduct != null && !string.IsNullOrEmpty(serverProduct.Name))
                 {
-                    product = await _dbHelper.GetProductByEan13(ean13);
-                    if (product != null && !string.IsNullOrEmpty(product.name))
+                    await _dbHelper.SaveProduct(new ProductCache
                     {
-                        return product.name;
-                    }
+                        product_id = serverProduct.Id,
+                        ean13 = serverProduct.Ean13,
+                        name = serverProduct.Name,
+                        short_name = serverProduct.ShortName,
+                        onec_guid = serverProduct.OneCGuid,
+                        barcode = serverProduct.Barcode,
+                        updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    });
+                    return serverProduct.Name;
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка получения продукта: {ex.Message}");
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка получения продукта: {ex.Message}");
+            }
         }
 
-        return "Неизвестный продукт";
+        return "Неизвестный товар";
+    }
+
+    // Создание локальной коробки
+    protected virtual Box CreateLocalBox(string ean13, int quantity, string grade, int boxNumber, string productName, BoxStatus status)
+    {
+        var box = new Box
+        {
+            Id = $"LOCAL_{boxNumber}_{Guid.NewGuid():N}",
+            Barcode = $"{ean13}-{quantity}-{grade}-{boxNumber}",
+            BoxNumber = boxNumber,
+            ProductName = productName,
+            ProductEan13 = ean13,
+            Quantity = quantity,
+            CurrentQuantity = quantity,
+            InitialQuantity = quantity,
+            Grade = grade,
+            LocationCode = "UNKNOWN",
+            Status = status,
+            CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+        return box;
+    }
+
+    // Сохранение коробки в кэш
+    protected virtual async Task SaveBoxToCache(Box box)
+    {
+        var boxCache = new BoxCache
+        {
+            barcode = box.Barcode,
+            box_id = box.Id,
+            box_number = box.BoxNumber,
+            grade = box.Grade,
+            initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.Quantity,
+            current_quantity = box.CurrentQuantity > 0 ? box.CurrentQuantity : box.Quantity,
+            product_id = box.ProductId,
+            product_name = box.ProductName,
+            product_ean13 = box.ProductEan13,
+            location_code = box.LocationCode ?? "UNKNOWN",
+            status = box.Status,
+            created_at = box.CreatedAt,
+            updated_at = box.UpdatedAt
+        };
+        await _dbHelper.SaveBox(boxCache);
+    }
+
+    // Добавление коробки в список
+    protected virtual void AddBoxToList(Box box)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (!ScannedBoxes.Any(b => b.Barcode == box.Barcode))
+            {
+                ScannedBoxes.Add(box);
+                ScannedCount = ScannedBoxes.Count;
+                IsBoxScanned = true;
+                BoxInfoText = $"Коробка #{box.BoxNumber} добавлена";
+                SetSuccess($"Коробка #{box.BoxNumber} добавлена");
+            }
+        });
+    }
+
+    // Проверка штрихкода локации
+    protected virtual bool IsLocationBarcode(string barcode)
+    {
+        return barcode.StartsWith("LOC-") || 
+               barcode.StartsWith("SHELF-") || 
+               barcode.StartsWith("RACK-") ||
+               barcode.StartsWith("ZONE-");
+    }
+
+    // Получение кода сорта
+    protected virtual string GetGradeCode(string grade)
+    {
+        return grade switch
+        {
+            "Premium" => "P",
+            "Standard" => "S",
+            "Economy" => "E",
+            _ => "P"
+        };
     }
 
     public virtual void Dispose()
     {
         if (_disposed) return;
-
+        
         StopScanner();
-        if (_barcodeService != null)
-        {
-            _barcodeService.OnBarcodeScanned -= OnBarcodeScanned;
-        }
-        _syncQueueService.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);
     }

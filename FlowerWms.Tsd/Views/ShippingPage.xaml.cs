@@ -7,13 +7,17 @@ namespace FlowerWms.Tsd.Views;
 // Страница отгрузки коробок
 public partial class ShippingPage : BasePage
 {
-    private ShippingViewModel? _viewModel;
-    private readonly IBarcodeService? _barcodeService;
+    private ShippingViewModel _viewModel;
+    private readonly IBarcodeService _barcodeService;
 
-    public ShippingPage(IBarcodeService barcodeService)
+    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
+    public ShippingPage(IBarcodeService barcodeService, ShippingViewModel viewModel)
     {
         InitializeComponent();
+        
         _barcodeService = barcodeService;
+        _viewModel = viewModel;
+        BindingContext = _viewModel;
         
         Loaded += OnPageLoaded;
         Unloaded += OnPageUnloaded;
@@ -24,13 +28,11 @@ public partial class ShippingPage : BasePage
     {
         try
         {
-            _viewModel = new ShippingViewModel(_barcodeService);
-            BindingContext = _viewModel;
+            // ✅ Инициализируем ViewModel с barcodeService
+            await _viewModel.Initialize(_barcodeService);
             
             _viewModel.OperationCompleted += OnOperationCompleted;
             _viewModel.OperationCancelled += OnOperationCancelled;
-            
-            await _viewModel.Initialize();
         }
         catch (Exception ex)
         {

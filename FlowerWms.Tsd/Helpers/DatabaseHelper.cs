@@ -156,14 +156,8 @@ public class DatabaseHelper
         {
             var db = await GetDatabaseAsync();
             box.updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            
-            await db.ExecuteAsync(
-                "DELETE FROM boxes_cache WHERE barcode = ?",
-                box.barcode
-            );
-            
-            await db.InsertAsync(box);
-            System.Diagnostics.Debug.WriteLine($"✅ Коробка сохранена: {box.barcode}, статус={box.status}");
+            await db.InsertOrReplaceAsync(box); // ✅ вместо Delete + Insert
+            System.Diagnostics.Debug.WriteLine($"✅ Коробка сохранена: {box.barcode}");
         }
         catch (Exception ex)
         {

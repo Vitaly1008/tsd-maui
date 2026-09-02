@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using FlowerWms.Tsd.Services;
 using FlowerWms.Tsd.Platforms.Android;
+using FlowerWms.Tsd.ViewModels;
 
 namespace FlowerWms.Tsd;
 
@@ -18,10 +19,6 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
 
-#if DEBUG
-        builder.Logging.AddDebug();
-#endif
-
         // Регистрация сервисов как Singleton
         builder.Services.AddSingleton<ApiService>();
         builder.Services.AddSingleton<AuthService>();
@@ -31,9 +28,16 @@ public static class MauiProgram
         builder.Services.AddSingleton<SecureStorageService>();
         builder.Services.AddSingleton<NetworkService>();
         builder.Services.AddSingleton<ServerDiscoveryService>();
-        
-        // Регистрация IBarcodeService как Singleton
         builder.Services.AddSingleton<IBarcodeService, BarcodeService>();
+
+        // ✅ РЕГИСТРАЦИЯ ВСЕХ VIEWMODEL
+        builder.Services.AddTransient<LoginViewModel>();
+        builder.Services.AddTransient<HomeViewModel>();
+        builder.Services.AddTransient<SyncQueueViewModel>();
+        builder.Services.AddTransient<AboutViewModel>();
+        builder.Services.AddTransient<ReceivingViewModel>();
+        builder.Services.AddTransient<ShippingViewModel>();
+        builder.Services.AddTransient<InventoryViewModel>();
 
         return builder.Build();
     }

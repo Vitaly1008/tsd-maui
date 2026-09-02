@@ -67,9 +67,10 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         _autoSaveTimer.AutoReset = true;
     }
 
-    public override async Task Initialize()
+    // ✅ ИСПРАВЛЕНО: правильная сигнатура
+    public override async Task Initialize(IBarcodeService? barcodeService = null)
     {
-        await base.Initialize();
+        await base.Initialize(barcodeService);
         _autoSaveTimer.Start();
     }
 
@@ -87,7 +88,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         {
             var boxes = ScannedBoxes.ToList();
             
-            // Добавляем больше информации для восстановления
             var payload = new
             {
                 operationType = _operationType,
@@ -154,7 +154,7 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
 
             if (location.is_active != 1)
             {
-                SetError($"Локация '{locationCode}' неактивна", "⚠️", Colors.Orange);
+                SetWarning($"Локация '{locationCode}' неактивна", "⚠️", Colors.Orange);
                 return;
             }
 
@@ -162,7 +162,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             LastScannedBarcode = locationCode;
             SetStatus($"Локация: {locationCode} ({location.name})", "📍", Colors.Blue);
 
-            // Обновляем локацию для всех коробок в сессии
             foreach (var box in ScannedBoxes)
             {
                 box.LocationCode = locationCode;
@@ -231,12 +230,12 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         {
             ScannedBoxes.Clear();
             ScannedCount = 0;
-            LastScannedBarcode = null;
+            LastScannedBarcode = string.Empty;
             IsBoxScanned = false;
             BoxInfoText = string.Empty;
             BoxNumberDisplay = string.Empty;
             _scanCountSinceLastSave = 0;
-            SetStatus(string.Empty);
+            SetStatus("Готов к сканированию", "📷", Colors.Gray);
         });
     }
 
@@ -298,7 +297,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         StopScanner();
         ClearSession();
         
-        // 👇 ИСПОЛЬЗУЕМ ЗАЩИЩЕННЫЙ МЕТОД ВМЕСТО ПРЯМОГО ВЫЗОВА СОБЫТИЯ
         OnOperationCancelled();
     }
 
@@ -326,11 +324,7 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         );
     }
 
-    [RelayCommand]
-    private void ToggleBoxList()
-    {
-        IsBoxListExpanded = !IsBoxListExpanded;
-    }
+    // ❌ УДАЛЕНО: метод ToggleBoxList (уже есть в BaseScannerViewModel)
 
     protected Box CreateLocalBox(string ean13, int quantity, string grade, int boxNumber, string productName, BoxStatus status = BoxStatus.Draft)
     {
@@ -344,7 +338,7 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             Quantity = quantity > 0 ? quantity : 100,
             Grade = grade,
             LocationCode = CurrentLocation,
-            Status = status, // Теперь можно задать любой статус
+            Status = status,
             CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };

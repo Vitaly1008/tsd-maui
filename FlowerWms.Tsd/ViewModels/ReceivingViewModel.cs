@@ -95,7 +95,22 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                 box = CreateLocalBox(ean13, quantity, grade, boxNumber, productName, BoxStatus.Active);
                 
                 // ✅ 2.4. Сохранить в локальную БД
-                await SaveBoxToCache(box);
+                await _dbHelper.SaveBox(new BoxCache
+                {
+                    barcode = box.Barcode,
+                    box_id = box.Id,
+                    box_number = box.BoxNumber,
+                    grade = box.Grade,
+                    initial_quantity = box.InitialQuantity,
+                    current_quantity = box.CurrentQuantity,
+                    product_id = box.ProductId,
+                    product_name = box.ProductName,
+                    product_ean13 = box.ProductEan13,
+                    location_code = CurrentLocation ?? "UNKNOWN",
+                    status = BoxStatus.Active,
+                    created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                });
             }
 
             // ✅ 2.5. Добавить в сессию

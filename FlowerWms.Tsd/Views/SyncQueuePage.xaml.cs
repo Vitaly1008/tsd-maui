@@ -5,30 +5,26 @@ namespace FlowerWms.Tsd.Views;
 
 public partial class SyncQueuePage : BasePage
 {
-    private SyncQueueViewModel? _viewModel;
+    private SyncQueueViewModel _viewModel;
 
-    public SyncQueuePage()
+    // ✅ ИСПОЛЬЗУЕМ DI
+    public SyncQueuePage(SyncQueueViewModel viewModel)
     {
         InitializeComponent();
         
-        _viewModel = BindingContext as SyncQueueViewModel;
+        _viewModel = viewModel;
+        BindingContext = _viewModel; // ← ВАЖНО: устанавливаем BindingContext
         
-        if (_viewModel != null)
-        {
-            _viewModel.BackRequested += OnBackRequested;
-            _viewModel.ShowTransactionDetailRequested += OnShowTransactionDetail;
-            Loaded += OnPageLoaded;
-        }
+        _viewModel.BackRequested += OnBackRequested;
+        _viewModel.ShowTransactionDetailRequested += OnShowTransactionDetail;
+        Loaded += OnPageLoaded;
     }
 
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
         try
         {
-            if (_viewModel != null)
-            {
-                await _viewModel.Initialize();
-            }
+            await _viewModel.Initialize();
         }
         catch (Exception ex)
         {
@@ -42,15 +38,12 @@ public partial class SyncQueuePage : BasePage
         base.OnAppearing();
         Logger.Info("📍 SyncQueuePage OnAppearing - НАЧАЛО");
         
-        if (_viewModel != null)
-        {
-            // Принудительно загружаем транзакции
-            Logger.Info("📊 Загружаем транзакции...");
-            await _viewModel.ForceRefresh();
-            
-            Logger.Info($"📊 После загрузки: HasPendingTransactions = {_viewModel.HasPendingTransactions}");
-            Logger.Info($"📊 После загрузки: TotalCount = {_viewModel.TotalCount}");
-        }
+        // Принудительно загружаем транзакции
+        Logger.Info("📊 Загружаем транзакции...");
+        await _viewModel.ForceRefresh();
+        
+        Logger.Info($"📊 После загрузки: HasPendingTransactions = {_viewModel.HasPendingTransactions}");
+        Logger.Info($"📊 После загрузки: TotalCount = {_viewModel.TotalCount}");
         
         Logger.Info("📍 SyncQueuePage OnAppearing - КОНЕЦ");
     }

@@ -45,11 +45,14 @@ public partial class SyncQueueViewModel : ObservableObject
     public event EventHandler? BackRequested;
     public event EventHandler<OfflineTransaction>? ShowTransactionDetailRequested;
 
-    public SyncQueueViewModel()
+    public SyncQueueViewModel(
+        SyncQueueService syncQueueService,
+        SyncService syncService,
+        AuthService authService)
     {
-        _syncQueueService = new SyncQueueService();
-        _syncService = new SyncService();
-        _authService = new AuthService();
+        _syncQueueService = syncQueueService;
+        _syncService = syncService;
+        _authService = authService;
 
         _syncQueueService.PendingCountChanged += async (s, count) =>
         {
@@ -280,7 +283,10 @@ public partial class SyncQueueViewModel : ObservableObject
                 return;
             }
 
-            await _syncQueueService.ProcessQueueAsync();
+            // ✅ ИСПРАВЛЕНО: используем полную синхронизацию
+            await _syncService.SyncAllData();
+            
+            // ✅ Обновляем список
             await Refresh();
 
             if (PendingTransactions.Count == 0)
@@ -288,7 +294,7 @@ public partial class SyncQueueViewModel : ObservableObject
                 StatusMessage = "✅ Все данные синхронизированы";
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "Синхронизация завершена",
-                    "Все операции успешно синхронизированы.",
+                    "Все операции успешно синхронизированы и локальная БД обновлена.",
                     "OK"
                 );
             }
@@ -390,6 +396,12 @@ public partial class SyncQueueViewModel : ObservableObject
             }
 
             var success = await _syncQueueService.SyncSingleTransaction(transactionId);
+            
+            // ✅ После синхронизации одной транзакции обновляем локальную БД
+            if (success)
+            {
+                await _syncService.RefreshLocalCacheFromServer();
+            }
             
             await Refresh();
             

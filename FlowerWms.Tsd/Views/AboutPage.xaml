@@ -8,10 +8,6 @@
                 NavigationPage.HasNavigationBar="False"
                 x:DataType="viewmodel:AboutViewModel"
                 Title="">
-    
-    <views:AboutPage.BindingContext>
-        <viewmodel:AboutViewModel />
-    </views:AboutPage.BindingContext>
 
     <ScrollView>
         <StackLayout Padding="24,24,24,12" VerticalOptions="Center">
