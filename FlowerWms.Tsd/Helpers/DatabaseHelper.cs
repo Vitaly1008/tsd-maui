@@ -310,14 +310,108 @@ public class DatabaseHelper
             var db = await GetDatabaseAsync();
             foreach (var box in boxes)
             {
-                box.updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                await db.InsertOrReplaceAsync(box);
+                var existing = await GetBoxByBarcode(box.barcode);
+                
+                if (existing != null)
+                {
+                    // ✅ ОБНОВЛЯЕМ ТОЛЬКО ПОЛЯ, КОТОРЫЕ МЕНЯЮТСЯ
+                    await db.ExecuteAsync(
+                        @"UPDATE boxes_cache SET 
+                            box_id = ?,
+                            box_number = ?,
+                            grade = ?,
+                            initial_quantity = ?,
+                            current_quantity = ?,
+                            product_id = ?,
+                            product_name = ?,
+                            product_ean13 = ?,
+                            location_code = ?,
+                            status = ?,
+                            updated_at = ?
+                        WHERE barcode = ?",
+                        box.box_id,
+                        box.box_number,
+                        box.grade,
+                        box.initial_quantity,
+                        box.current_quantity,
+                        box.product_id,
+                        box.product_name,
+                        box.product_ean13,
+                        box.location_code ?? "UNKNOWN",
+                        (int)box.status,
+                        DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        box.barcode
+                    );
+                }
+                else
+                {
+                    // ✅ НОВАЯ ЗАПИСЬ - ВСТАВЛЯЕМ
+                    box.updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    await db.InsertAsync(box);
+                }
             }
-            System.Diagnostics.Debug.WriteLine($"✅ Синхронизировано {boxes.Count} коробок");
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка синхронизации коробок: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Обновляет или вставляет коробку (без удаления существующих данных)
+    /// </summary>
+    public async Task UpdateOrInsertBox(BoxCache box)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var existing = await GetBoxByBarcode(box.barcode);
+            
+            if (existing != null)
+            {
+                // ✅ ОБНОВЛЯЕМ ТОЛЬКО ПОЛЯ С СЕРВЕРА
+                await db.ExecuteAsync(
+                    @"UPDATE boxes_cache SET 
+                        box_id = ?,
+                        box_number = ?,
+                        grade = ?,
+                        initial_quantity = ?,
+                        current_quantity = ?,
+                        product_id = ?,
+                        product_name = ?,
+                        product_ean13 = ?,
+                        location_code = ?,
+                        status = ?,
+                        updated_at = ?
+                    WHERE barcode = ?",
+                    box.box_id,
+                    box.box_number,
+                    box.grade,
+                    box.initial_quantity,
+                    box.current_quantity,
+                    box.product_id,
+                    box.product_name,
+                    box.product_ean13,
+                    box.location_code ?? "UNKNOWN",
+                    (int)box.status,
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    box.barcode
+                );
+                
+                System.Diagnostics.Debug.WriteLine($"✅ Обновлена коробка: {box.barcode}");
+            }
+            else
+            {
+                // ✅ НОВАЯ ЗАПИСЬ - ВСТАВЛЯЕМ
+                box.updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                await db.InsertAsync(box);
+                System.Diagnostics.Debug.WriteLine($"✅ Вставлена новая коробка: {box.barcode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления коробки: {ex.Message}");
+            throw;
         }
     }
 

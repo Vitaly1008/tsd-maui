@@ -390,6 +390,19 @@ public partial class ShippingViewModel : BaseOperationViewModel
     // Теперь используется только ApiService (который теперь сохраняет Shipping)
     private async Task SaveLocalShipment(Box box, int quantityToShip, bool isFullShipment)
     {
+        if (quantityToShip <= 0)
+        {
+            Logger.Warning($"⚠️ Попытка отгрузки с quantity=0 для #{box.BoxNumber}");
+            return;
+        }
+        
+        // ✅ Если quantityToShip больше, чем есть — корректируем
+        if (quantityToShip > box.CurrentQuantity)
+        {
+            Logger.Warning($"⚠️ quantityToShip ({quantityToShip}) > CurrentQuantity ({box.CurrentQuantity}). Корректируем.");
+            quantityToShip = box.CurrentQuantity;
+            isFullShipment = true;
+        }
         int newQuantity = box.CurrentQuantity - quantityToShip;
         
         BoxStatus newStatus;

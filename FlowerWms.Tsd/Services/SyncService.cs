@@ -30,8 +30,8 @@ public class SyncService
         }
     }
 
-    // ============================================================
-    // ✅ 4.5. ЕДИНЫЙ МЕТОД ОБНОВЛЕНИЯ ЛОКАЛЬНОЙ БД
+  // ============================================================
+    // ✅ 4.5. ЕДИНЫЙ МЕТОД ОБНОВЛЕНИЯ ЛОКАЛЬНОЙ БД (ИСПРАВЛЕННЫЙ)
     // ============================================================
     public async Task RefreshLocalCacheFromServer()
     {
@@ -51,23 +51,79 @@ public class SyncService
             {
                 Logger.Info($"Обновление локального кэша с сервера...");
                 
+                // ✅ Получаем коробки с локальными изменениями
+                var pendingTransactions = await _offlineService.GetUnsyncedTransactions();
+                var localChangedBarcodes = new HashSet<string>();
+                
+                foreach (var tx in pendingTransactions)
+                {
+                    if (tx.operation_type == "Shipping" || tx.operation_type == "Receiving")
+                    {
+                        localChangedBarcodes.Add(tx.barcode);
+                    }
+                }
+                
+                Logger.Info($"📋 Коробок с локальными изменениями: {localChangedBarcodes.Count}");
+                
                 // 4.5.3.1. Загрузить все коробки с сервера
                 var boxes = await _apiService.GetAllBoxesForSync();
                 Logger.Info($"1. количество коробок на сервере {boxes.Count}");
                 
                 if (boxes != null && boxes.Any())
                 {
-                    var db = await _dbHelper.GetDatabaseAsync();
-                    await db.ExecuteAsync("DELETE FROM boxes_cache");
+                    // ✅ НЕ УДАЛЯЕМ ВСЕ! Обновляем только те, у которых нет локальных изменений
+                    var updatedCount = 0;
+                    var skippedCount = 0;
                     
-                    var boxCacheList = new List<BoxCache>();
                     foreach (var box in boxes)
                     {
+                        // Проверяем, есть ли локальные изменения для этой коробки
+                        if (localChangedBarcodes.Contains(box.Barcode))
+                        {
+                            // Проверяем, не устарела ли локальная запись
+                            var localBox = await _dbHelper.GetBoxByBarcode(box.Barcode);
+                            if (localBox != null)
+                            {
+                                // Если локальное количество = 0, а серверное > 0 — принудительно обновляем
+                                if (localBox.current_quantity == 0 && box.CurrentQuantity > 0)
+                                {
+                                    Logger.Warning($"⚠️ Принудительное обновление {box.Barcode}: локальное=0, серверное={box.CurrentQuantity}");
+                                    
+                                    var boxCache = new BoxCache
+                                    {
+                                        barcode = box.Barcode,
+                                        box_id = box.Id,
+                                        box_number = box.BoxNumber,
+                                        grade = box.Grade,
+                                        initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.CurrentQuantity,
+                                        current_quantity = box.CurrentQuantity,
+                                        product_id = box.ProductId,
+                                        product_name = box.ProductName,
+                                        product_ean13 = box.ProductEan13,
+                                        location_code = box.LocationCode ?? "UNKNOWN",
+                                        status = box.Status,
+                                        created_at = box.CreatedAt,
+                                        updated_at = box.UpdatedAt
+                                    };
+                                    
+                                    await _dbHelper.UpdateOrInsertBox(boxCache);
+                                    updatedCount++;
+                                    Logger.Info($"✅ Принудительно обновлена коробка: {box.Barcode}, status={box.Status}, quantity={box.CurrentQuantity}");
+                                    continue;
+                                }
+                            }
+                            
+                            Logger.Info($"⏭️ Пропускаем обновление коробки {box.Barcode} (есть локальные изменения)");
+                            skippedCount++;
+                            continue;
+                        }
+                        
+                        // Проверяем, нужно ли обновлять статус
                         if (box.Status == BoxStatus.Draft || 
                             box.Status == BoxStatus.Active || 
                             box.Status == BoxStatus.Reserved)
                         {
-                            boxCacheList.Add(new BoxCache
+                            var boxCache = new BoxCache
                             {
                                 barcode = box.Barcode,
                                 box_id = box.Id,
@@ -82,16 +138,16 @@ public class SyncService
                                 status = box.Status,
                                 created_at = box.CreatedAt,
                                 updated_at = box.UpdatedAt
-                            });
-                            Logger.Info($"2. Добавлена коробка в локальную базу: barcode = {box.Barcode}, status={box.Status}");
+                            };
+                            
+                            // ✅ ОБНОВЛЯЕМ, А НЕ ЗАМЕНЯЕМ!
+                            await _dbHelper.UpdateOrInsertBox(boxCache);
+                            updatedCount++;
+                            Logger.Info($"2. Обновлена коробка: {box.Barcode}, status={box.Status}");
                         }
                     }
                     
-                    if (boxCacheList.Any())
-                    {
-                        await _dbHelper.SyncBoxes(boxCacheList);
-                        Logger.Info($"✅ Загружено {boxCacheList.Count} коробок");
-                    }
+                    Logger.Info($"✅ Обновлено {updatedCount} коробок, пропущено {skippedCount} (с локальными изменениями)");
                     
                     await _dbHelper.UpdateServerLastChanged(serverTimestamp);
                     Logger.Info($"✅ ServerLastChanged обновлен: {serverTimestamp}");
@@ -104,7 +160,7 @@ public class SyncService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка обновления кэша: {ex.Message}");
+            Logger.Error($"❌ Ошибка обновления кэша: {ex.Message}");
             throw;
         }
     }

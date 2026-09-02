@@ -219,13 +219,7 @@ public partial class HomeViewModel : ObservableObject
     [RelayCommand]
     private async Task Sync()
     {
-        if (IsSyncing) 
-        {
-            System.Diagnostics.Debug.WriteLine("Синхронизация уже выполняется");
-            return;
-        }
-        
-        System.Diagnostics.Debug.WriteLine("Запуск ручной синхронизации");
+        if (IsSyncing) return;
         
         try
         {
@@ -259,8 +253,9 @@ public partial class HomeViewModel : ObservableObject
             SyncStatusMessage = "Синхронизация данных...";
             await _syncService.SyncAllData();
             
+            /* вызов await _syncQueueService.ProcessQueueAsync(); дублируется в await _syncService.SyncAllData();
             SyncStatusMessage = "Обработка офлайн-транзакций...";
-            await _syncQueueService.ProcessQueueAsync();
+            await _syncQueueService.ProcessQueueAsync();*/
             
             await RefreshPendingCount();
             
