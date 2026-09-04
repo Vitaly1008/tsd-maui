@@ -139,12 +139,20 @@
             </Grid>
         </Frame>
 
-        <!-- Индикатор загрузки -->
-        <ActivityIndicator Grid.Row="2" 
-                           IsRunning="{Binding IsLoading}" 
-                           Color="White" 
-                           HorizontalOptions="Center"
-                           VerticalOptions="Center" />
+       <!-- Индикатор загрузки -->
+       <Grid Grid.Row="2" 
+       IsVisible="{Binding IsLoading}"
+       VerticalOptions="Center"
+       HorizontalOptions="Center">
+       <VerticalStackLayout Spacing="8" HorizontalOptions="Center">
+              <ActivityIndicator IsRunning="True" Color="White" HeightRequest="40" />
+              <Label Text="{Binding LoadingStatusText}" 
+                     TextColor="White" 
+                     FontSize="14"
+                     FontAttributes="Bold"
+                     HorizontalOptions="Center" />
+       </VerticalStackLayout>
+       </Grid>
 
         <!-- Футер -->
         <Label Grid.Row="3"

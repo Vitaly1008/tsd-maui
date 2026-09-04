@@ -14,8 +14,6 @@ namespace FlowerWms.Tsd.ViewModels;
 public abstract partial class BaseOperationViewModel : BaseScannerViewModel
 {
     protected readonly string _operationType;
-    protected readonly System.Timers.Timer _autoSaveTimer;
-    protected int _scanCountSinceLastSave;
 
     [ObservableProperty]
     private string _currentLocation = "UNKNOWN";
@@ -62,60 +60,12 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         : base(barcodeService)
     {
         _operationType = operationType;
-        _autoSaveTimer = new System.Timers.Timer(30000);
-        _autoSaveTimer.Elapsed += OnAutoSaveTimerElapsed;
-        _autoSaveTimer.AutoReset = true;
     }
 
     // ✅ ИСПРАВЛЕНО: правильная сигнатура
     public override async Task Initialize(IBarcodeService? barcodeService = null)
     {
         await base.Initialize(barcodeService);
-        _autoSaveTimer.Start();
-    }
-
-    private async void OnAutoSaveTimerElapsed(object? sender, ElapsedEventArgs e)
-    {
-        await AutoSaveIfNeeded();
-    }
-
-    protected virtual async Task AutoSaveIfNeeded()
-    {
-        if (_scanCountSinceLastSave == 0 || ScannedBoxes.Count == 0)
-            return;
-
-        try
-        {
-            var boxes = ScannedBoxes.ToList();
-            
-            var payload = new
-            {
-                operationType = _operationType,
-                boxes = boxes.Select(b => b.ToDictionary()),
-                locationCode = CurrentLocation,
-                orderNumber = OrderNumber,
-                orderId = OrderId,
-                isAutoSave = true,
-                deviceId = Constants.DeviceId,
-                timestamp = DateTime.UtcNow,
-                boxCount = boxes.Count,
-                totalQuantity = boxes.Sum(b => b.CurrentQuantity)
-            };
-
-            await new OfflineService().SaveTransaction(
-                operationType: $"{_operationType}_autosave",
-                barcode: string.Join(",", boxes.Select(b => b.Barcode)),
-                payload: payload,
-                deviceId: Constants.DeviceId
-            );
-
-            _scanCountSinceLastSave = 0;
-            System.Diagnostics.Debug.WriteLine($"Автосохранение: {boxes.Count} коробок");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка автосохранения: {ex.Message}");
-        }
     }
 
     protected override async Task ProcessBarcode(string barcode)
@@ -208,7 +158,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             ScannedBoxes.Add(box);
             ScannedCount = ScannedBoxes.Count;
             LastScannedBarcode = box.Barcode;
-            _scanCountSinceLastSave++;
 
             IsBoxScanned = true;
             BoxInfoText = $"{box.ProductName} | {box.Quantity} шт. | {box.Grade} | №{box.BoxNumber}";
@@ -216,11 +165,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
 
             SetSuccess($"Коробка добавлена: #{box.BoxNumber}");
             Vibration.Vibrate(100);
-
-            if (_scanCountSinceLastSave >= 5)
-            {
-                _ = AutoSaveIfNeeded();
-            }
         });
     }
 
@@ -234,7 +178,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             IsBoxScanned = false;
             BoxInfoText = string.Empty;
             BoxNumberDisplay = string.Empty;
-            _scanCountSinceLastSave = 0;
             SetStatus("Готов к сканированию", "📷", Colors.Gray);
         });
     }
@@ -270,9 +213,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             return;
         }
 
-        _autoSaveTimer.Stop();
-        await AutoSaveIfNeeded();
-
         // Должен быть переопределён в наследниках
         await Task.CompletedTask;
     }
@@ -280,8 +220,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
     [RelayCommand]
     public virtual async Task CancelOperation()
     {
-        _autoSaveTimer.Stop();
-
         if (ScannedBoxes.Count > 0)
         {
             var confirm = await Application.Current?.MainPage?.DisplayAlert(
@@ -346,8 +284,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
 
     public override void Dispose()
     {
-        _autoSaveTimer?.Stop();
-        _autoSaveTimer?.Dispose();
         base.Dispose();
     }
 }

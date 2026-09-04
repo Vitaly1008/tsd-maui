@@ -59,6 +59,9 @@ public partial class LoginViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSyncingPartialBoxes; //  ДОБАВЛЕНО: индикатор загрузки частичных коробок
 
+    [ObservableProperty]
+    private string _loadingStatusText = "Подключение к серверу...";
+
     public event EventHandler<LoginResponse>? LoginSuccess;
 
     public LoginViewModel()
@@ -235,10 +238,11 @@ public partial class LoginViewModel : ObservableObject
                 ErrorMessage = "Сервер не доступен. Нажмите 'Поиск сервера'";
                 return;
             }
-
             // 2. Выполняем аутентификацию
             var response = await _authService.Login(Username, Password);
             
+            LoadingStatusText = "⏳ Подключение к серверу...";
+
             // 3. Проверяем успешность входа
             if (response == null || string.IsNullOrEmpty(response.Token))
             {
@@ -246,11 +250,15 @@ public partial class LoginViewModel : ObservableObject
                 return;
             }
 
+            LoadingStatusText = "🔄 Синхронизация данных...";
+
             //  4. ПО АЛГОРИТМУ (п.1): загружаем частичные коробки с сервера
             await SyncAfterLogin();
 
             // 5. Уведомляем об успешном входе
             LoginSuccess?.Invoke(this, response);
+
+            LoadingStatusText = "✅ Готово!";
         }
         catch (Exception ex)
         {

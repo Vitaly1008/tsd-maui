@@ -314,7 +314,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 if (i == boxes.Count - 1 && IsPartialShipmentMode && CanPartialShip)
                 {
                     quantityToShip = ShipQuantity;
-                    isFullShipment = quantityToShip >= box.CurrentQuantity;
+                    isFullShipment = false;
                 }
                 else
                 {
@@ -386,8 +386,6 @@ public partial class ShippingViewModel : BaseOperationViewModel
         }
     }
 
-    //  ИСПРАВЛЕНО: убрано дублирование сохранения транзакций
-    // Теперь используется только ApiService (который теперь сохраняет Shipping)
     private async Task SaveLocalShipment(Box box, int quantityToShip, bool isFullShipment)
     {
         if (quantityToShip <= 0)
@@ -403,24 +401,32 @@ public partial class ShippingViewModel : BaseOperationViewModel
             quantityToShip = box.CurrentQuantity;
             isFullShipment = true;
         }
+        
         int newQuantity = box.CurrentQuantity - quantityToShip;
         
         BoxStatus newStatus;
+        
+        // ✅ ИСПРАВЛЕНО: правильная логика статусов
         if (isFullShipment)
         {
+            // Полная отгрузка → Shipped (количество = 0)
             newStatus = BoxStatus.Shipped;
             newQuantity = 0;
         }
-        else if (newQuantity == 0)
-        {
-            newStatus = BoxStatus.Empty;
-        }
         else
         {
-            newStatus = BoxStatus.Active;
+            // Частичная отгрузка
+            if (newQuantity == 0)
+            {
+                newStatus = BoxStatus.Empty;  // Все цветы отгружены частичными операциями
+            }
+            else
+            {
+                newStatus = BoxStatus.Active; // Остались цветы
+            }
         }
 
-        // ✅ Обновляем локальную БД (БЕЗ isPartial)
+        // ✅ Обновляем локальную БД
         await _dbHelper.ForceUpdateBoxStatus(
             barcode: box.Barcode,
             newStatus: newStatus,
@@ -434,7 +440,8 @@ public partial class ShippingViewModel : BaseOperationViewModel
             barcode = box.Barcode,
             quantity = quantityToShip,
             isFullShipment = isFullShipment,
-            currentQuantity = box.CurrentQuantity
+            currentQuantity = box.CurrentQuantity,
+            newQuantity = newQuantity
         };
 
         await _syncQueueService.EnqueueAsync(
@@ -444,7 +451,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
             deviceId: Constants.DeviceId
         );
 
-        Logger.Info($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт.");
+        Logger.Info($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт., isFullShipment={isFullShipment}, новый статус={newStatus}, новое количество={newQuantity}");
     }
 
     public override void RemoveBox(object parameter)
