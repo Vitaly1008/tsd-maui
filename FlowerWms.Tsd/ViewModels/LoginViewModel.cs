@@ -11,7 +11,7 @@ public partial class LoginViewModel : ObservableObject
 {
     private readonly AuthService _authService;
     private readonly ServerDiscoveryService _discoveryService;
-    private readonly SyncService _syncService; //  ДОБАВЛЕНО
+    private readonly SyncService _syncService;
     private bool _isLoginExecuting;
 
     [ObservableProperty]
@@ -54,10 +54,7 @@ public partial class LoginViewModel : ObservableObject
     private string _serverAddressDisplay = string.Empty;
 
     [ObservableProperty]
-    private bool _isLoginEnabled = true;
-
-    [ObservableProperty]
-    private bool _isSyncingPartialBoxes; //  ДОБАВЛЕНО: индикатор загрузки частичных коробок
+    private bool _isSyncingPartialBoxes;
 
     [ObservableProperty]
     private string _loadingStatusText = "Подключение к серверу...";
@@ -68,14 +65,14 @@ public partial class LoginViewModel : ObservableObject
     {
         _authService = new AuthService();
         _discoveryService = new ServerDiscoveryService();
-        _syncService = new SyncService(); //  ДОБАВЛЕНО
-        
+        _syncService = new SyncService();
+
         _discoveryService.ScanProgressChanged += OnScanProgressChanged;
 
         ServerAddress = Constants.ApiBaseUrl;
         ServerAddressDisplay = $"{ServerAddress}";
         DeviceIp = _discoveryService.GetLocalIpAddress() ?? "не определен";
-        
+
         _ = CheckServerAsync();
     }
 
@@ -94,7 +91,7 @@ public partial class LoginViewModel : ObservableObject
         try
         {
             var isAvailable = await _discoveryService.PingServer(Constants.ApiBaseUrl);
-            
+
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 if (isAvailable)
@@ -126,9 +123,12 @@ public partial class LoginViewModel : ObservableObject
     [RelayCommand]
     private async Task FindServer()
     {
+        if (IsLoading) return; // защита от повторного нажатия
+
         MainThread.BeginInvokeOnMainThread(() =>
         {
             IsLoading = true;
+            LoadingStatusText = "🔍 Поиск сервера...";
             SearchButtonText = "Поиск...";
             ErrorMessage = string.Empty;
             ServerStatusText = "Поиск сервера...";
@@ -136,13 +136,12 @@ public partial class LoginViewModel : ObservableObject
             ServerStatusColor = Colors.Orange;
             TitleText = "Идет поиск сервера";
             SubtitleText = "Пожалуйста, подождите...";
-            IsLoginEnabled = false;
         });
 
         try
         {
             var serverAddress = await _discoveryService.GetServerAddress();
-            
+
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 if (!string.IsNullOrEmpty(serverAddress))
@@ -150,11 +149,11 @@ public partial class LoginViewModel : ObservableObject
                     ServerAddress = serverAddress;
                     Constants.ApiBaseUrl = serverAddress;
                     ServerAddressDisplay = $"{serverAddress}";
-                    
+
                     ServerStatusText = "Сервер найден";
                     ServerStatusIcon = "✅";
                     ServerStatusColor = Colors.Green;
-                    
+
                     Application.Current?.MainPage?.DisplayAlert(
                         "Сервер найден",
                         $"Сервер доступен по адресу:\n{serverAddress}",
@@ -167,7 +166,7 @@ public partial class LoginViewModel : ObservableObject
                     ServerStatusIcon = "❌";
                     ServerStatusColor = Colors.Red;
                     ServerAddressDisplay = $"{ServerAddress}";
-                    
+
                     Application.Current?.MainPage?.DisplayAlert(
                         "Сервер не найден",
                         "Не удалось найти сервер в сети.\n\n" +
@@ -189,7 +188,7 @@ public partial class LoginViewModel : ObservableObject
                 ServerStatusIcon = "⚠️";
                 ServerStatusColor = Colors.Red;
                 ServerAddressDisplay = $"{ServerAddress}";
-                
+
                 Application.Current?.MainPage?.DisplayAlert(
                     "Ошибка",
                     $"Ошибка поиска сервера: {ex.Message}",
@@ -205,8 +204,7 @@ public partial class LoginViewModel : ObservableObject
                 SearchButtonText = "Поиск сервера";
                 TitleText = "ALPHA WMS";
                 SubtitleText = "Терминал сбора данных";
-                IsLoginEnabled = true;
-                
+
                 if (ServerStatusColor != Colors.Green)
                 {
                     ServerAddressDisplay = $"{ServerAddress}";
@@ -215,19 +213,31 @@ public partial class LoginViewModel : ObservableObject
         }
     }
 
-    //  ИСПРАВЛЕНО: добавлен вызов SyncPartialBoxes после успешного логина
+    // Вход в систему
     [RelayCommand]
     private async Task Login()
     {
+        if (_isLoginExecuting) return; // защита от двойного нажатия
+
         if (string.IsNullOrEmpty(Username) || string.IsNullOrEmpty(Password))
         {
             ErrorMessage = "Введите имя пользователя и пароль";
             return;
         }
 
-        IsLoginEnabled = false;
-        IsLoading = true;
-        ErrorMessage = string.Empty;
+        _isLoginExecuting = true;
+        var loginSucceeded = false;
+
+        // ✅ Сразу показываем оверлей и первый статус
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsLoading = true;
+            LoadingStatusText = "⏳ Подключение к серверу...";
+            ErrorMessage = string.Empty;
+        });
+
+        // Даём UI один кадр, чтобы оверлей успел отрисоваться
+        await Task.Delay(50);
 
         try
         {
@@ -238,27 +248,40 @@ public partial class LoginViewModel : ObservableObject
                 ErrorMessage = "Сервер не доступен. Нажмите 'Поиск сервера'";
                 return;
             }
-            // 2. Выполняем аутентификацию
-            var response = await _authService.Login(Username, Password);
-            
-            LoadingStatusText = "⏳ Подключение к серверу...";
 
-            // 3. Проверяем успешность входа
+            // 2. Авторизация
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                LoadingStatusText = "🔐 Авторизация...";
+            });
+
+            var response = await _authService.Login(Username, Password);
+
             if (response == null || string.IsNullOrEmpty(response.Token))
             {
                 ErrorMessage = "Неверный логин или пароль";
                 return;
             }
 
-            LoadingStatusText = "🔄 Синхронизация данных...";
+            // 3. Синхронизация после логина (по алгоритму п.1)
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                LoadingStatusText = "🔄 Синхронизация данных...";
+            });
 
-            //  4. ПО АЛГОРИТМУ (п.1): загружаем частичные коробки с сервера
             await SyncAfterLogin();
 
-            // 5. Уведомляем об успешном входе
-            LoginSuccess?.Invoke(this, response);
+            // 4. Финал
+            loginSucceeded = true;
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                LoadingStatusText = "✅ Готово!";
+            });
 
-            LoadingStatusText = "✅ Готово!";
+            // Даём пользователю увидеть "Готово" перед навигацией
+            await Task.Delay(400);
+
+            LoginSuccess?.Invoke(this, response);
         }
         catch (Exception ex)
         {
@@ -266,8 +289,17 @@ public partial class LoginViewModel : ObservableObject
         }
         finally
         {
-            IsLoading = false;
-            IsLoginEnabled = true;
+            _isLoginExecuting = false;
+
+            // ✅ Если логин успешен — оставляем оверлей, пока идёт навигация.
+            // Он снимется вместе с удалением страницы (Navigation.RemovePage).
+            if (!loginSucceeded)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    IsLoading = false;
+                });
+            }
         }
     }
 
@@ -279,19 +311,17 @@ public partial class LoginViewModel : ObservableObject
         try
         {
             IsSyncingPartialBoxes = true;
-            
+
             System.Diagnostics.Debug.WriteLine("🔄 Синхронизация после логина...");
-            
-            // ✅ ВЫЗЫВАЕМ СИНХРОНИЗАЦИЮ ПОСЛЕ ЛОГИНА
-            // Она проверит очередь и обновит кэш
+
             await _syncService.SyncAfterLogin();
-            
+
             System.Diagnostics.Debug.WriteLine("✅ Синхронизация после логина завершена");
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка синхронизации после логина: {ex.Message}");
-            
+
             // Показываем предупреждение, но не прерываем вход
             await Application.Current?.MainPage?.DisplayAlert(
                 "Предупреждение",

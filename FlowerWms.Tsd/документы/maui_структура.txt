@@ -24,6 +24,7 @@ F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │   ├── Constants.cs                 # Хранение глобальных констант
 │   ├── DatabaseHelper.cs            # Работа с локальной SQLite БД
 │   ├── DatabaseModels.cs            # Модели данных для SQLite
+│   ├── Logger.cs		     # Логгер
 │   ├── StatusBarHelper.cs           # Получение высоты статус-бара на Android для корректных отступов в UI
 │   ├── VersionHelper.cs             # Получение версии и даты сборки
 │   └── VersionInfo.cs               # Единый файл для управления версией приложения

@@ -60,37 +60,6 @@
                        FontSize="13" />
             </Grid>
             
-            <BoxView HeightRequest="1" Color="LightGray" Margin="0,16,0,16" />
-            
-            <!-- Кнопка очистки таблицы синхронизации -->
-            <Button Text="🧹 Очистить таблицу синхронизации"
-                    Command="{Binding ClearSyncTableCommand}"
-                    IsEnabled="{Binding IsClearing, Converter={StaticResource InvertBooleanConverter}}"
-                    BackgroundColor="{StaticResource DangerColor}"
-                    TextColor="White"
-                    CornerRadius="8"
-                    HeightRequest="50"
-                    FontSize="13"
-                    FontAttributes="Bold"
-                    Margin="0,0,0,8">
-                <Button.Triggers>
-                    <DataTrigger TargetType="Button"
-                                Binding="{Binding IsClearing}"
-                                Value="True">
-                        <Setter Property="Text" Value="⏳ Очистка..." />
-                        <Setter Property="IsEnabled" Value="False" />
-                        <Setter Property="Opacity" Value="0.6" />
-                    </DataTrigger>
-                </Button.Triggers>
-            </Button>
-            
-            <!-- Подсказка к кнопке -->
-            <Label Text="⚠️ Удаляет все несинхронизированные операции безвозвратно"
-                   FontSize="11"
-                   TextColor="Gray"
-                   HorizontalTextAlignment="Center"
-                   Margin="0,0,0,16" />
-            
             <BoxView HeightRequest="1" Color="LightGray" Margin="0,0,0,16" />
             
             <!-- Копирайт -->
