@@ -49,13 +49,23 @@ public partial class ShippingViewModel : BaseOperationViewModel
     [ObservableProperty]
     private Color _shipModeColor = Colors.Green;
 
-    public ShippingViewModel(IBarcodeService? barcodeService = null)
-        : base("Shipping", barcodeService)
+    public ShippingViewModel(
+        DatabaseHelper dbHelper,
+        ApiService apiService,
+        SyncQueueService syncQueueService,
+        SyncService syncService,
+        IBarcodeService barcodeService)
+        : base("Shipping", dbHelper, apiService, syncQueueService, syncService, barcodeService)
     {
     }
 
     protected override async Task ProcessBoxScan(string barcode)
     {
+        // ✅ ИСПРАВЛЕНО: защита от параллельного сканирования
+        if (IsLoading) return;
+
+        IsLoading = true;
+
         try
         {
             if (ScannedBoxes.Any(b => b.Barcode == barcode))
@@ -75,11 +85,11 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 // ✅ 3.3.1. Есть в локальной БД
                 box = Box.FromCache(cachedBox);
                 Logger.Info($"📦 Коробка найдена в локальной БД: #{box.BoxNumber}, остаток: {box.CurrentQuantity}, статус: {box.Status}");
-                
+
                 // ✅ 3.3.2. Проверка статуса
                 if (box.Status == BoxStatus.Draft)
                 {
-                    Logger.Error($"Коробка #{boxNumber} имеет статус {box.Status}");
+                    Logger.Warning($"Коробка #{boxNumber} имеет статус {box.Status}");
                     SetError($"Коробка #{boxNumber} не активирована (Draft)");
                     return;
                 }
@@ -93,7 +103,20 @@ public partial class ShippingViewModel : BaseOperationViewModel
                     SetError($"Коробка #{boxNumber} пуста");
                     return;
                 }
-                // Active и Reserved — разрешены
+                // ✅ ДОБАВЛЕНО: явная проверка Discarded
+                if (box.Status == BoxStatus.Discarded)
+                {
+                    SetError($"Коробка #{boxNumber} списана");
+                    return;
+                }
+
+                // ✅ ДОБАВЛЕНО: предупреждение для Reserved
+                if (box.Status == BoxStatus.Reserved)
+                {
+                    SetWarning($"Коробка #{boxNumber} зарезервирована", "⚠️", Colors.Orange);
+                    // продолжаем — Reserved разрешён
+                }
+                // Active — разрешён без предупреждения
             }
             else
             {
@@ -132,6 +155,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
         catch (Exception ex)
         {
             SetError($"Ошибка: {ex.Message}");
+            Logger.Error($"Ошибка сканирования: {ex.Message}");
         }
         finally
         {
@@ -159,7 +183,6 @@ public partial class ShippingViewModel : BaseOperationViewModel
             if (!IsPartialShipmentMode)
             {
                 IsFullShipmentMode = true;
-                // Исправлено: используем _currentSelectedBox
                 ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
                 ShipQuantityDisplay = ShipQuantity.ToString();
                 ShipModeDescription = "Полная отгрузка (вся коробка)";
@@ -200,11 +223,12 @@ public partial class ShippingViewModel : BaseOperationViewModel
     }
 
     [RelayCommand]
-    public void SetPartialShipment()
+    public async Task SetPartialShipment()
     {
         if (!CanPartialShip)
         {
-            Application.Current?.MainPage?.DisplayAlert(
+            // ✅ ИСПРАВЛЕНО: устаревший API
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Информация",
                 "Частичная отгрузка доступна только для одной коробки",
                 "OK"
@@ -214,7 +238,6 @@ public partial class ShippingViewModel : BaseOperationViewModel
 
         IsFullShipmentMode = false;
         IsPartialShipmentMode = true;
-        // Исправлено: берем из _currentSelectedBox
         ShipQuantity = _currentSelectedBox?.CurrentQuantity ?? 0;
         ShipQuantityDisplay = ShipQuantity.ToString();
         ShipModeDescription = "Частичная отгрузка (укажите количество)";
@@ -267,7 +290,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
     {
         if (ScannedBoxes.Count == 0)
         {
-            await Application.Current?.MainPage?.DisplayAlert(
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Внимание",
                 "Нет коробок для отгрузки",
                 "OK"
@@ -277,7 +300,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
 
         if (IsPartialShipmentMode && ShipQuantity <= 0)
         {
-            await Application.Current?.MainPage?.DisplayAlert(
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Ошибка",
                 "Укажите количество для отгрузки",
                 "OK"
@@ -287,7 +310,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
 
         if (IsPartialShipmentMode && ShipQuantity > MaxQuantity)
         {
-            await Application.Current?.MainPage?.DisplayAlert(
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Ошибка",
                 $"Нельзя отгрузить больше {MaxQuantity} шт.",
                 "OK"
@@ -296,6 +319,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
         }
 
         IsLoading = true;
+        bool operationSucceeded = false;
         var boxes = ScannedBoxes.ToList();
         int shippedCount = 0;
         int partialCount = 0;
@@ -325,16 +349,23 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 if (quantityToShip <= 0) continue;
                 if (quantityToShip > box.CurrentQuantity) quantityToShip = box.CurrentQuantity;
 
-                int newQuantity = box.CurrentQuantity - quantityToShip;
-                totalShippedQuantity += quantityToShip;
+                // ✅ ИСПРАВЛЕНО: try/catch на итерацию — одна ошибка не прерывает остальные
+                try
+                {
+                    await SaveLocalShipment(box, quantityToShip, isFullShipment);
+                    localCount++;
+                    totalShippedQuantity += quantityToShip;
 
-                await SaveLocalShipment(box, quantityToShip, isFullShipment);
-                localCount++;
-                
-                if (isFullShipment)
-                    shippedCount++;
-                else
-                    partialCount++;
+                    if (isFullShipment)
+                        shippedCount++;
+                    else
+                        partialCount++;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"Ошибка отгрузки коробки #{box.BoxNumber}: {ex.Message}");
+                    errors.Add($"#{box.BoxNumber}: {ex.Message}");
+                }
             }
 
             // ✅ Получаем количество операций в очереди
@@ -358,23 +389,17 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 message += "\n\n✅ Все операции синхронизированы!";
             }
 
-            await Application.Current?.MainPage?.DisplayAlert(
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 errors.Any() ? "Внимание" : "Успешно",
                 message,
                 "OK"
             );
 
-            // ❌ УДАЛЯЕМ ФОНОВУЮ СИНХРОНИЗАЦИЮ
-            // Синхронизация будет выполнена:
-            // 1. Вручную из SyncQueuePage
-            // 2. Автоматически после логина (если есть транзакции)
-
-            ClearSession();
-            OnOperationCompleted();
+            operationSucceeded = true;
         }
         catch (Exception ex)
         {
-            await Application.Current?.MainPage?.DisplayAlert(
+            await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Ошибка",
                 $"Не удалось выполнить отгрузку: {ex.Message}",
                 "OK"
@@ -383,6 +408,13 @@ public partial class ShippingViewModel : BaseOperationViewModel
         finally
         {
             IsLoading = false;
+        }
+
+        // ✅ ИСПРАВЛЕНО: вынесено после try/catch
+        if (operationSucceeded)
+        {
+            ClearSession();
+            OnOperationCompleted();
         }
     }
 
@@ -393,7 +425,7 @@ public partial class ShippingViewModel : BaseOperationViewModel
             Logger.Warning($"⚠️ Попытка отгрузки с quantity=0 для #{box.BoxNumber}");
             return;
         }
-        
+
         // ✅ Если quantityToShip больше, чем есть — корректируем
         if (quantityToShip > box.CurrentQuantity)
         {
@@ -401,29 +433,26 @@ public partial class ShippingViewModel : BaseOperationViewModel
             quantityToShip = box.CurrentQuantity;
             isFullShipment = true;
         }
-        
+
         int newQuantity = box.CurrentQuantity - quantityToShip;
-        
+
         BoxStatus newStatus;
-        
-        // ✅ ИСПРАВЛЕНО: правильная логика статусов
+
+        // ✅ ЛОГИКА (по решению B):
+        // - Полная отгрузка → Shipped (кол-во = 0)
+        // - Частичная с new_quantity == 0 → Empty
+        // - Частичная с new_quantity > 0 → Active
         if (isFullShipment)
         {
-            // Полная отгрузка → Shipped (количество = 0)
             newStatus = BoxStatus.Shipped;
             newQuantity = 0;
         }
         else
         {
-            // Частичная отгрузка
             if (newQuantity == 0)
-            {
-                newStatus = BoxStatus.Empty;  // Все цветы отгружены частичными операциями
-            }
+                newStatus = BoxStatus.Empty;
             else
-            {
-                newStatus = BoxStatus.Active; // Остались цветы
-            }
+                newStatus = BoxStatus.Active;
         }
 
         // ✅ Обновляем локальную БД
@@ -441,7 +470,9 @@ public partial class ShippingViewModel : BaseOperationViewModel
             quantity = quantityToShip,
             isFullShipment = isFullShipment,
             currentQuantity = box.CurrentQuantity,
-            newQuantity = newQuantity
+            newQuantity = newQuantity,
+            previousStatus = (int)box.Status,
+            previousQuantity = box.CurrentQuantity
         };
 
         await _syncQueueService.EnqueueAsync(

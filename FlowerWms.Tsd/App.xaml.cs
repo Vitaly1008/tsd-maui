@@ -1,6 +1,7 @@
 using Microsoft.Maui;
 using Microsoft.Maui.Controls;
 using FlowerWms.Tsd.Converters;
+using FlowerWms.Tsd.Helpers;
 using FlowerWms.Tsd.Views;
 using FlowerWms.Tsd.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,17 +11,16 @@ namespace FlowerWms.Tsd;
 public partial class App : Application
 {
     private readonly IServiceProvider _serviceProvider;
+    private bool _initialized;
 
-    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
     public App(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        
+
         try
         {
             InitializeResources();
-            
-            // ✅ СОЗДАЕМ LoginPage ЧЕРЕЗ DI
+
             var loginViewModel = _serviceProvider.GetService<LoginViewModel>();
             var loginPage = new LoginPage(loginViewModel, _serviceProvider);
             MainPage = new NavigationPage(loginPage);
@@ -28,8 +28,24 @@ public partial class App : Application
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Критическая ошибка при создании App: {ex.Message}");
-            System.Diagnostics.Debug.WriteLine($"StackTrace: {ex.StackTrace}");
             throw;
+        }
+    }
+
+    protected override async void OnStart()
+    {
+        base.OnStart();
+
+        if (_initialized) return;
+        _initialized = true;
+
+        try
+        {
+            await Constants.InitAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка InitAsync: {ex.Message}");
         }
     }
 

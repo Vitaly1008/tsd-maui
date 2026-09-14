@@ -56,8 +56,14 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         OperationCancelled?.Invoke(this, EventArgs.Empty);
     }
 
-    protected BaseOperationViewModel(string operationType, IBarcodeService? barcodeService = null)
-        : base(barcodeService)
+    protected BaseOperationViewModel(
+        string operationType,
+        DatabaseHelper dbHelper,
+        ApiService apiService,
+        SyncQueueService syncQueueService,
+        SyncService syncService,
+        IBarcodeService? barcodeService = null)
+        : base(dbHelper, apiService, syncQueueService, syncService, barcodeService)
     {
         _operationType = operationType;
     }

@@ -43,12 +43,20 @@ public partial class InventoryPage : BasePage
     // Выполняется при выгрузке страницы
     private void OnPageUnloaded(object? sender, EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.OperationCancelled -= OnOperationCancelled;
+        }
         StopScannerAndDispose();
     }
 
     // Обработчик отмены операции
     private async void OnOperationCancelled(object? sender, EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.OperationCancelled -= OnOperationCancelled;
+        }
         StopScannerAndDispose();
         await Navigation.PopAsync();
     }

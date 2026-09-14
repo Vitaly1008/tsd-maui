@@ -1,11 +1,11 @@
-﻿using Microsoft.Extensions.Logging;
+﻿﻿using Microsoft.Extensions.Logging;
 using FlowerWms.Tsd.Services;
+using FlowerWms.Tsd.Helpers;
 using FlowerWms.Tsd.Platforms.Android;
 using FlowerWms.Tsd.ViewModels;
 
 namespace FlowerWms.Tsd;
 
-// Конфигурация приложения
 public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
@@ -19,18 +19,27 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
 
-        // Регистрация сервисов как Singleton
-        builder.Services.AddSingleton<ApiService>();
-        builder.Services.AddSingleton<AuthService>();
-        builder.Services.AddSingleton<OfflineService>();
-        builder.Services.AddSingleton<SyncService>();
-        builder.Services.AddSingleton<SyncQueueService>();
+        // ===== БАЗОВЫЕ =====
+        builder.Services.AddSingleton<DatabaseHelper>();
         builder.Services.AddSingleton<SecureStorageService>();
-        builder.Services.AddSingleton<NetworkService>();
+
+        // ===== УРОВЕНЬ 2 =====
+        builder.Services.AddSingleton<OfflineService>();
         builder.Services.AddSingleton<ServerDiscoveryService>();
+
+        // ===== УРОВЕНЬ 3 =====
+        builder.Services.AddSingleton<ApiService>();
+        builder.Services.AddSingleton<SyncQueueService>();
+
+        // ===== УРОВЕНЬ 4 =====
+        builder.Services.AddSingleton<SyncService>();
+        builder.Services.AddSingleton<AuthService>();
+
+        // ===== УРОВЕНЬ 5 =====
+        builder.Services.AddSingleton<NetworkService>();
         builder.Services.AddSingleton<IBarcodeService, BarcodeService>();
 
-        // ✅ РЕГИСТРАЦИЯ ВСЕХ VIEWMODEL
+        // ===== VIEWMODELS =====
         builder.Services.AddTransient<LoginViewModel>();
         builder.Services.AddTransient<HomeViewModel>();
         builder.Services.AddTransient<SyncQueueViewModel>();

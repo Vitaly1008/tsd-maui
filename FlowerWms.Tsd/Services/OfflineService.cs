@@ -9,9 +9,10 @@ public class OfflineService
 {
     private readonly DatabaseHelper _dbHelper;
 
-    public OfflineService()
+    // ✅ ИСПРАВЛЕНО: DI через конструктор
+    public OfflineService(DatabaseHelper dbHelper)
     {
-        _dbHelper = new DatabaseHelper();
+        _dbHelper = dbHelper;
         Logger.Info("OfflineService инициализирован");
     }
 
@@ -283,34 +284,68 @@ public class OfflineService
 
             Logger.Info($"📋 Тип транзакции для отката: {transaction.operation_type}, barcode={transaction.barcode}");
 
-            // Парсим payload
             var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(transaction.payload);
             var barcode = transaction.barcode;
 
             if (transaction.operation_type == "Receiving")
             {
-                // Приемка: удаляем коробку из локальной БД
-                Logger.Info($"🗑️ Откат приемки: удаление коробки {barcode}");
-                await _dbHelper.DeleteBoxByBarcode(barcode);
-                Logger.Info($"✅ Откат приемки завершен: удалена коробка {barcode}");
+                // ✅ ИСПРАВЛЕНО: учитываем, была ли коробка создана локально
+                var wasCreatedLocally = ExtractBoolValue(payload, "wasCreatedLocally", true);
+                var previousStatus = (BoxStatus)ExtractIntValue(payload, "previousStatus", (int)BoxStatus.Draft);
+
+                if (wasCreatedLocally)
+                {
+                    // Коробка создавалась заново → откат = удалить
+                    Logger.Info($"🗑️ Откат приемки (коробка создавалась локально): удаление {barcode}");
+                    await _dbHelper.DeleteBoxByBarcode(barcode);
+                    Logger.Info($"✅ Откат приемки завершен: удалена коробка {barcode}");
+                }
+                else
+                {
+                    // Коробка уже была → откат = вернуть предыдущий статус
+                    Logger.Info($"🔄 Откат приемки (коробка существовала): возврат статуса {previousStatus} для {barcode}");
+
+                    var box = await _dbHelper.GetBoxByBarcode(barcode);
+                    if (box != null)
+                    {
+                        await _dbHelper.ForceUpdateBoxStatus(
+                            barcode: barcode,
+                            newStatus: previousStatus,
+                            newQuantity: box.current_quantity
+                        );
+                        Logger.Info($"✅ Откат приемки завершен: статус {barcode} -> {previousStatus}");
+                    }
+                    else
+                    {
+                        Logger.Warning($"⚠️ Коробка не найдена для отката: {barcode}");
+                    }
+                }
             }
             else if (transaction.operation_type == "Shipping")
             {
-                // Отгрузка: восстанавливаем количество
-                Logger.Info($"🔄 Откат отгрузки: восстановление количества для {barcode}");
+                // ✅ ИСПРАВЛЕНО: восстанавливаем предыдущий статус
+                var previousStatus = (BoxStatus)ExtractIntValue(payload, "previousStatus", (int)BoxStatus.Active);
+                var previousQuantity = ExtractIntValue(payload, "previousQuantity", 0);
+
+                Logger.Info($"🔄 Откат отгрузки: восстановление {barcode} -> status={previousStatus}, quantity={previousQuantity}");
+
                 var box = await _dbHelper.GetBoxByBarcode(barcode);
                 if (box != null)
                 {
-                    var shippedQuantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
-                    var restoredQuantity = box.current_quantity + shippedQuantity;
-                    Logger.Info($"📊 Было: {box.current_quantity}, списано: {shippedQuantity}, будет: {restoredQuantity}");
-                    
+                    // Если previousQuantity не сохранён (старая транзакция), считаем из shippedQuantity
+                    if (previousQuantity <= 0)
+                    {
+                        var shippedQuantity = ExtractIntValue(payload, "quantity", 0);
+                        previousQuantity = box.current_quantity + shippedQuantity;
+                        Logger.Info($"📊 previousQuantity не задан, вычислено: {previousQuantity} (текущее {box.current_quantity} + отгружено {shippedQuantity})");
+                    }
+
                     await _dbHelper.ForceUpdateBoxStatus(
                         barcode: barcode,
-                        newStatus: BoxStatus.Active,
-                        newQuantity: restoredQuantity
+                        newStatus: previousStatus,
+                        newQuantity: previousQuantity
                     );
-                    Logger.Info($"✅ Откат отгрузки завершен: восстановлено {shippedQuantity} шт. для {barcode}");
+                    Logger.Info($"✅ Откат отгрузки завершен: {barcode} -> status={previousStatus}, qty={previousQuantity}");
                 }
                 else
                 {
@@ -330,5 +365,54 @@ public class OfflineService
             Logger.Error($"StackTrace: {ex.StackTrace}");
             return false;
         }
+    }
+
+    // ✅ Локальные helper'ы (можно вынести в общий класс)
+    private static int ExtractIntValue(Dictionary<string, object>? payload, string key, int defaultValue = 0)
+    {
+        if (payload == null || !payload.TryGetValue(key, out var value))
+            return defaultValue;
+
+        if (value == null) return defaultValue;
+        if (value is int i) return i;
+        if (value is long l) return (int)l;
+        if (value is double d) return (int)d;
+        if (value is string str && int.TryParse(str, out var parsed)) return parsed;
+
+        if (value is System.Text.Json.JsonElement je)
+        {
+            if (je.ValueKind == System.Text.Json.JsonValueKind.Number)
+                return je.GetInt32();
+            if (je.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var s = je.GetString();
+                if (int.TryParse(s, out var p)) return p;
+            }
+        }
+
+        return defaultValue;
+    }
+
+    private static bool ExtractBoolValue(Dictionary<string, object>? payload, string key, bool defaultValue = false)
+    {
+        if (payload == null || !payload.TryGetValue(key, out var value))
+            return defaultValue;
+
+        if (value == null) return defaultValue;
+        if (value is bool b) return b;
+        if (value is string str && bool.TryParse(str, out var parsed)) return parsed;
+
+        if (value is System.Text.Json.JsonElement je)
+        {
+            if (je.ValueKind == System.Text.Json.JsonValueKind.True) return true;
+            if (je.ValueKind == System.Text.Json.JsonValueKind.False) return false;
+            if (je.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var s = je.GetString();
+                if (bool.TryParse(s, out var p)) return p;
+            }
+        }
+
+        return defaultValue;
     }
 }

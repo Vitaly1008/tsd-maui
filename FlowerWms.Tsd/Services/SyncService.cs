@@ -13,12 +13,17 @@ public class SyncService
 
     public event EventHandler<SyncStatus>? StatusChanged;
 
-    public SyncService()
+    // ✅ ИСПРАВЛЕНО: DI через конструктор
+    public SyncService(
+        ApiService apiService,
+        DatabaseHelper dbHelper,
+        OfflineService offlineService,
+        SyncQueueService syncQueueService)
     {
-        _apiService = new ApiService();
-        _dbHelper = new DatabaseHelper();
-        _offlineService = new OfflineService();
-        _syncQueueService = new SyncQueueService();
+        _apiService = apiService;
+        _dbHelper = dbHelper;
+        _offlineService = offlineService;
+        _syncQueueService = syncQueueService;
     }
 
     private void SetStatus(SyncStatus status)
@@ -40,87 +45,61 @@ public class SyncService
             // 4.5.1. Получить LastChanged с сервера
             var serverLastChanged = await _apiService.GetServerLastChanged();
             long serverTimestamp = SafeGetTimestamp(serverLastChanged);
-            
+
             // 4.5.2. Получить ServerLastChanged из локальной БД
             var localLastChanged = await _dbHelper.GetServerLastChanged();
-            
+
             Logger.Info($"Обновление локальной БД: ServerLastChanged: {serverTimestamp}, LocalLastChanged: {localLastChanged}");
-            
+
             // 4.5.3. Если LastChanged > ServerLastChanged
             if (serverTimestamp > localLastChanged)
             {
                 Logger.Info($"Обновление локального кэша с сервера...");
-                
-                // ✅ Получаем коробки с локальными изменениями
+
+                // ✅ Получаем barcode'ы с локальными изменениями (их НЕ трогаем)
                 var pendingTransactions = await _offlineService.GetUnsyncedTransactions();
                 var localChangedBarcodes = new HashSet<string>();
-                
+
                 foreach (var tx in pendingTransactions)
                 {
                     if (tx.operation_type == "Shipping" || tx.operation_type == "Receiving")
                     {
                         localChangedBarcodes.Add(tx.barcode);
                     }
+                    // TODO: когда будет реализовано перемещение — добавить учёт "Move"
+                    // if (tx.operation_type == "Move") localChangedBarcodes.Add(tx.barcode);
                 }
-                
+
                 Logger.Info($"📋 Коробок с локальными изменениями: {localChangedBarcodes.Count}");
-                
+
                 // 4.5.3.1. Загрузить все коробки с сервера
                 var boxes = await _apiService.GetAllBoxesForSync();
                 Logger.Info($"1. количество коробок на сервере {boxes.Count}");
-                
+
                 if (boxes != null && boxes.Any())
                 {
-                    // ✅ НЕ УДАЛЯЕМ ВСЕ! Обновляем только те, у которых нет локальных изменений
-                    var updatedCount = 0;
+                    // ✅ Вариант A': удаляем всё, кроме коробок с pending-транзакциями,
+                    //    и заливаем заново с сервера.
+                    var preservedCount = await _dbHelper.DeleteAllBoxesExcept(localChangedBarcodes);
+                    Logger.Info($"🗑️ Удалено коробок: сохранено {preservedCount} (с локальными изменениями)");
+
+                    // 4.5.3.3. Записать загруженные коробки
+                    var insertedCount = 0;
                     var skippedCount = 0;
-                    
+
                     foreach (var box in boxes)
                     {
                         // Проверяем, есть ли локальные изменения для этой коробки
                         if (localChangedBarcodes.Contains(box.Barcode))
                         {
-                            // Проверяем, не устарела ли локальная запись
-                            var localBox = await _dbHelper.GetBoxByBarcode(box.Barcode);
-                            if (localBox != null)
-                            {
-                                // Если локальное количество = 0, а серверное > 0 — принудительно обновляем
-                                if (localBox.current_quantity == 0 && box.CurrentQuantity > 0)
-                                {
-                                    Logger.Warning($"⚠️ Принудительное обновление {box.Barcode}: локальное=0, серверное={box.CurrentQuantity}");
-                                    
-                                    var boxCache = new BoxCache
-                                    {
-                                        barcode = box.Barcode,
-                                        box_id = box.Id,
-                                        box_number = box.BoxNumber,
-                                        grade = box.Grade,
-                                        initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.CurrentQuantity,
-                                        current_quantity = box.CurrentQuantity,
-                                        product_id = box.ProductId,
-                                        product_name = box.ProductName,
-                                        product_ean13 = box.ProductEan13,
-                                        location_code = box.LocationCode ?? "UNKNOWN",
-                                        status = box.Status,
-                                        created_at = box.CreatedAt,
-                                        updated_at = box.UpdatedAt
-                                    };
-                                    
-                                    await _dbHelper.UpdateOrInsertBox(boxCache);
-                                    updatedCount++;
-                                    Logger.Info($"✅ Принудительно обновлена коробка: {box.Barcode}, status={box.Status}, quantity={box.CurrentQuantity}");
-                                    continue;
-                                }
-                            }
-                            
-                            Logger.Info($"⏭️ Пропускаем обновление коробки {box.Barcode} (есть локальные изменения)");
+                            Logger.Info($"⏭️ Пропускаем {box.Barcode} (есть локальные изменения)");
                             skippedCount++;
                             continue;
                         }
-                        
+
                         // Проверяем, нужно ли обновлять статус
-                        if (box.Status == BoxStatus.Draft || 
-                            box.Status == BoxStatus.Active || 
+                        if (box.Status == BoxStatus.Draft ||
+                            box.Status == BoxStatus.Active ||
                             box.Status == BoxStatus.Reserved)
                         {
                             var boxCache = new BoxCache
@@ -139,23 +118,21 @@ public class SyncService
                                 created_at = box.CreatedAt,
                                 updated_at = box.UpdatedAt
                             };
-                            
-                            // ✅ ОБНОВЛЯЕМ, А НЕ ЗАМЕНЯЕМ!
-                            await _dbHelper.UpdateOrInsertBox(boxCache);
-                            updatedCount++;
-                            Logger.Info($"2. Обновлена коробка: {box.Barcode}, status={box.Status}");
+
+                            await _dbHelper.InsertBox(boxCache);
+                            insertedCount++;
                         }
                     }
-                    
-                    Logger.Info($"✅ Обновлено {updatedCount} коробок, пропущено {skippedCount} (с локальными изменениями)");
-                    
+
+                    Logger.Info($"✅ Записано {insertedCount} коробок, пропущено {skippedCount} (с локальными изменениями)");
+
                     await _dbHelper.UpdateServerLastChanged(serverTimestamp);
                     Logger.Info($"✅ ServerLastChanged обновлен: {serverTimestamp}");
                 }
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("Локальный кэш актуален");
+                Logger.Info("Локальный кэш актуален");
             }
         }
         catch (Exception ex)

@@ -1,7 +1,8 @@
 using FlowerWms.Tsd.Models;
+using FlowerWms.Tsd.Helpers;
 using FlowerWms.Tsd.ViewModels;
 using Microsoft.Maui.Controls;
-using Microsoft.Extensions.DependencyInjection; // ← ДОБАВИТЬ
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FlowerWms.Tsd.Views;
 
@@ -9,17 +10,16 @@ namespace FlowerWms.Tsd.Views;
 public partial class LoginPage : BasePage
 {
     private LoginViewModel _viewModel;
-    private readonly IServiceProvider _serviceProvider; // ← ДОБАВИТЬ
+    private readonly IServiceProvider _serviceProvider;
 
-    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
     public LoginPage(LoginViewModel viewModel, IServiceProvider serviceProvider)
     {
         InitializeComponent();
-        
+
         _viewModel = viewModel;
         _serviceProvider = serviceProvider;
         BindingContext = _viewModel;
-        
+
         _viewModel.LoginSuccess += OnLoginSuccess;
         Loaded += OnPageLoaded;
     }
@@ -27,8 +27,9 @@ public partial class LoginPage : BasePage
     // Выполняется при загрузке страницы
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
-        var passwordEntry = this.FindByName<Entry>("PasswordEntry");
-        
+        // ✅ Гарантируем, что конфигурация загружена
+        await Constants.InitAsync();
+
         await _viewModel.CheckServerAsync();
     }
 
@@ -37,14 +38,13 @@ public partial class LoginPage : BasePage
     {
         try
         {
-            // ✅ ПОЛУЧАЕМ HomeViewModel через DI
             var homeViewModel = _serviceProvider.GetService<HomeViewModel>();
             if (homeViewModel == null)
             {
                 await DisplayAlertAsync("Ошибка", "Не удалось создать главную страницу", "OK");
                 return;
             }
-            
+
             var homePage = new HomePage(homeViewModel, _serviceProvider);
             await Navigation.PushAsync(homePage);
             Navigation.RemovePage(this);

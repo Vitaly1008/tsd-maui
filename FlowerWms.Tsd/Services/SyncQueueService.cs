@@ -17,12 +17,16 @@ public class SyncQueueService : IDisposable
     public event EventHandler<int>? PendingCountChanged;
     public event EventHandler<bool>? SyncStatusChanged;
 
-    public SyncQueueService()
+    // ✅ ИСПРАВЛЕНО: DI через конструктор
+    public SyncQueueService(
+        DatabaseHelper dbHelper,
+        ApiService apiService,
+        OfflineService offlineService)
     {
-        _dbHelper = new DatabaseHelper();
-        _apiService = new ApiService();
-        _offlineService = new OfflineService();     
-        
+        _dbHelper = dbHelper;
+        _apiService = apiService;
+        _offlineService = offlineService;
+
         Logger.Info("SyncQueueService инициализирован");
     }
 
@@ -107,7 +111,7 @@ public class SyncQueueService : IDisposable
             
             Logger.Info($"📦 Разделение: Receiving={receivingOps.Count}, Shipping={shippingOps.Count}");
             
-            // 4.3 Обработка приемок
+           // 4.3 Обработка приемок
             Logger.Info($"🔄 НАЧАЛО обработки приемок ({receivingOps.Count})");
             foreach (var op in receivingOps)
             {
@@ -119,6 +123,14 @@ public class SyncQueueService : IDisposable
                     await _offlineService.DeleteTransaction(op.transaction_id);
                     successCount++;
                     Logger.Info($"✅ Приемка обработана: {op.barcode}");
+                }
+                catch (ReceivingProblemBoxException ex)
+                {
+                    // ✅ ИСПРАВЛЕНО: коробка с проблемой — удаляем транзакцию,
+                    //    в ProblemBoxes уже добавлено внутри ProcessReceivingOperation
+                    Logger.Warning($"⚠️ Приемка с проблемой (транзакция будет удалена): {ex.Message}");
+                    await _offlineService.DeleteTransaction(op.transaction_id);
+                    errorCount++;
                 }
                 catch (Exception ex)
                 {
@@ -182,14 +194,16 @@ public class SyncQueueService : IDisposable
         
         var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(op.payload);
         Logger.Info($"📦 Payload: {JsonSerializer.Serialize(payload)}");
-        
+
         var barcode = op.barcode;
         var locationCode = payload?.GetValueOrDefault("locationCode")?.ToString() ?? "UNKNOWN";
-        var quantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
+        // ✅ ИСПРАВЛЕНО: используем ExtractIntValue вместо `is int`
+        var quantity = ExtractIntValue(payload?.GetValueOrDefault("quantity"), 0);
         var grade = payload?.GetValueOrDefault("grade")?.ToString() ?? "Premium";
         var productName = payload?.GetValueOrDefault("productName")?.ToString() ?? "Неизвестный товар";
         var productEan13 = payload?.GetValueOrDefault("ean13")?.ToString() ?? "";
-        var boxNumber = payload?.GetValueOrDefault("boxNumber", 0) is int bn ? bn : 0;
+        // ✅ ИСПРАВЛЕНО: используем ExtractIntValue
+        var boxNumber = ExtractIntValue(payload?.GetValueOrDefault("boxNumber"), 0);
 
         Logger.Info($"📊 Параметры: boxNumber={boxNumber}, quantity={quantity}, grade={grade}, location={locationCode}");
 
@@ -307,7 +321,9 @@ public class SyncQueueService : IDisposable
                 productName: serverBox.ProductName
             );
             
-            throw new Exception($"Коробка #{serverBox.BoxNumber} имеет статус {serverBox.Status}, приемка невозможна");
+                // ✅ ИСПРАВЛЕНО: спец-исключение — ProcessQueueAsync удалит транзакцию
+                throw new ReceivingProblemBoxException(
+                    $"Коробка #{serverBox.BoxNumber} имеет статус {serverBox.Status}, приемка невозможна");
         }
         
         Logger.Info($"🏁 КОНЕЦ ProcessReceivingOperation: {op.transaction_id}");
@@ -323,10 +339,10 @@ public class SyncQueueService : IDisposable
 
         var barcode = op.barcode;
         var boxId = payload?.GetValueOrDefault("boxId")?.ToString();
-       // ✅ Берем quantity из payload, но если его нет или он 0 — используем currentQuantity
-        var quantity = payload?.GetValueOrDefault("quantity", 0) is int q ? q : 0;
-        var currentQuantity = payload?.GetValueOrDefault("currentQuantity", 0) is int cq ? cq : 0;
-        var isFullShipment = payload?.GetValueOrDefault("isFullShipment", false) is bool f && f;
+        // ✅ ИСПРАВЛЕНО: используем ExtractIntValue/ExtractBoolValue
+        var quantity = ExtractIntValue(payload?.GetValueOrDefault("quantity"), 0);
+        var currentQuantity = ExtractIntValue(payload?.GetValueOrDefault("currentQuantity"), 0);
+        var isFullShipment = ExtractBoolValue(payload?.GetValueOrDefault("isFullShipment"), false);
 
         // ✅ Если quantity = 0, но currentQuantity > 0 — это полная отгрузка
         if (quantity <= 0 && currentQuantity > 0)
@@ -489,16 +505,6 @@ public class SyncQueueService : IDisposable
             {
                 Logger.Error($"❌ Исключение при вызове API: {ex.Message}");
                 Logger.Error($"StackTrace: {ex.StackTrace}");
-                
-                // Добавляем в ProblemBoxes
-                await _apiService.AddToProblemBoxes(
-                    barcode: barcode,
-                    boxId: boxId,
-                    errorType: "ShippingError",
-                    comment: $"API Error: {ex.Message}",
-                    boxNumber: serverBox.BoxNumber,
-                    productName: serverBox.ProductName
-                );
                 throw;
             }
 
@@ -507,17 +513,6 @@ public class SyncQueueService : IDisposable
             {
                 var errorMsg = result.GetValueOrDefault("message")?.ToString() ?? "Неизвестная ошибка";
                 Logger.Error($"❌ API вернул ошибку: {errorMsg}");
-                
-                Logger.Info($"📤 Добавление в ProblemBoxes: barcode={barcode}, boxId={boxId}");
-                await _apiService.AddToProblemBoxes(
-                    barcode: barcode,
-                    boxId: boxId,
-                    errorType: "ShippingError",
-                    comment: errorMsg,
-                    boxNumber: serverBox.BoxNumber,
-                    productName: serverBox.ProductName
-                );
-                
                 throw new Exception(errorMsg);
             }
 
@@ -697,7 +692,7 @@ public class SyncQueueService : IDisposable
                 Logger.Warning($"⚠️ Транзакция {transactionId} не найдена");
                 return false;
             }
-            
+
             if (transaction.is_synced == 1)
             {
                 Logger.Warning($"⚠️ Транзакция {transactionId} уже синхронизирована");
@@ -705,27 +700,40 @@ public class SyncQueueService : IDisposable
             }
 
             Logger.Info($"📤 Обработка транзакции: type={transaction.operation_type}, barcode={transaction.barcode}");
-            
-            if (transaction.operation_type == "Receiving")
+
+            try
             {
-                await ProcessReceivingOperation(transaction);
+                if (transaction.operation_type == "Receiving")
+                {
+                    await ProcessReceivingOperation(transaction);
+                }
+                else if (transaction.operation_type == "Shipping")
+                {
+                    await ProcessShippingOperation(transaction);
+                }
+                else
+                {
+                    Logger.Warning($"⚠️ Неизвестный тип операции: {transaction.operation_type}");
+                    return false;
+                }
             }
-            else if (transaction.operation_type == "Shipping")
+            catch (ReceivingProblemBoxException ex)
             {
-                await ProcessShippingOperation(transaction);
-            }
-            else
-            {
-                Logger.Warning($"⚠️ Неизвестный тип операции: {transaction.operation_type}");
+                // ✅ ИСПРАВЛЕНО: та же логика, что в ProcessQueueAsync
+                Logger.Warning($"⚠️ Приемка с проблемой (транзакция будет удалена): {ex.Message}");
+                await _offlineService.DeleteTransaction(transactionId);
+
+                var pendingCountRcv = await _offlineService.GetPendingCount();
+                PendingCountChanged?.Invoke(this, pendingCountRcv);
                 return false;
             }
 
             Logger.Info($"🗑️ Удаление транзакции: {transactionId}");
             await _offlineService.DeleteTransaction(transactionId);
-            
+
             var pendingCount = await _offlineService.GetPendingCount();
             PendingCountChanged?.Invoke(this, pendingCount);
-            
+
             Logger.Info($"✅ Транзакция синхронизирована: {transactionId}");
             return true;
         }
@@ -738,6 +746,52 @@ public class SyncQueueService : IDisposable
         }
     }
 
+    // ============================================================
+    // ✅ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ПАРСИНГА PAYLOAD
+    // ============================================================
+
+    private static int ExtractIntValue(object? value, int defaultValue = 0)
+    {
+        if (value == null) return defaultValue;
+        if (value is int i) return i;
+        if (value is long l) return (int)l;
+        if (value is double d) return (int)d;
+        if (value is string str && int.TryParse(str, out var parsed)) return parsed;
+
+        if (value is System.Text.Json.JsonElement je)
+        {
+            if (je.ValueKind == System.Text.Json.JsonValueKind.Number)
+                return je.GetInt32();
+            if (je.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var s = je.GetString();
+                if (int.TryParse(s, out var p)) return p;
+            }
+        }
+
+        return defaultValue;
+    }
+
+    private static bool ExtractBoolValue(object? value, bool defaultValue = false)
+    {
+        if (value == null) return defaultValue;
+        if (value is bool b) return b;
+        if (value is string str && bool.TryParse(str, out var parsed)) return parsed;
+
+        if (value is System.Text.Json.JsonElement je)
+        {
+            if (je.ValueKind == System.Text.Json.JsonValueKind.True) return true;
+            if (je.ValueKind == System.Text.Json.JsonValueKind.False) return false;
+            if (je.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var s = je.GetString();
+                if (bool.TryParse(s, out var p)) return p;
+            }
+        }
+
+        return defaultValue;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -748,4 +802,14 @@ public class SyncQueueService : IDisposable
         _disposed = true;
         GC.SuppressFinalize(this);
     }
+}
+
+/// <summary>
+/// Исключение для случая, когда коробку при приемке нужно пропустить,
+/// но транзакцию следует удалить (не отправлять в retry).
+/// Например: коробка на сервере имеет статус != Draft.
+/// </summary>
+public class ReceivingProblemBoxException : Exception
+{
+    public ReceivingProblemBoxException(string message) : base(message) { }
 }

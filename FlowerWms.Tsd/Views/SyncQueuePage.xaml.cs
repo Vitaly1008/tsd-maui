@@ -7,45 +7,51 @@ public partial class SyncQueuePage : BasePage
 {
     private SyncQueueViewModel _viewModel;
 
-    // ✅ ИСПОЛЬЗУЕМ DI
     public SyncQueuePage(SyncQueueViewModel viewModel)
     {
         InitializeComponent();
-        
+
         _viewModel = viewModel;
-        BindingContext = _viewModel; // ← ВАЖНО: устанавливаем BindingContext
-        
+        BindingContext = _viewModel;
+
         _viewModel.BackRequested += OnBackRequested;
         _viewModel.ShowTransactionDetailRequested += OnShowTransactionDetail;
-        Loaded += OnPageLoaded;
     }
 
-    private async void OnPageLoaded(object? sender, EventArgs e)
-    {
-        try
-        {
-            await _viewModel.Initialize();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Ошибка загрузки SyncQueuePage: {ex.Message}");
-            await DisplayAlertAsync("Ошибка", $"Не удалось загрузить страницу: {ex.Message}", "OK");
-        }
-    }
+    // ✅ ИСПРАВЛЕНО: убран Loaded + Initialize — Refresh выполняется в OnAppearing
+    // (было двойная загрузка: Initialize в OnPageLoaded + Refresh в OnAppearing)
 
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        Logger.Info("📍 SyncQueuePage OnAppearing - НАЧАЛО");
-        
-        // Принудительно загружаем транзакции
-        Logger.Info("📊 Загружаем транзакции...");
-        await _viewModel.ForceRefresh();
-        
-        Logger.Info($"📊 После загрузки: HasPendingTransactions = {_viewModel.HasPendingTransactions}");
-        Logger.Info($"📊 После загрузки: TotalCount = {_viewModel.TotalCount}");
-        
-        Logger.Info("📍 SyncQueuePage OnAppearing - КОНЕЦ");
+
+        if (_viewModel != null)
+        {
+            try
+            {
+                Logger.Info("📍 SyncQueuePage OnAppearing - загрузка/обновление");
+                await _viewModel.Initialize();  // первый раз загрузит, повторно — быстро (IsLoading)
+                Logger.Info($"📊 После загрузки: TotalCount = {_viewModel.TotalCount}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Ошибка загрузки SyncQueuePage: {ex.Message}");
+                await DisplayAlertAsync("Ошибка", $"Не удалось загрузить страницу: {ex.Message}", "OK");
+            }
+        }
+    }
+
+    // ✅ ДОБАВЛЕНО: отписки и Dispose при уходе
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+
+        if (_viewModel != null)
+        {
+            _viewModel.BackRequested -= OnBackRequested;
+            _viewModel.ShowTransactionDetailRequested -= OnShowTransactionDetail;
+            _viewModel.Dispose();
+        }
     }
 
     private async void OnBackRequested(object? sender, EventArgs e)
@@ -57,7 +63,6 @@ public partial class SyncQueuePage : BasePage
     {
         if (transaction == null) return;
 
-        // Формируем детальную информацию
         var typeDisplay = transaction.operation_type == "Receiving" ? "Приемка" : "Отгрузка";
         var statusDisplay = transaction.is_synced == 1 ? "✅ Синхронизирована" : "⏳ Ожидает";
         if (!string.IsNullOrEmpty(transaction.error_message))

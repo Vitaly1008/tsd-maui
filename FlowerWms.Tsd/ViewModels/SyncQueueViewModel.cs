@@ -6,11 +6,13 @@ using System.Collections.ObjectModel;
 
 namespace FlowerWms.Tsd.ViewModels;
 
-public partial class SyncQueueViewModel : ObservableObject
+public partial class SyncQueueViewModel : ObservableObject, IDisposable
 {
     private readonly SyncQueueService _syncQueueService;
     private readonly SyncService _syncService;
     private readonly AuthService _authService;
+    private readonly OfflineService _offlineService;
+    private bool _disposed;
 
     [ObservableProperty]
     private ObservableCollection<OfflineTransaction> _pendingTransactions = new();
@@ -48,29 +50,35 @@ public partial class SyncQueueViewModel : ObservableObject
     public SyncQueueViewModel(
         SyncQueueService syncQueueService,
         SyncService syncService,
-        AuthService authService)
+        AuthService authService,
+        OfflineService offlineService)
     {
         _syncQueueService = syncQueueService;
         _syncService = syncService;
         _authService = authService;
+        _offlineService = offlineService;
 
-        _syncQueueService.PendingCountChanged += async (s, count) =>
+        // ✅ ИСПРАВЛЕНО: подписка через метод — можно отписаться
+        _syncQueueService.PendingCountChanged += OnPendingCountChanged;
+    }
+
+    // ✅ ИСПРАВЛЕНО: вынесено из конструктора для возможности отписки
+    private void OnPendingCountChanged(object? sender, int count)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            await MainThread.InvokeOnMainThreadAsync(() =>
+            UpdateCounts();
+            HasPendingTransactions = PendingTransactions.Count > 0;
+
+            if (PendingTransactions.Count == 0)
             {
-                UpdateCounts();
-                HasPendingTransactions = PendingTransactions.Count > 0;
-                
-                if (PendingTransactions.Count == 0)
-                {
-                    StatusMessage = "Все данные синхронизированы";
-                }
-                else
-                {
-                    StatusMessage = $"Ожидает синхронизации: {PendingTransactions.Count}";
-                }
-            });
-        };
+                StatusMessage = "Все данные синхронизированы";
+            }
+            else
+            {
+                StatusMessage = $"Ожидает синхронизации: {PendingTransactions.Count}";
+            }
+        });
     }
 
     public async Task Initialize()
@@ -95,7 +103,7 @@ public partial class SyncQueueViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Ошибка: {ex.Message}";
-            System.Diagnostics.Debug.WriteLine($"Ошибка инициализации: {ex.Message}");
+            Logger.Error($"Ошибка инициализации SyncQueueViewModel: {ex.Message}");
         }
         finally
         {
@@ -108,47 +116,39 @@ public partial class SyncQueueViewModel : ObservableObject
         try
         {
             Logger.Info("🔍 НАЧАЛО загрузки транзакций...");
-            
+
             var transactions = await _syncQueueService.GetAllPendingTransactions();
-            
+
             Logger.Info($"📋 Загружено {transactions.Count} транзакций для синхронизации");
-            
-            // Выводим детали каждой транзакции
+
             foreach (var tx in transactions)
             {
                 Logger.Info($"  - ID: {tx.transaction_id}, Тип: {tx.operation_type}, ШК: {tx.barcode}, Synced: {tx.is_synced}, Ошибок: {tx.retry_count}");
             }
-            
+
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                Logger.Info($"🔄 Очистка коллекции, текущее кол-во: {PendingTransactions.Count}");
                 PendingTransactions.Clear();
-                
-                Logger.Info($"➕ Добавление {transactions.Count} транзакций в коллекцию");
+
                 foreach (var tx in transactions)
                 {
                     PendingTransactions.Add(tx);
-                    Logger.Info($"  ✅ Добавлена: {tx.transaction_id}");
                 }
-                
+
+                // ✅ ИСПРАВЛЕНО: убраны ручные OnPropertyChanged
+                // [ObservableProperty] генерирует OnPropertyChanged автоматически при установке,
+                // а ObservableCollection сама уведомляет CollectionView через CollectionChanged.
+                UpdateCounts();
                 HasPendingTransactions = PendingTransactions.Count > 0;
-                Logger.Info($"📊 HasPendingTransactions = {HasPendingTransactions}");
-                Logger.Info($"📊 TotalCount = {TotalCount}");
-                
-                // Принудительно обновляем UI
-                OnPropertyChanged(nameof(PendingTransactions));
-                OnPropertyChanged(nameof(HasPendingTransactions));
-                OnPropertyChanged(nameof(TotalCount));
-                OnPropertyChanged(nameof(ReceivingCount));
-                OnPropertyChanged(nameof(ShippingCount));
+
+                Logger.Info($"📊 HasPendingTransactions={HasPendingTransactions}, TotalCount={TotalCount}");
             });
-            
+
             Logger.Info("✅ КОНЕЦ загрузки транзакций");
         }
         catch (Exception ex)
         {
-            Logger.Info($"❌ ОШИБКА загрузки транзакций: {ex.Message}");
-            Logger.Info($"StackTrace: {ex.StackTrace}");
+            Logger.Error($"❌ ОШИБКА загрузки транзакций: {ex.Message}");
         }
     }
 
@@ -165,7 +165,7 @@ public partial class SyncQueueViewModel : ObservableObject
         IsRefreshing = true;
         await LoadPendingTransactions();
         UpdateCounts();
-        
+
         if (PendingTransactions.Count == 0)
         {
             StatusMessage = "Все данные синхронизированы";
@@ -174,27 +174,26 @@ public partial class SyncQueueViewModel : ObservableObject
         {
             StatusMessage = $"Ожидает синхронизации: {PendingTransactions.Count}";
         }
-        
+
         IsRefreshing = false;
     }
 
+    // ✅ ОСТАВЛЕНО: ForceRefresh не удаляем (по правилу), но убран ручной OnPropertyChanged
     public async Task ForceRefresh()
     {
         Logger.Info("🔄 ForceRefresh - НАЧАЛО");
-        
+
         try
         {
-            // Загружаем транзакции напрямую через OfflineService
-            var offlineService = new OfflineService();
-            var transactions = await offlineService.GetAllUnsyncedTransactions();
-            
+            var transactions = await _offlineService.GetAllUnsyncedTransactions();
+
             Logger.Info($"📋 ForceRefresh: найдено {transactions.Count} транзакций");
-            
+
             foreach (var tx in transactions)
             {
                 Logger.Info($"  - {tx.transaction_id}: {tx.operation_type}, {tx.barcode}, is_synced={tx.is_synced}");
             }
-            
+
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 PendingTransactions.Clear();
@@ -202,32 +201,21 @@ public partial class SyncQueueViewModel : ObservableObject
                 {
                     PendingTransactions.Add(tx);
                 }
-                
-                TotalCount = PendingTransactions.Count;
-                ReceivingCount = PendingTransactions.Count(t => t.operation_type == "Receiving");
-                ShippingCount = PendingTransactions.Count(t => t.operation_type == "Shipping");
-                HasPendingTransactions = PendingTransactions.Count > 0;
-                
-                StatusMessage = PendingTransactions.Count > 0 
-                    ? $"Ожидает синхронизации: {PendingTransactions.Count}" 
+
+                UpdateCounts();
+
+                StatusMessage = PendingTransactions.Count > 0
+                    ? $"Ожидает синхронизации: {PendingTransactions.Count}"
                     : "Все данные синхронизированы";
-                
-                // ПРИНУДИТЕЛЬНО обновляем UI
-                OnPropertyChanged(nameof(PendingTransactions));
-                OnPropertyChanged(nameof(HasPendingTransactions));
-                OnPropertyChanged(nameof(TotalCount));
-                OnPropertyChanged(nameof(ReceivingCount));
-                OnPropertyChanged(nameof(ShippingCount));
-                OnPropertyChanged(nameof(StatusMessage));
-                
+
                 Logger.Info($"📊 UI обновлен: HasPendingTransactions={HasPendingTransactions}, TotalCount={TotalCount}");
             });
         }
         catch (Exception ex)
         {
-            Logger.Info($"❌ ForceRefresh ошибка: {ex.Message}");
+            Logger.Error($"❌ ForceRefresh ошибка: {ex.Message}");
         }
-        
+
         Logger.Info("🔄 ForceRefresh - КОНЕЦ");
     }
 
@@ -244,7 +232,7 @@ public partial class SyncQueueViewModel : ObservableObject
     private async Task SyncAll()
     {
         if (IsSyncing) return;
-        
+
         if (PendingTransactions.Count == 0)
         {
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
@@ -283,10 +271,8 @@ public partial class SyncQueueViewModel : ObservableObject
                 return;
             }
 
-            // ✅ ИСПРАВЛЕНО: используем полную синхронизацию
             await _syncService.SyncAllData();
-            
-            // ✅ Обновляем список
+
             await Refresh();
 
             if (PendingTransactions.Count == 0)
@@ -343,7 +329,7 @@ public partial class SyncQueueViewModel : ObservableObject
             if (success)
             {
                 await Refresh();
-                StatusMessage = PendingTransactions.Count > 0 
+                StatusMessage = PendingTransactions.Count > 0
                     ? $"Ожидает синхронизации: {PendingTransactions.Count}"
                     : "Все данные синхронизированы";
             }
@@ -396,15 +382,14 @@ public partial class SyncQueueViewModel : ObservableObject
             }
 
             var success = await _syncQueueService.SyncSingleTransaction(transactionId);
-            
-            // ✅ После синхронизации одной транзакции обновляем локальную БД
+
             if (success)
             {
                 await _syncService.RefreshLocalCacheFromServer();
             }
-            
+
             await Refresh();
-            
+
             if (success)
             {
                 StatusMessage = "Операция синхронизирована ✅";
@@ -458,7 +443,7 @@ public partial class SyncQueueViewModel : ObservableObject
             var deleted = await _syncQueueService.ClearSyncTable();
             await Refresh();
             StatusMessage = "✅ Очередь очищена";
-            
+
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Очистка выполнена",
                 $"Удалено {deleted} операций",
@@ -479,5 +464,17 @@ public partial class SyncQueueViewModel : ObservableObject
     private void GoBack()
     {
         BackRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ✅ ДОБАВЛЕНО: IDisposable
+    public void Dispose()
+    {
+        if (_disposed) return;
+
+        _syncQueueService.PendingCountChanged -= OnPendingCountChanged;
+        _disposed = true;
+        GC.SuppressFinalize(this);
+
+        Logger.Info("SyncQueueViewModel.Dispose() вызван");
     }
 }

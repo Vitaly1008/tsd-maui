@@ -61,11 +61,15 @@ public partial class LoginViewModel : ObservableObject
 
     public event EventHandler<LoginResponse>? LoginSuccess;
 
-    public LoginViewModel()
+    // ✅ ИСПРАВЛЕНО: DI через конструктор
+    public LoginViewModel(
+        AuthService authService,
+        ServerDiscoveryService discoveryService,
+        SyncService syncService)
     {
-        _authService = new AuthService();
-        _discoveryService = new ServerDiscoveryService();
-        _syncService = new SyncService();
+        _authService = authService;
+        _discoveryService = discoveryService;
+        _syncService = syncService;
 
         _discoveryService.ScanProgressChanged += OnScanProgressChanged;
 
@@ -119,11 +123,12 @@ public partial class LoginViewModel : ObservableObject
         }
     }
 
-    // Выполняет поиск сервера
+    // ✅ ИСПРАВЛЕНО: убран DisplayAlert, показываем через ServerStatusText
     [RelayCommand]
     private async Task FindServer()
     {
-        if (IsLoading) return; // защита от повторного нажатия
+        // ✅ Защита от параллельного запуска с Login
+        if (IsLoading || _isLoginExecuting) return;
 
         MainThread.BeginInvokeOnMainThread(() =>
         {
@@ -153,12 +158,6 @@ public partial class LoginViewModel : ObservableObject
                     ServerStatusText = "Сервер найден";
                     ServerStatusIcon = "✅";
                     ServerStatusColor = Colors.Green;
-
-                    Application.Current?.MainPage?.DisplayAlert(
-                        "Сервер найден",
-                        $"Сервер доступен по адресу:\n{serverAddress}",
-                        "OK"
-                    );
                 }
                 else
                 {
@@ -166,17 +165,6 @@ public partial class LoginViewModel : ObservableObject
                     ServerStatusIcon = "❌";
                     ServerStatusColor = Colors.Red;
                     ServerAddressDisplay = $"{ServerAddress}";
-
-                    Application.Current?.MainPage?.DisplayAlert(
-                        "Сервер не найден",
-                        "Не удалось найти сервер в сети.\n\n" +
-                        "Проверьте:\n" +
-                        "• Подключение к Wi-Fi\n" +
-                        "• Что сервер запущен\n" +
-                        "• Что устройства в одной сети\n" +
-                        $"IP устройства: {DeviceIp}",
-                        "OK"
-                    );
                 }
             });
         }
@@ -188,12 +176,7 @@ public partial class LoginViewModel : ObservableObject
                 ServerStatusIcon = "⚠️";
                 ServerStatusColor = Colors.Red;
                 ServerAddressDisplay = $"{ServerAddress}";
-
-                Application.Current?.MainPage?.DisplayAlert(
-                    "Ошибка",
-                    $"Ошибка поиска сервера: {ex.Message}",
-                    "OK"
-                );
+                ErrorMessage = $"Ошибка поиска: {ex.Message}";
             });
         }
         finally
@@ -217,7 +200,8 @@ public partial class LoginViewModel : ObservableObject
     [RelayCommand]
     private async Task Login()
     {
-        if (_isLoginExecuting) return; // защита от двойного нажатия
+        // ✅ Защита от параллельного запуска с FindServer
+        if (IsLoading || _isLoginExecuting) return;
 
         if (string.IsNullOrEmpty(Username) || string.IsNullOrEmpty(Password))
         {
@@ -228,7 +212,6 @@ public partial class LoginViewModel : ObservableObject
         _isLoginExecuting = true;
         var loginSucceeded = false;
 
-        // ✅ Сразу показываем оверлей и первый статус
         MainThread.BeginInvokeOnMainThread(() =>
         {
             IsLoading = true;
@@ -236,7 +219,6 @@ public partial class LoginViewModel : ObservableObject
             ErrorMessage = string.Empty;
         });
 
-        // Даём UI один кадр, чтобы оверлей успел отрисоваться
         await Task.Delay(50);
 
         try
@@ -278,7 +260,6 @@ public partial class LoginViewModel : ObservableObject
                 LoadingStatusText = "✅ Готово!";
             });
 
-            // Даём пользователю увидеть "Готово" перед навигацией
             await Task.Delay(400);
 
             LoginSuccess?.Invoke(this, response);
@@ -291,8 +272,6 @@ public partial class LoginViewModel : ObservableObject
         {
             _isLoginExecuting = false;
 
-            // ✅ Если логин успешен — оставляем оверлей, пока идёт навигация.
-            // Он снимется вместе с удалением страницы (Navigation.RemovePage).
             if (!loginSucceeded)
             {
                 MainThread.BeginInvokeOnMainThread(() =>
@@ -312,16 +291,10 @@ public partial class LoginViewModel : ObservableObject
         {
             IsSyncingPartialBoxes = true;
 
-            System.Diagnostics.Debug.WriteLine("🔄 Синхронизация после логина...");
-
             await _syncService.SyncAfterLogin();
-
-            System.Diagnostics.Debug.WriteLine("✅ Синхронизация после логина завершена");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка синхронизации после логина: {ex.Message}");
-
             // Показываем предупреждение, но не прерываем вход
             await Application.Current?.MainPage?.DisplayAlert(
                 "Предупреждение",

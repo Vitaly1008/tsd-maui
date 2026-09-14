@@ -58,8 +58,13 @@ public partial class InventoryViewModel : BaseScannerViewModel
     public event EventHandler? OperationCompleted;
     public event EventHandler? OperationCancelled;
 
-    public InventoryViewModel(IBarcodeService? barcodeService = null)
-        : base(barcodeService)
+    public InventoryViewModel(
+        DatabaseHelper dbHelper,
+        ApiService apiService,
+        SyncQueueService syncQueueService,
+        SyncService syncService,
+        IBarcodeService barcodeService)
+        : base(dbHelper, apiService, syncQueueService, syncService, barcodeService)
     {
         LocationBoxes = new ObservableCollection<Box>();
         SetStatus("Сканируйте локацию или коробку", "📷", Colors.Gray);

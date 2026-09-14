@@ -1,6 +1,6 @@
 using FlowerWms.Tsd.ViewModels;
 using FlowerWms.Tsd.Services;
-using Microsoft.Extensions.DependencyInjection; // ← ДОБАВИТЬ
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FlowerWms.Tsd.Views;
 
@@ -8,17 +8,16 @@ namespace FlowerWms.Tsd.Views;
 public partial class HomePage : BasePage
 {
     private HomeViewModel? _viewModel;
-    private readonly IServiceProvider _serviceProvider; // ← ДОБАВИТЬ
+    private readonly IServiceProvider _serviceProvider;
 
-    // ✅ ИЗМЕНЕННЫЙ КОНСТРУКТОР
     public HomePage(HomeViewModel viewModel, IServiceProvider serviceProvider)
     {
         InitializeComponent();
-        
+
         _viewModel = viewModel;
-        BindingContext = _viewModel; // ← ВАЖНО: устанавливаем BindingContext
+        BindingContext = _viewModel;
         _serviceProvider = serviceProvider;
-        
+
         if (_viewModel != null)
         {
             _viewModel.LogoutRequested += OnLogoutRequested;
@@ -58,10 +57,10 @@ public partial class HomePage : BasePage
         }
     }
 
-    // Возвращает сервис сканера
+    // ✅ ИСПРАВЛЕНО: через _serviceProvider, а не через Handler.MauiContext
     private IBarcodeService? GetBarcodeService()
     {
-        return Handler?.MauiContext?.Services?.GetService<IBarcodeService>();
+        return _serviceProvider.GetService<IBarcodeService>();
     }
 
     // Отображает ошибку при недоступности сканера
@@ -80,11 +79,19 @@ public partial class HomePage : BasePage
     private async void OnNavigateToReceiving(object? sender, EventArgs e)
     {
         if (!await EnsureBarcodeService()) return;
-        
+
         try
         {
             var barcodeService = GetBarcodeService();
             var viewModel = _serviceProvider.GetService<ReceivingViewModel>();
+
+            // ✅ ИСПРАВЛЕНО: проверка на null
+            if (barcodeService == null || viewModel == null)
+            {
+                await DisplayAlertAsync("Ошибка", "Не удалось создать страницу приемки", "OK");
+                return;
+            }
+
             var receivingPage = new ReceivingPage(barcodeService, viewModel);
             await Navigation.PushAsync(receivingPage);
         }
@@ -98,11 +105,19 @@ public partial class HomePage : BasePage
     private async void OnNavigateToShipping(object? sender, EventArgs e)
     {
         if (!await EnsureBarcodeService()) return;
-        
+
         try
         {
             var barcodeService = GetBarcodeService();
             var viewModel = _serviceProvider.GetService<ShippingViewModel>();
+
+            // ✅ ИСПРАВЛЕНО: проверка на null
+            if (barcodeService == null || viewModel == null)
+            {
+                await DisplayAlertAsync("Ошибка", "Не удалось создать страницу отгрузки", "OK");
+                return;
+            }
+
             var shippingPage = new ShippingPage(barcodeService, viewModel);
             await Navigation.PushAsync(shippingPage);
         }
@@ -112,23 +127,11 @@ public partial class HomePage : BasePage
         }
     }
 
-    // Переход на страницу инвентаризации
+    // Переход на страницу инвентаризации (заглушка)
     private async void OnNavigateToInventory(object? sender, EventArgs e)
     {
         #warning Инвентаризация в разработке, раздел временно недоступен
         await DisplayAlertAsync("Временно не доступно", "Инвентаризация находится в разработке", "OK");
-        /*if (!await EnsureBarcodeService()) return;
-        
-        try
-        {
-            var barcodeService = GetBarcodeService();
-            var inventoryPage = new InventoryPage(barcodeService);
-            await Navigation.PushAsync(inventoryPage);
-        }
-        catch (Exception ex)
-        {
-            await DisplayAlertAsync("Ошибка", $"Не удалось открыть инвентаризацию: {ex.Message}", "OK");
-        }*/
     }
 
     // Переход на страницу ожидающих транзакций
@@ -136,14 +139,13 @@ public partial class HomePage : BasePage
     {
         try
         {
-            // ✅ ПОЛУЧАЕМ ViewModel через DI
             var viewModel = _serviceProvider.GetService<SyncQueueViewModel>();
             if (viewModel == null)
             {
                 await DisplayAlertAsync("Ошибка", "Не удалось создать страницу очереди", "OK");
                 return;
             }
-            
+
             var syncQueuePage = new SyncQueuePage(viewModel);
             await Navigation.PushAsync(syncQueuePage);
         }
@@ -158,14 +160,13 @@ public partial class HomePage : BasePage
     {
         try
         {
-            // ✅ ПОЛУЧАЕМ AboutViewModel через DI
             var viewModel = _serviceProvider.GetService<AboutViewModel>();
             if (viewModel == null)
             {
                 await DisplayAlertAsync("Ошибка", "Не удалось создать страницу", "OK");
                 return;
             }
-            
+
             var aboutPage = new AboutPage(viewModel);
             await Navigation.PushAsync(aboutPage);
         }
@@ -178,17 +179,59 @@ public partial class HomePage : BasePage
     // Выход из системы
     private async void OnLogoutRequested(object? sender, EventArgs e)
     {
-        // ✅ СОЗДАЕМ LoginPage через DI
-        var loginViewModel = _serviceProvider.GetService<LoginViewModel>();
-        var loginPage = new LoginPage(loginViewModel, _serviceProvider);
-        
-        await Navigation.PopToRootAsync();
-        await Navigation.PushAsync(loginPage);
-        
-        var homePage = Navigation.NavigationStack.FirstOrDefault(p => p is HomePage);
-        if (homePage != null)
+        try
         {
-            Navigation.RemovePage(homePage);
+            // ✅ ИСПРАВЛЕНО: проверка на null
+            var loginViewModel = _serviceProvider.GetService<LoginViewModel>();
+            if (loginViewModel == null)
+            {
+                await DisplayAlertAsync("Ошибка", "Не удалось создать страницу входа", "OK");
+                return;
+            }
+
+            var loginPage = new LoginPage(loginViewModel, _serviceProvider);
+
+            await Navigation.PopToRootAsync();
+            await Navigation.PushAsync(loginPage);
+
+            var homePage = Navigation.NavigationStack.FirstOrDefault(p => p is HomePage);
+            if (homePage != null)
+            {
+                Navigation.RemovePage(homePage);
+            }
+
+            // ✅ ДОБАВЛЕНО: dispose ViewModel после удаления страницы
+            DisposeViewModel();
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка logout: {ex.Message}");
+            await DisplayAlertAsync("Ошибка", $"Не удалось выполнить выход: {ex.Message}", "OK");
+        }
+    }
+
+    // ✅ ДОБАВЛЕНО: освобождение ресурсов
+    private void DisposeViewModel()
+    {
+        if (_viewModel != null)
+        {
+            _viewModel.LogoutRequested -= OnLogoutRequested;
+            _viewModel.NavigateToReceivingRequested -= OnNavigateToReceiving;
+            _viewModel.NavigateToShippingRequested -= OnNavigateToShipping;
+            _viewModel.NavigateToInventoryRequested -= OnNavigateToInventory;
+            _viewModel.NavigateToPendingRequested -= OnNavigateToPending;
+            _viewModel.NavigateToAboutRequested -= OnNavigateToAbout;
+
+            _viewModel.Dispose();
+            _viewModel = null;
+        }
+    }
+
+    // ✅ ДОБАВЛЕНО: освобождение при уходе страницы
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        // Не вызываем Dispose здесь, потому что страница может вернуться (например, после Push/Pop).
+        // Dispose вызывается только при Logout или при удалении страницы из стека.
     }
 }

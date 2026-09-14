@@ -47,16 +47,11 @@
         <ScrollView Grid.Row="1" Padding="16">
             <VerticalStackLayout Spacing="16">
 
-                <!-- Кнопка "Отгрузить" -->
-                <Button Text="✅ Отгрузить коробки" 
-                        Command="{Binding ConfirmOperationCommand}"
-                        IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
-                        Style="{StaticResource PrimaryButton}" />
-
                 <!-- Статус сканирования -->
+                <!-- ✅ ИСПРАВЛЕНО: BackgroundColor через ScanStatusText -->
                 <Frame Padding="16" 
                        CornerRadius="12" 
-                       BackgroundColor="{Binding ScanStatusColor, Converter={StaticResource ScanStatusBackgroundConverter}}"
+                       BackgroundColor="{Binding ScanStatusText, Converter={StaticResource ScanStatusBackgroundConverter}}"
                        BorderColor="{Binding ScanStatusColor}">
                     <Grid ColumnDefinitions="36, *">
                         <Label Grid.Column="0" 
@@ -178,9 +173,11 @@
                                         CornerRadius="24"
                                         Padding="0"/>
                                 
+                                <!-- ✅ ИСПРАВЛЕНО: добавлен Completed для обработки ввода -->
                                 <Entry Grid.Column="1" 
                                        x:Name="QuantityEntry"
                                        Text="{Binding ShipQuantityDisplay}"
+                                       Completed="OnQuantityEntryCompleted"
                                        Keyboard="Numeric"
                                        HorizontalTextAlignment="Center"
                                        FontSize="28"
@@ -226,14 +223,14 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         
                         <!-- Заголовок списка -->
                         <Frame Grid.Row="0" 
                                Padding="16,12" 
                                BackgroundColor="{StaticResource PrimaryColor}"
-                               CornerRadius="12,12,0,0"
+                               CornerRadius="12"
                                HasShadow="False">
                             <Frame.GestureRecognizers>
                                 <TapGestureRecognizer>
@@ -263,11 +260,10 @@
                             </Grid>
                         </Frame>
 
-                        <!-- Список коробок -->
+                        <!-- Список коробок — без фиксированной высоты -->
                         <CollectionView Grid.Row="1"
                                         IsVisible="{Binding IsBoxListExpanded}"
-                                        ItemsSource="{Binding ScannedBoxes}"
-                                        HeightRequest="200">
+                                        ItemsSource="{Binding ScannedBoxes}">
                             <CollectionView.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Padding="8,4" Margin="8,0" ColumnDefinitions="Auto, *, Auto">
@@ -289,7 +285,8 @@
                                                 <Label Text="{Binding Grade}" 
                                                        FontSize="11" 
                                                        TextColor="Gray" />
-                                                <Label Text="{Binding Status, Converter={StaticResource StatusTextConverter}}" 
+                                                <!-- ✅ ИСПРАВЛЕНО: StatusDisplayConverter вместо StatusTextConverter -->
+                                                <Label Text="{Binding Status, Converter={StaticResource StatusDisplayConverter}}" 
                                                        FontSize="11" 
                                                        TextColor="{Binding Status, Converter={StaticResource StatusColorConverter}}" />
                                             </HorizontalStackLayout>
@@ -308,6 +305,12 @@
                         </CollectionView>
                     </Grid>
                 </Frame>
+
+                <!-- ✅ Кнопка "Отгрузить" — ПЕРЕНЕСЕНА ВНИЗ -->
+                <Button Text="✅ Отгрузить коробки" 
+                        Command="{Binding ConfirmOperationCommand}"
+                        IsEnabled="{Binding ScannedBoxes.Count, Converter={StaticResource GreaterThanZeroConverter}}"
+                        Style="{StaticResource PrimaryButton}" />
 
                 <!-- Индикатор работы -->
                 <ActivityIndicator IsRunning="{Binding IsLoading}" 

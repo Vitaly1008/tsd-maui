@@ -62,16 +62,21 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
     [ObservableProperty]
     private bool _isBoxListExpanded = true;
 
-    public BaseScannerViewModel(IBarcodeService? barcodeService = null)
+    public BaseScannerViewModel(
+        DatabaseHelper dbHelper,
+        ApiService apiService,
+        SyncQueueService syncQueueService,
+        SyncService syncService,
+        IBarcodeService? barcodeService = null)
     {
-        _dbHelper = new DatabaseHelper();
-        _apiService = new ApiService();
-        _syncQueueService = new SyncQueueService();
-        _syncService = new SyncService();
+        _dbHelper = dbHelper;
+        _apiService = apiService;
+        _syncQueueService = syncQueueService;
+        _syncService = syncService;
         _barcodeService = barcodeService;
         _isInitialized = false;
         _isScannerStarted = false;
-        
+
         ScannedBoxes = new ObservableCollection<Box>();
     }
 

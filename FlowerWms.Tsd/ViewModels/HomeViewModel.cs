@@ -7,7 +7,7 @@ using FlowerWms.Tsd.Services;
 namespace FlowerWms.Tsd.ViewModels;
 
 // ViewModel для главного экрана
-public partial class HomeViewModel : ObservableObject
+public partial class HomeViewModel : ObservableObject, IDisposable
 {
     private readonly SyncQueueService _syncQueueService;
     private readonly SyncService _syncService;
@@ -16,6 +16,7 @@ public partial class HomeViewModel : ObservableObject
     private readonly NetworkService _networkService;
     private bool _isInitialized;
     private int _lastKnownPendingCount = -1;
+    private bool _disposed;
 
     [ObservableProperty]
     private int _pendingCount;
@@ -28,10 +29,10 @@ public partial class HomeViewModel : ObservableObject
 
     [ObservableProperty]
     private string _connectionStatus = "Подключение...";
-    
+
     [ObservableProperty]
     private string _connectionStatusIcon = "⏳";
-    
+
     [ObservableProperty]
     private string _syncStatusMessage = "Все данные синхронизированы";
 
@@ -51,62 +52,76 @@ public partial class HomeViewModel : ObservableObject
     public event EventHandler? NavigateToPendingRequested;
     public event EventHandler? NavigateToAboutRequested;
 
-    public HomeViewModel()
+    public HomeViewModel(
+        SyncQueueService syncQueueService,
+        SyncService syncService,
+        AuthService authService,
+        ServerDiscoveryService discoveryService,
+        NetworkService networkService)
     {
-        _syncQueueService = new SyncQueueService();
-        _syncService = new SyncService();
-        _authService = new AuthService();
-        _discoveryService = new ServerDiscoveryService();
-        _networkService = new NetworkService();
-        
+        _syncQueueService = syncQueueService;
+        _syncService = syncService;
+        _authService = authService;
+        _discoveryService = discoveryService;
+        _networkService = networkService;
+
         ServerAddress = Constants.ApiBaseUrl;
 
+        // ✅ Подписки через методы, а не лямбды — чтобы можно было отписаться
         _networkService.NetworkStatusChanged += OnNetworkStatusChanged;
         _networkService.ServerFound += OnServerFound;
 
-        _syncQueueService.PendingCountChanged += (s, count) =>
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                PendingCount = count;
-                UpdateSyncStatusMessage(count);
-            });
-        };
+        _syncQueueService.PendingCountChanged += OnPendingCountChanged;
+        _syncQueueService.SyncStatusChanged += OnSyncStatusChanged;
+        _syncService.StatusChanged += OnSyncServiceStatusChanged;
+    }
 
-        _syncQueueService.SyncStatusChanged += (s, isSyncing) =>
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                IsSyncing = isSyncing;
-                if (!isSyncing && PendingCount == 0)
-                {
-                    SyncStatusMessage = "Все данные синхронизированы";
-                }
-            });
-        };
+    // ============================================================
+    // ✅ ОБРАБОТЧИКИ СОБЫТИЙ (вынесены из конструктора для отписки)
+    // ============================================================
 
-        _syncService.StatusChanged += (s, status) =>
+    private void OnPendingCountChanged(object? sender, int count)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            MainThread.BeginInvokeOnMainThread(() =>
+            PendingCount = count;
+            UpdateSyncStatusMessage(count);
+        });
+    }
+
+    private void OnSyncStatusChanged(object? sender, bool isSyncing)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsSyncing = isSyncing;
+            if (!isSyncing && PendingCount == 0)
             {
-                IsOnline = status == SyncStatus.Online;
-                ConnectionStatus = status switch
-                {
-                    SyncStatus.Online => "Онлайн",
-                    SyncStatus.Offline => "Офлайн",
-                    SyncStatus.Syncing => "Синхронизация...",
-                    _ => "Неизвестно"
-                };
-                ConnectionStatusIcon = status switch
-                {
-                    SyncStatus.Online => "📶",
-                    SyncStatus.Offline => "📴",
-                    SyncStatus.Syncing => "🔄",
-                    _ => "❓"
-                };
-                IsSyncing = status == SyncStatus.Syncing;
-            });
-        };
+                SyncStatusMessage = "Все данные синхронизированы";
+            }
+        });
+    }
+
+    private void OnSyncServiceStatusChanged(object? sender, SyncStatus status)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsOnline = status == SyncStatus.Online;
+            ConnectionStatus = status switch
+            {
+                SyncStatus.Online => "Онлайн",
+                SyncStatus.Offline => "Офлайн",
+                SyncStatus.Syncing => "Синхронизация...",
+                _ => "Неизвестно"
+            };
+            ConnectionStatusIcon = status switch
+            {
+                SyncStatus.Online => "📶",
+                SyncStatus.Offline => "📴",
+                SyncStatus.Syncing => "🔄",
+                _ => "❓"
+            };
+            IsSyncing = status == SyncStatus.Syncing;
+        });
     }
 
     // Обработчик изменения статуса сети
@@ -116,7 +131,7 @@ public partial class HomeViewModel : ObservableObject
         {
             IsOnline = isOnline;
             ConnectionStatus = isOnline ? "Онлайн" : "Офлайн";
-            
+
             if (isOnline)
             {
                 ServerAddress = Constants.ApiBaseUrl;
@@ -153,39 +168,26 @@ public partial class HomeViewModel : ObservableObject
     public async Task Initialize()
     {
         if (_isInitialized) return;
-        
+
         try
         {
             await _networkService.CheckNetworkAsync();
-            
+
             IsOnline = await _syncService.CheckInternetManual();
-            
+
             _lastKnownPendingCount = await _syncQueueService.GetPendingCount();
             PendingCount = _lastKnownPendingCount;
             UpdateSyncStatusMessage(PendingCount);
-            
+
             ServerAddress = Constants.ApiBaseUrl;
-            
-            if (IsOnline && PendingCount > 0)
-            {
-                System.Diagnostics.Debug.WriteLine("Фоновая синхронизация при загрузке...");
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await _syncService.SyncAllData();
-                        await _syncQueueService.ProcessQueueAsync();
-                        await RefreshPendingCount();
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Фоновая синхронизация: {ex.Message}");
-                    }
-                });
-            }
-            
+
+            // ✅ УБРАНО: фоновая синхронизация при загрузке
+            // Синхронизация выполняется:
+            // - после логина (в LoginViewModel.SyncAfterLogin)
+            // - вручную по кнопке "Синхр."
+
             _isInitialized = true;
-            
+
             System.Diagnostics.Debug.WriteLine($"HomePage инициализирован. Счетчик: {PendingCount}");
         }
         catch (Exception ex)
@@ -200,7 +202,7 @@ public partial class HomeViewModel : ObservableObject
         try
         {
             var currentCount = await _syncQueueService.GetPendingCount();
-            
+
             if (_lastKnownPendingCount != currentCount)
             {
                 _lastKnownPendingCount = currentCount;
@@ -220,12 +222,12 @@ public partial class HomeViewModel : ObservableObject
     private async Task Sync()
     {
         if (IsSyncing) return;
-        
+
         try
         {
             IsSyncing = true;
             SyncStatusMessage = "Проверка подключения...";
-            
+
             var hasInternet = await _syncService.CheckInternetManual();
             if (!hasInternet)
             {
@@ -236,7 +238,7 @@ public partial class HomeViewModel : ObservableObject
                 );
                 return;
             }
-            
+
             var isAuthenticated = await _authService.ValidateToken();
             if (!isAuthenticated)
             {
@@ -249,20 +251,20 @@ public partial class HomeViewModel : ObservableObject
                 LogoutRequested?.Invoke(this, EventArgs.Empty);
                 return;
             }
-            
+
             SyncStatusMessage = "Синхронизация данных...";
             await _syncService.SyncAllData();
-            
+
             /* вызов await _syncQueueService.ProcessQueueAsync(); дублируется в await _syncService.SyncAllData();
             SyncStatusMessage = "Обработка офлайн-транзакций...";
             await _syncQueueService.ProcessQueueAsync();*/
-            
+
             await RefreshPendingCount();
-            
+
             if (PendingCount == 0)
             {
                 SyncStatusMessage = "Все данные синхронизированы";
-                
+
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "Синхронизация завершена",
                     "Все данные успешно синхронизированы.",
@@ -272,26 +274,26 @@ public partial class HomeViewModel : ObservableObject
             else
             {
                 SyncStatusMessage = $"Ожидает синхронизации: {PendingCount}";
-                
+
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "Частичная синхронизация",
                     $"Осталось {PendingCount} операций для синхронизации.\nПроверьте подключение и попробуйте снова.",
                     "OK"
                 );
             }
-            
+
             System.Diagnostics.Debug.WriteLine($"Синхронизация завершена. Осталось транзакций: {PendingCount}");
         }
         catch (UnauthorizedAccessException)
         {
             SyncStatusMessage = "Ошибка авторизации";
-            
+
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Требуется авторизация",
                 "Сессия истекла. Пожалуйста, войдите заново.",
                 "OK"
             );
-            
+
             await _authService.Logout();
             LogoutRequested?.Invoke(this, EventArgs.Empty);
         }
@@ -299,7 +301,7 @@ public partial class HomeViewModel : ObservableObject
         {
             System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации: {ex.Message}");
             SyncStatusMessage = $"Ошибка: {ex.Message}";
-            
+
             await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                 "Ошибка синхронизации",
                 $"Не удалось выполнить синхронизацию:\n{ex.Message}",
@@ -316,19 +318,21 @@ public partial class HomeViewModel : ObservableObject
     [RelayCommand]
     private async Task FindServer()
     {
+        if (IsSearching) return;
+
         IsSearching = true;
-        
+
         try
         {
             var serverAddress = await _discoveryService.GetServerAddress();
-            
+
             if (!string.IsNullOrEmpty(serverAddress))
             {
                 ServerAddress = serverAddress;
                 Constants.ApiBaseUrl = serverAddress;
                 IsOnline = true;
                 ConnectionStatus = "Онлайн";
-                
+
                 await Application.Current?.Windows[0]?.Page?.DisplayAlertAsync(
                     "Сервер найден",
                     $"Сервер доступен по адресу:\n{serverAddress}",
@@ -395,5 +399,25 @@ public partial class HomeViewModel : ObservableObject
     private void NavigateToAbout()
     {
         NavigateToAboutRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ============================================================
+    // ✅ IDisposable — отписки от событий
+    // ============================================================
+    public void Dispose()
+    {
+        if (_disposed) return;
+
+        _networkService.NetworkStatusChanged -= OnNetworkStatusChanged;
+        _networkService.ServerFound -= OnServerFound;
+
+        _syncQueueService.PendingCountChanged -= OnPendingCountChanged;
+        _syncQueueService.SyncStatusChanged -= OnSyncStatusChanged;
+        _syncService.StatusChanged -= OnSyncServiceStatusChanged;
+
+        _disposed = true;
+        GC.SuppressFinalize(this);
+
+        System.Diagnostics.Debug.WriteLine("HomeViewModel.Dispose() вызван");
     }
 }

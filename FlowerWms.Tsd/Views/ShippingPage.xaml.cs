@@ -45,12 +45,22 @@ public partial class ShippingPage : BasePage
     // Выполняется при выгрузке страницы
     private void OnPageUnloaded(object? sender, EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.OperationCompleted -= OnOperationCompleted;
+            _viewModel.OperationCancelled -= OnOperationCancelled;
+        }
         StopScannerAndDispose();
     }
 
     // Обработчик завершения операции
     private async void OnOperationCompleted(object? sender, EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.OperationCompleted -= OnOperationCompleted;
+            _viewModel.OperationCancelled -= OnOperationCancelled;
+        }
         StopScannerAndDispose();
         await Navigation.PopAsync();
     }
@@ -58,6 +68,11 @@ public partial class ShippingPage : BasePage
     // Обработчик отмены операции
     private async void OnOperationCancelled(object? sender, EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.OperationCompleted -= OnOperationCompleted;
+            _viewModel.OperationCancelled -= OnOperationCancelled;
+        }
         StopScannerAndDispose();
         await Navigation.PopAsync();
     }
@@ -74,6 +89,14 @@ public partial class ShippingPage : BasePage
     {
         if (sender is Entry entry && _viewModel != null)
         {
+            // ✅ ИСПРАВЛЕНО: защита от MaxQuantity <= 0
+            if (_viewModel.MaxQuantity <= 0)
+            {
+                _viewModel.ShipQuantityDisplay = _viewModel.ShipQuantity.ToString();
+                entry.Unfocus();
+                return;
+            }
+
             if (int.TryParse(entry.Text, out int value))
             {
                 _viewModel.ShipQuantity = Math.Clamp(value, 1, _viewModel.MaxQuantity);
@@ -83,7 +106,7 @@ public partial class ShippingPage : BasePage
             {
                 _viewModel.ShipQuantityDisplay = _viewModel.ShipQuantity.ToString();
             }
-            
+
             entry.Unfocus();
         }
     }

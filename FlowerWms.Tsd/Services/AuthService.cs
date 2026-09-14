@@ -11,11 +11,15 @@ public class AuthService
     private readonly SecureStorageService _secureStorage;
     private readonly ServerDiscoveryService _discoveryService;
 
-    public AuthService()
+    // ✅ ДОБАВЛЕНО: DI через конструктор
+    public AuthService(
+        ApiService apiService,
+        SecureStorageService secureStorage,
+        ServerDiscoveryService discoveryService)
     {
-        _apiService = new ApiService();
-        _secureStorage = new SecureStorageService();
-        _discoveryService = new ServerDiscoveryService();
+        _apiService = apiService;
+        _secureStorage = secureStorage;
+        _discoveryService = discoveryService;
     }
 
     // Выполняет вход в систему
@@ -23,9 +27,9 @@ public class AuthService
     {
         // Проверяет доступность сервера
         var isAvailable = await _discoveryService.PingServer(Constants.ApiBaseUrl);
-        
+
         if (!isAvailable)
-        {   
+        {
             var newServer = await _discoveryService.GetServerAddress();
             if (!string.IsNullOrEmpty(newServer))
             {
@@ -37,40 +41,22 @@ public class AuthService
             }
         }
 
-        var client = new HttpClient();
-        client.Timeout = TimeSpan.FromSeconds(10);
-        
-        var content = new StringContent(
-            JsonSerializer.Serialize(new { username, password }),
-            System.Text.Encoding.UTF8,
-            "application/json"
-        );
-        
-        var response = await client.PostAsync($"{Constants.ApiBaseUrl}/api/auth/login", content);
-        var responseContent = await response.Content.ReadAsStringAsync();
+        // ✅ ИСПРАВЛЕНО: логин через ApiService (общий HttpClient)
+        var loginResponse = await _apiService.LoginAsync(username, password);
 
-        if (!response.IsSuccessStatusCode)
+        if (loginResponse == null || string.IsNullOrEmpty(loginResponse.Token))
         {
-            throw new Exception($"Ошибка авторизации: {responseContent}");
+            throw new Exception("Неверный логин или пароль");
         }
 
-        var loginResponse = JsonSerializer.Deserialize<LoginResponse>(responseContent, new JsonSerializerOptions
+        await _secureStorage.SaveToken(loginResponse.Token);
+        await _secureStorage.SaveUser(JsonSerializer.Serialize(new
         {
-            PropertyNameCaseInsensitive = true
-        });
+            loginResponse.Username,
+            loginResponse.Role
+        }));
 
-        if (loginResponse != null)
-        {
-            await _secureStorage.SaveToken(loginResponse.Token);
-            await _secureStorage.SaveUser(JsonSerializer.Serialize(new
-            {
-                loginResponse.Username,
-                loginResponse.Role
-            }));
-            return loginResponse;
-        }
-
-        throw new Exception("Не удалось обработать ответ от сервера");
+        return loginResponse;
     }
 
     // Проверяет валидность токена
@@ -81,7 +67,7 @@ public class AuthService
             var token = await _secureStorage.GetToken();
             if (string.IsNullOrEmpty(token))
                 return false;
-            
+
             return await _apiService.PingServer();
         }
         catch

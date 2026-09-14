@@ -959,6 +959,61 @@ public class DatabaseHelper
         }
     }
 
+    /// <summary>
+    /// Удаляет все коробки, кроме указанных barcode'ов.
+    /// Возвращает количество сохранённых записей.
+    /// </summary>
+    public async Task<int> DeleteAllBoxesExcept(HashSet<string> barcodesToKeep)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+
+            if (barcodesToKeep == null || barcodesToKeep.Count == 0)
+            {
+                var isDeleted = await db.ExecuteAsync("DELETE FROM boxes_cache");
+                Logger.Info($"🗑️ Удалено всех коробок: {isDeleted}");
+                return 0;
+            }
+
+            // SQLite не поддерживает массив в IN, строим строку вручную
+            var placeholders = string.Join(",", barcodesToKeep.Select(_ => "?"));
+            var args = barcodesToKeep.Cast<object>().ToArray();
+
+            // Удаляем всё, кроме указанных
+            var deleted = await db.ExecuteAsync(
+                $"DELETE FROM boxes_cache WHERE barcode NOT IN ({placeholders})",
+                args
+            );
+
+            Logger.Info($"🗑️ Удалено коробок: {deleted}, сохранено: {barcodesToKeep.Count}");
+            return barcodesToKeep.Count;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"❌ Ошибка удаления коробок: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Прямая вставка коробки (без проверки на существование — используется после очистки)
+    /// </summary>
+    public async Task InsertBox(BoxCache box)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            box.updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            await db.InsertOrReplaceAsync(box);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"❌ Ошибка вставки коробки {box.barcode}: {ex.Message}");
+            throw;
+        }
+    }
+
     // Вспомогательный класс для PRAGMA table_info
     public class TableInfo
     {

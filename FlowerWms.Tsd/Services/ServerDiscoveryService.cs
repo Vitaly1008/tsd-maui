@@ -11,14 +11,14 @@ public class ServerDiscoveryService
     private readonly SecureStorageService _secureStorage;
     private const string STORAGE_KEY = "server_address";
     private const int DEFAULT_PORT = 5152;
-    private const int TIMEOUT_MS = 1200;
-    private const int MAX_PARALLEL = 20;
+    private const int TIMEOUT_MS = 3000;   // ✅ было 1200
+    private const int MAX_PARALLEL = 40;   // ✅ было 20
 
     public event EventHandler<string>? ScanProgressChanged;
 
-    public ServerDiscoveryService()
+    public ServerDiscoveryService(SecureStorageService secureStorage)
     {
-        _secureStorage = new SecureStorageService();
+        _secureStorage = secureStorage;
     }
 
     // Возвращает сохраненный адрес сервера
@@ -26,7 +26,7 @@ public class ServerDiscoveryService
     {
         try
         {
-            var address = await _secureStorage.GetServerAdress(STORAGE_KEY);
+            var address = await _secureStorage.GetServerAddress(STORAGE_KEY); // ✅ переименовано
             if (!string.IsNullOrEmpty(address))
             {
                 return address;
@@ -44,7 +44,7 @@ public class ServerDiscoveryService
     {
         try
         {
-            await _secureStorage.SaveServerAdress(STORAGE_KEY, address);
+            await _secureStorage.SaveServerAddress(STORAGE_KEY, address); // ✅ переименовано
         }
         catch
         {
@@ -113,10 +113,7 @@ public class ServerDiscoveryService
                 }
             }
         }
-        catch
-        {
-            // Игнорируем ошибки
-        }
+        catch { }
 
         try
         {
@@ -138,10 +135,7 @@ public class ServerDiscoveryService
                 }
             }
         }
-        catch
-        {
-            // Игнорируем ошибки
-        }
+        catch { }
 
         try
         {
@@ -150,14 +144,10 @@ public class ServerDiscoveryService
             var endPoint = socket.LocalEndPoint as IPEndPoint;
             if (endPoint != null)
             {
-                var ip = endPoint.Address.ToString();
-                return ip;
+                return endPoint.Address.ToString();
             }
         }
-        catch
-        {
-            // Игнорируем ошибки
-        }
+        catch { }
 
         return null;
     }
@@ -196,6 +186,7 @@ public class ServerDiscoveryService
             }
         }
 
+        // ✅ ИСПРАВЛЕНО: потокобезопасная переменная
         string? foundAddress = null;
         int checkedCount = 0;
         int totalCount = candidates.Count;
@@ -209,7 +200,8 @@ public class ServerDiscoveryService
         {
             await Parallel.ForEachAsync(candidates, parallelOptions, async (address, token) =>
             {
-                if (foundAddress != null) return;
+                // ✅ ИСПРАВЛЕНО: волатильное чтение
+                if (Volatile.Read(ref foundAddress) != null) return;
 
                 var current = Interlocked.Increment(ref checkedCount);
                 if (current % 10 == 0 || current == totalCount)
@@ -220,7 +212,8 @@ public class ServerDiscoveryService
 
                 if (await PingServer(address))
                 {
-                    foundAddress = address;
+                    // ✅ ИСПРАВЛЕНО: атомарная запись, только первый победит
+                    Interlocked.CompareExchange(ref foundAddress, address, null);
                 }
             });
         }

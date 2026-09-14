@@ -45,12 +45,22 @@ public partial class ReceivingPage : BasePage
     // Выполняется при выгрузке страницы
     private void OnPageUnloaded(object? sender, EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.OperationCompleted -= OnOperationCompleted;
+            _viewModel.OperationCancelled -= OnOperationCancelled;
+        }
         StopScannerAndDispose();
     }
 
     // Обработчик завершения операции
     private async void OnOperationCompleted(object? sender, EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.OperationCompleted -= OnOperationCompleted;
+            _viewModel.OperationCancelled -= OnOperationCancelled;
+        }
         StopScannerAndDispose();
         await Navigation.PopAsync();
     }
@@ -58,6 +68,11 @@ public partial class ReceivingPage : BasePage
     // Обработчик отмены операции
     private async void OnOperationCancelled(object? sender, EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.OperationCompleted -= OnOperationCompleted;
+            _viewModel.OperationCancelled -= OnOperationCancelled;
+        }
         StopScannerAndDispose();
         await Navigation.PopAsync();
     }

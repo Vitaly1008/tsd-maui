@@ -9,8 +9,44 @@ public static class Constants
     private static string? _apiBaseUrl;
     private static string? _deviceId;
     private static readonly object _lock = new object();
+    private static bool _initialized;
     private const string CONFIG_KEY_API = "apiBaseUrl";
     private const string CONFIG_KEY_DEVICE = "deviceId";
+
+    // ✅ Асинхронная инициализация: вызывается ОДИН РАЗ при старте приложения
+    public static async Task InitAsync()
+    {
+        if (_initialized)
+            return;
+
+        try
+        {
+            var apiUrl = await SecureStorage.GetAsync(CONFIG_KEY_API);
+            var deviceId = await SecureStorage.GetAsync(CONFIG_KEY_DEVICE);
+
+            lock (_lock)
+            {
+                _apiBaseUrl = string.IsNullOrEmpty(apiUrl)
+                    ? "http://192.168.0.252:5152"
+                    : apiUrl;
+
+                _deviceId = string.IsNullOrEmpty(deviceId)
+                    ? "RT40_001"
+                    : deviceId;
+
+                _initialized = true;
+            }
+        }
+        catch
+        {
+            lock (_lock)
+            {
+                _apiBaseUrl ??= "http://192.168.0.252:5152";
+                _deviceId ??= "RT40_001";
+                _initialized = true;
+            }
+        }
+    }
 
     // Базовый URL API с сохранением в SecureStorage
     public static string ApiBaseUrl
@@ -22,13 +58,8 @@ public static class Constants
                 if (!string.IsNullOrEmpty(_apiBaseUrl))
                     return _apiBaseUrl;
 
-                _apiBaseUrl = LoadConfig(CONFIG_KEY_API, null);
-                
-                if (string.IsNullOrEmpty(_apiBaseUrl))
-                {
-                    _apiBaseUrl = "http://192.168.0.252:5152";
-                }
-                
+                // Fallback, если InitAsync ещё не был вызван
+                _apiBaseUrl = "http://192.168.0.252:5152";
                 return _apiBaseUrl;
             }
         }
@@ -37,58 +68,41 @@ public static class Constants
             lock (_lock)
             {
                 _apiBaseUrl = value;
-                SaveConfig(CONFIG_KEY_API, value);
             }
+            SaveConfig(CONFIG_KEY_API, value);
         }
     }
 
-    // Идентификатор устройства с загрузкой из SecureStorage
+    // Идентификатор устройства
     public static string DeviceId
     {
         get
         {
-            if (!string.IsNullOrEmpty(_deviceId))
-                return _deviceId;
-
-            _deviceId = LoadConfig(CONFIG_KEY_DEVICE, "RT40_001");
-            return _deviceId;
-        }
-    }
-
-    // Загрузка конфигурации из SecureStorage
-    private static string LoadConfig(string key, string? defaultValue)
-    {
-        try
-        {
-            var task = Task.Run(async () => await SecureStorage.GetAsync(key));
-            var value = task.Result;
-            
-            if (!string.IsNullOrEmpty(value))
+            lock (_lock)
             {
-                return value;
+                if (!string.IsNullOrEmpty(_deviceId))
+                    return _deviceId;
+
+                _deviceId = "RT40_001";
+                return _deviceId;
             }
-            return defaultValue ?? string.Empty;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка загрузки конфига {key}: {ex.Message}");
-            return defaultValue ?? string.Empty;
         }
     }
 
-    // Сохранение конфигурации в SecureStorage
+    // Сохранение конфигурации в SecureStorage (fire-and-forget, не блокирует UI)
     private static void SaveConfig(string key, string value)
     {
-        try
+        _ = Task.Run(async () =>
         {
-            var task = Task.Run(async () => await SecureStorage.SetAsync(key, value));
-            task.Wait();
-            System.Diagnostics.Debug.WriteLine($"✅ Конфиг сохранен: {key}");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения конфига {key}: {ex.Message}");
-        }
+            try
+            {
+                await SecureStorage.SetAsync(key, value);
+            }
+            catch
+            {
+                // Игнорируем ошибки записи
+            }
+        });
     }
 
     // API endpoints

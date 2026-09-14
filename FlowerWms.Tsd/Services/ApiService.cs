@@ -12,13 +12,18 @@ public class ApiService
     private HttpClient _httpClient;
     private readonly SecureStorageService _secureStorage;
     private readonly OfflineService _offlineService;
-    private bool _isOffline;
+    private readonly DatabaseHelper _dbHelper;
 
-    public ApiService()
+    // ✅ ИСПРАВЛЕНО: полный DI
+    public ApiService(
+        DatabaseHelper dbHelper,
+        SecureStorageService secureStorage,
+        OfflineService offlineService)
     {
         _httpClient = new HttpClient();
-        _secureStorage = new SecureStorageService();
-        _offlineService = new OfflineService();
+        _dbHelper = dbHelper;
+        _secureStorage = secureStorage;
+        _offlineService = offlineService;
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         Logger.Info("ApiService инициализирован");
     }
@@ -30,18 +35,58 @@ public class ApiService
         Constants.ApiBaseUrl = newBaseUrl;
     }
 
+    // ✅ ДОБАВЛЕНО: логин через общий HttpClient, БЕЗ заголовка Authorization
+    public async Task<LoginResponse?> LoginAsync(string username, string password)
+    {
+        Logger.Info($"📤 LoginAsync: username={username}");
+        try
+        {
+            // НЕ используем GetHttpClient(), чтобы не тащить старый токен
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"{Constants.ApiBaseUrl}{Constants.ApiEndpoints.Login}");
+
+            var json = JsonSerializer.Serialize(new { username, password });
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+            Logger.Info($"📥 LoginAsync status: {(int)response.StatusCode}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Logger.Warning($"⚠️ LoginAsync ошибка: {content}");
+                return null;
+            }
+
+            var loginResponse = JsonSerializer.Deserialize<LoginResponse>(content, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            return loginResponse;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"❌ LoginAsync ошибка: {ex.Message}");
+            return null;
+        }
+    }
+
     // Возвращает HttpClient с токеном авторизации
     private async Task<HttpClient> GetHttpClient()
     {
         var token = await _secureStorage.GetToken();
         if (!string.IsNullOrEmpty(token))
         {
-            _httpClient.DefaultRequestHeaders.Authorization = 
+            _httpClient.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             Logger.Info("🔑 Токен авторизации установлен");
         }
         else
         {
+            // ✅ ИСПРАВЛЕНО: сбрасываем старый токен
+            _httpClient.DefaultRequestHeaders.Authorization = null;
             Logger.Warning("⚠️ Токен авторизации отсутствует");
         }
         return _httpClient;
@@ -66,7 +111,6 @@ public class ApiService
         }
     }
 
-    //  ИСПРАВЛЕНО: убрано исключение для Shipping
     // Выполняет запрос с поддержкой офлайн-режима
     private async Task<T?> RequestWithOfflineSupport<T>(
         HttpMethod method,
@@ -76,12 +120,12 @@ public class ApiService
         string? barcode = null)
     {
         Logger.Info($"📤 RequestWithOfflineSupport: method={method}, path={path}, opType={operationType}, barcode={barcode}");
-        
+
         try
         {
             var client = await GetHttpClient();
             var request = new HttpRequestMessage(method, $"{Constants.ApiBaseUrl}{path}");
-            
+
             if (data != null)
             {
                 var json = JsonSerializer.Serialize(data);
@@ -95,7 +139,6 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                _isOffline = false;
                 Logger.Info($"✅ Request успешен");
                 return JsonSerializer.Deserialize<T>(content);
             }
@@ -111,10 +154,8 @@ public class ApiService
         catch (Exception ex)
         {
             Logger.Error($"❌ RequestWithOfflineSupport ошибка: {ex.Message}");
-            _isOffline = true;
 
-            //  ИСПРАВЛЕНО: сохраняем ВСЕ операции, включая Shipping
-            if (!string.IsNullOrEmpty(operationType) && 
+            if (!string.IsNullOrEmpty(operationType) &&
                 !string.IsNullOrEmpty(barcode))
             {
                 Logger.Info($"💾 Сохранение транзакции в офлайн: type={operationType}, barcode={barcode}");
@@ -492,9 +533,9 @@ public class ApiService
     // МЕТОДЫ ДЛЯ ИНВЕНТАРИЗАЦИИ И УПРАВЛЕНИЯ КОРОБКАМИ
     // ============================================================
 
-    public async Task<Dictionary<string, object>> UpdateBoxQuantity(string boxId, int newQuantity)
+    public async Task<Dictionary<string, object>> UpdateBoxQuantityOnly(string boxId, int newQuantity)
     {
-        Logger.Info($"📤 UpdateBoxQuantity: boxId={boxId}, newQuantity={newQuantity}");
+        Logger.Info($"📤 UpdateBoxQuantityOnly: boxId={boxId}, newQuantity={newQuantity}");
         return await ExecutePutRequest(
             $"{Constants.ApiBaseUrl}/api/boxes/{boxId}/quantity",
             new { quantity = newQuantity }
@@ -690,6 +731,10 @@ public class ApiService
         );
     }
 
+    // ============================================================
+    // ✅ ИСПРАВЛЕНО: синхронизация продуктов/локаций через _dbHelper
+    // ============================================================
+
     public async Task<bool> SyncProducts()
     {
         Logger.Info($"📤 SyncProducts: НАЧАЛО");
@@ -699,7 +744,6 @@ public class ApiService
             Logger.Info($"📋 Получено {products.Count} продуктов");
             if (products.Count > 0)
             {
-                var dbHelper = new DatabaseHelper();
                 var productCache = products.Select(p => new ProductCache
                 {
                     product_id = p.Id,
@@ -711,8 +755,8 @@ public class ApiService
                     created_at = p.CreatedAt,
                     updated_at = p.UpdatedAt
                 }).ToList();
-                
-                await dbHelper.SyncProducts(productCache);
+
+                await _dbHelper.SyncProducts(productCache); // ✅ через DI
                 Logger.Info($"✅ Синхронизировано {productCache.Count} продуктов");
                 return true;
             }
@@ -735,7 +779,6 @@ public class ApiService
             Logger.Info($"📋 Получено {locations.Count} локаций");
             if (locations.Count > 0)
             {
-                var dbHelper = new DatabaseHelper();
                 var locationCache = locations.Select(l => new LocationCache
                 {
                     location_id = l.Id,
@@ -745,8 +788,8 @@ public class ApiService
                     is_active = l.IsActive ? 1 : 0,
                     created_at = l.CreatedAt
                 }).ToList();
-                
-                await dbHelper.SyncLocations(locationCache);
+
+                await _dbHelper.SyncLocations(locationCache); // ✅ через DI
                 Logger.Info($"✅ Синхронизировано {locationCache.Count} локаций");
                 return true;
             }

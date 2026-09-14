@@ -29,14 +29,14 @@ public class SecureStorageService
         return await SecureStorage.GetAsync("user");
     }
 
-    // Сохраняет адрес сервера
-    public async Task SaveServerAdress(string key, string value)
+    // ✅ ИСПРАВЛЕНО: переименовано (было SaveServerAdress)
+    public async Task SaveServerAddress(string key, string value)
     {
         await SecureStorage.SetAsync(key, value);
     }
 
-    // Возвращает адрес сервера
-    public async Task<string?> GetServerAdress(string key)
+    // ✅ ИСПРАВЛЕНО: переименовано (было GetServerAdress)
+    public async Task<string?> GetServerAddress(string key)
     {
         return await SecureStorage.GetAsync(key);
     }

@@ -8,20 +8,22 @@ public class NetworkService : IDisposable
 {
     private readonly ServerDiscoveryService _discoveryService;
     private readonly SyncService _syncService;
-    private readonly OfflineService _offlineService;
     private bool _isOnline;
     private bool _isChecking;
 
     public event EventHandler<bool>? NetworkStatusChanged;
     public event EventHandler<string>? ServerFound;
 
-    public NetworkService()
+    // ✅ ИСПРАВЛЕНО: DI через конструктор
+    public NetworkService(
+        ServerDiscoveryService discoveryService,
+        SyncService syncService)
     {
-        _discoveryService = new ServerDiscoveryService();
-        _syncService = new SyncService();
-        
+        _discoveryService = discoveryService;
+        _syncService = syncService;
+
         NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
-        
+
         _ = CheckNetworkAsync();
     }
 

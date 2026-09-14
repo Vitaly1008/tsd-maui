@@ -89,7 +89,7 @@
                 </Frame>
             </Grid>
 
-            <!-- Кнопки управления (разнесены) -->
+            <!-- Кнопки управления -->
             <Grid Grid.Row="1" Padding="0,0,0,12" ColumnDefinitions="*, *">
                 <Button Grid.Column="0"
                         Text="🔄 Синхр."
@@ -146,7 +146,6 @@
                                    BackgroundColor="White"
                                    Margin="0,4">
                                 
-                                <!-- Grid с GestureRecognizers вместо Frame -->
                                 <Grid Padding="12" BackgroundColor="White">
                                     <Grid.GestureRecognizers>
                                         <TapGestureRecognizer Command="{Binding BindingContext.ShowTransactionDetailCommand, Source={RelativeSource AncestorType={x:Type views:SyncQueuePage}}}"
@@ -202,81 +201,37 @@
                                         <Label Text="{Binding barcode}" FontSize="12" TextColor="Gray" />
                                     </VerticalStackLayout>
 
-                                    <!-- Статус -->
-                                    <Label Grid.Row="0" Grid.Column="2" 
-                                           FontSize="16"
-                                           VerticalOptions="Center"
-                                           HorizontalOptions="End">
-                                        <Label.Triggers>
-                                            <DataTrigger TargetType="Label"
-                                                         Binding="{Binding is_synced}"
-                                                         Value="1">
-                                                <Setter Property="Text" Value="✅" />
-                                            </DataTrigger>
-                                            <DataTrigger TargetType="Label"
-                                                         Binding="{Binding is_synced}"
-                                                         Value="0">
-                                                <Setter Property="Text" Value="⏳" />
-                                            </DataTrigger>
-                                        </Label.Triggers>
-                                    </Label>
+                                    <!-- ✅ УБРАНО: Label со статусом (был перекрыт кнопками) -->
 
                                     <!-- Детали операции -->
                                     <Grid Grid.Row="1" Grid.Column="1" 
                                           Margin="0,4,0,0"
                                           ColumnDefinitions="Auto, *, Auto">
                                         
+                                        <!-- ✅ ИСПРАВЛЕНО: два Label с конвертерами вместо DataTrigger -->
                                         <Label Grid.Column="0" 
-                                               FontSize="11">
-                                            <Label.Triggers>
-                                                <DataTrigger TargetType="Label"
-                                                             Binding="{Binding error_message}"
-                                                             Value="{x:Null}">
-                                                    <Setter Property="Text" Value="✅ Готово" />
-                                                    <Setter Property="TextColor" Value="{StaticResource SuccessColor}" />
-                                                </DataTrigger>
-                                                <DataTrigger TargetType="Label"
-                                                             Binding="{Binding error_message}"
-                                                             Value="">
-                                                    <Setter Property="Text" Value="✅ Готово" />
-                                                    <Setter Property="TextColor" Value="{StaticResource SuccessColor}" />
-                                                </DataTrigger>
-                                                <DataTrigger TargetType="Label"
-                                                             Binding="{Binding error_message}">
-                                                    <Setter Property="Text" Value="❌ Ошибка" />
-                                                    <Setter Property="TextColor" Value="{StaticResource DangerColor}" />
-                                                </DataTrigger>
-                                            </Label.Triggers>
-                                        </Label>
+                                            Text="❌ Ошибка"
+                                            TextColor="{StaticResource DangerColor}"
+                                            IsVisible="{Binding error_message, Converter={StaticResource IsNotNullOrEmptyConverter}}" />
+
+                                        <Label Grid.Column="0" 
+                                            Text="✅ Готово"
+                                            TextColor="{StaticResource SuccessColor}"
+                                            IsVisible="{Binding error_message, Converter={StaticResource IsNotNullOrEmptyConverter}, ConverterParameter=invert}" />
                                         
+                                        <!-- ✅ ИСПРАВЛЕНО: прямой биндинг вместо DataTrigger -->
                                         <Label Grid.Column="1" 
                                                FontSize="11"
                                                TextColor="Gray"
-                                               HorizontalOptions="Center">
-                                            <Label.Triggers>
-                                                <DataTrigger TargetType="Label"
-                                                             Binding="{Binding retry_count}"
-                                                             Value="0">
-                                                    <Setter Property="Text" Value="Попыток: 0" />
-                                                </DataTrigger>
-                                                <DataTrigger TargetType="Label"
-                                                             Binding="{Binding retry_count}">
-                                                    <Setter Property="Text" Value="{Binding retry_count, StringFormat='Попыток: {0}'}" />
-                                                </DataTrigger>
-                                            </Label.Triggers>
-                                        </Label>
+                                               HorizontalOptions="Center"
+                                               Text="{Binding retry_count, StringFormat='Попыток: {0}'}" />
                                         
+                                        <!-- ✅ ИСПРАВЛЕНО: прямой биндинг вместо DataTrigger -->
                                         <Label Grid.Column="2" 
                                                FontSize="11"
                                                TextColor="Gray"
-                                               HorizontalOptions="End">
-                                            <Label.Triggers>
-                                                <DataTrigger TargetType="Label"
-                                                             Binding="{Binding created_at}">
-                                                    <Setter Property="Text" Value="{Binding created_at, Converter={StaticResource CreatedAtDisplayConverter}}" />
-                                                </DataTrigger>
-                                            </Label.Triggers>
-                                        </Label>
+                                               HorizontalOptions="End"
+                                               Text="{Binding created_at, Converter={StaticResource CreatedAtDisplayConverter}}" />
                                     </Grid>
 
                                     <!-- Кнопки действий -->
@@ -294,28 +249,13 @@
                                     </HorizontalStackLayout>
 
                                     <!-- Сообщение об ошибке -->
+                                    <!-- ✅ ИСПРАВЛЕНО: один Label, видимый только при наличии ошибки -->
                                     <Label Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
                                            FontSize="12"
                                            TextColor="{StaticResource DangerColor}"
-                                           Margin="0,4,0,0">
-                                        <Label.Triggers>
-                                            <DataTrigger TargetType="Label"
-                                                         Binding="{Binding error_message}"
-                                                         Value="{x:Null}">
-                                                <Setter Property="IsVisible" Value="False" />
-                                            </DataTrigger>
-                                            <DataTrigger TargetType="Label"
-                                                         Binding="{Binding error_message}"
-                                                         Value="">
-                                                <Setter Property="IsVisible" Value="False" />
-                                            </DataTrigger>
-                                            <DataTrigger TargetType="Label"
-                                                         Binding="{Binding error_message}">
-                                                <Setter Property="Text" Value="{Binding error_message}" />
-                                                <Setter Property="IsVisible" Value="True" />
-                                            </DataTrigger>
-                                        </Label.Triggers>
-                                    </Label>
+                                           Margin="0,4,0,0"
+                                           Text="{Binding error_message}"
+                                           IsVisible="{Binding error_message, Converter={StaticResource IsNotNullOrEmptyConverter}}" />
                                 </Grid>
                             </Frame>
                         </DataTemplate>
