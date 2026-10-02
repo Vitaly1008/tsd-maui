@@ -4,12 +4,13 @@ using FlowerWms.Tsd.Models;
 using FlowerWms.Tsd.Services;
 using FlowerWms.Tsd.Helpers;
 using System.Collections.ObjectModel;
-using System.Timers;
 
 namespace FlowerWms.Tsd.ViewModels;
 
 /// <summary>
-/// Базовый ViewModel для операций (приемка/отгрузка)
+/// Базовый ViewModel для операций (приемка/отгрузка).
+/// Все «общие» свойства (ScannedBoxes, ScannedCount, IsBoxScanned, BoxInfoText,
+/// IsBoxListExpanded) живут в BaseScannerViewModel — здесь их НЕ дублируем.
 /// </summary>
 public abstract partial class BaseOperationViewModel : BaseScannerViewModel
 {
@@ -25,21 +26,7 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
     private string? _orderId;
 
     [ObservableProperty]
-    private string _boxInfoText = string.Empty;
-
-    [ObservableProperty]
-    private bool _isBoxScanned;
-
-    [ObservableProperty]
     private string _boxNumberDisplay = string.Empty;
-
-    [ObservableProperty]
-    private int _scannedCount;
-
-    [ObservableProperty]
-    private bool _isBoxListExpanded;
-
-    public ObservableCollection<Box> ScannedBoxes { get; } = new();
 
     // ===== СОБЫТИЯ =====
     public event EventHandler? OperationCompleted;
@@ -68,7 +55,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
         _operationType = operationType;
     }
 
-    // ✅ ИСПРАВЛЕНО: правильная сигнатура
     public override async Task Initialize(IBarcodeService? barcodeService = null)
     {
         await base.Initialize(barcodeService);
@@ -78,49 +64,62 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
     {
         if (string.IsNullOrEmpty(barcode)) return;
 
-        if (IsLocationBarcode(barcode))
+        if (TryParseLocationBarcode(barcode, out var locationCode))
         {
-            await ProcessLocationScan(barcode);
+            await ProcessLocationScan(locationCode);
             return;
         }
 
-        await ProcessBoxScan(barcode);
+        if (TryParseBoxBarcode(barcode, out _, out _, out _, out _, out _))
+        {
+            await ProcessBoxScan(barcode);
+            return;
+        }
+
+        SetError("Некорректный формат штрихкода");
     }
 
     protected virtual async Task ProcessLocationScan(string locationCode)
     {
         try
         {
+            // Регистр нормализован в TryParseLocationBarcode (ToUpperInvariant)
             var location = await _dbHelper.GetLocationByCode(locationCode);
-
-            if (location == null && IsOnline)
-            {
-                var synced = await _apiService.SyncLocations();
-                if (synced)
-                {
-                    location = await _dbHelper.GetLocationByCode(locationCode);
-                }
-            }
 
             if (location == null)
             {
-                SetError($"Локация '{locationCode}' не найдена");
-                return;
+                // Локация не найдена в локальной БД — ставим UNKNOWN, без ошибки.
+                // Синхронизацию локаций не дёргаем: она идёт в общем SyncManual.
+                Logger.Warning($"⚠️ Локация '{locationCode}' не найдена в кэше. Ставим UNKNOWN.");
+                CurrentLocation = "UNKNOWN";
+                LastScannedBarcode = locationCode;
+                SetStatus($"Локация: UNKNOWN (не найдена в кэше)", "📍", Colors.Orange);
             }
-
-            if (location.is_active != 1)
+            else if (location.is_active != 1)
             {
                 SetWarning($"Локация '{locationCode}' неактивна", "⚠️", Colors.Orange);
                 return;
             }
+            else
+            {
+                CurrentLocation = locationCode;
+                LastScannedBarcode = locationCode;
+                SetStatus($"Локация: {locationCode} ({location.name})", "📍", Colors.Blue);
+            }
 
-            CurrentLocation = locationCode;
-            LastScannedBarcode = locationCode;
-            SetStatus($"Локация: {locationCode} ({location.name})", "📍", Colors.Blue);
-
+            // Все уже отсканированные коробки переезжают в новую локацию.
+            // Обновляем и в памяти (ScannedBoxes), и в boxes_cache.
+            // Синхронизация читает локацию из boxes_cache — так смена локации
+            // в середине сессии корректно уходит на сервер.
             foreach (var box in ScannedBoxes)
             {
-                box.LocationCode = locationCode;
+                box.LocationCode = CurrentLocation;
+            }
+
+            if (ScannedBoxes.Count > 0)
+            {
+                var barcodes = ScannedBoxes.Select(b => b.Barcode).ToList();
+                await _dbHelper.UpdateBoxesLocation(barcodes, CurrentLocation);
             }
         }
         catch (Exception ex)
@@ -130,81 +129,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
     }
 
     protected abstract Task ProcessBoxScan(string barcode);
-
-    protected virtual async Task SaveBoxToCache(Box box)
-    {
-        var boxCache = new BoxCache
-        {
-            barcode = box.Barcode,
-            box_id = box.Id,
-            box_number = box.BoxNumber,
-            grade = box.Grade,
-            initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.Quantity,
-            current_quantity = box.CurrentQuantity > 0 ? box.CurrentQuantity : box.Quantity,
-            product_id = box.ProductId,
-            product_name = box.ProductName,
-            product_ean13 = box.ProductEan13,
-            location_code = box.LocationCode ?? CurrentLocation,
-            status = box.Status,
-            created_at = box.CreatedAt,
-            updated_at = box.UpdatedAt
-        };
-        await _dbHelper.SaveBox(boxCache);
-    }
-
-    protected virtual async Task UpdateLocalBox(Box updatedBox)
-    {
-        await SaveBoxToCache(updatedBox);
-    }
-
-    protected virtual void AddBoxToList(Box box)
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            ScannedBoxes.Add(box);
-            ScannedCount = ScannedBoxes.Count;
-            LastScannedBarcode = box.Barcode;
-
-            IsBoxScanned = true;
-            BoxInfoText = $"{box.ProductName} | {box.Quantity} шт. | {box.Grade} | №{box.BoxNumber}";
-            BoxNumberDisplay = $"№{box.BoxNumber}";
-
-            SetSuccess($"Коробка добавлена: #{box.BoxNumber}");
-            Vibration.Vibrate(100);
-        });
-    }
-
-    protected virtual void ClearSession()
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            ScannedBoxes.Clear();
-            ScannedCount = 0;
-            LastScannedBarcode = string.Empty;
-            IsBoxScanned = false;
-            BoxInfoText = string.Empty;
-            BoxNumberDisplay = string.Empty;
-            SetStatus("Готов к сканированию", "📷", Colors.Gray);
-        });
-    }
-
-    [RelayCommand]
-    public virtual void RemoveBox(object parameter)
-    {
-        if (parameter is Box box && ScannedBoxes.Contains(box))
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                ScannedBoxes.Remove(box);
-                ScannedCount = ScannedBoxes.Count;
-
-                if (ScannedBoxes.Count == 0)
-                {
-                    ClearSession();
-                }
-            });
-        }
-    }
 
     [RelayCommand]
     public virtual async Task ConfirmOperation()
@@ -266,26 +190,6 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             boxList,
             "OK"
         );
-    }
-
-    // ❌ УДАЛЕНО: метод ToggleBoxList (уже есть в BaseScannerViewModel)
-
-    protected Box CreateLocalBox(string ean13, int quantity, string grade, int boxNumber, string productName, BoxStatus status = BoxStatus.Draft)
-    {
-        return new Box
-        {
-            Id = $"local_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString().Substring(0, 8)}",
-            Barcode = $"{ean13}-{quantity}-{GetGradeCode(grade)}-{boxNumber}",
-            BoxNumber = boxNumber,
-            ProductName = productName,
-            ProductEan13 = ean13,
-            Quantity = quantity > 0 ? quantity : 100,
-            Grade = grade,
-            LocationCode = CurrentLocation,
-            Status = status,
-            CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-        };
     }
 
     public override void Dispose()

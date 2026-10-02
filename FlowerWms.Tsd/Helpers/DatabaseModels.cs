@@ -1,5 +1,5 @@
 using SQLite;
-using FlowerWms.Tsd.Models;  // Добавляем using для BoxStatus
+using FlowerWms.Tsd.Models;
 
 namespace FlowerWms.Tsd.Helpers;
 
@@ -30,7 +30,7 @@ public class BoxCache
 {
     [PrimaryKey]
     public string barcode { get; set; } = string.Empty;
-    
+
     public string box_id { get; set; } = string.Empty;
     public int box_number { get; set; }
     public string grade { get; set; } = string.Empty;
@@ -42,10 +42,9 @@ public class BoxCache
     public string? location_id { get; set; }
     public string? location_code { get; set; }
     public string? order_id { get; set; }
-    
-    // Изменяем int на BoxStatus
+
     public BoxStatus status { get; set; } = BoxStatus.Draft;
-    
+
     public long created_at { get; set; }
     public long updated_at { get; set; }
 }
@@ -56,10 +55,10 @@ public class LocationCache
 {
     [PrimaryKey]
     public string location_id { get; set; } = string.Empty;
-    
+
     [Unique]
     public string code { get; set; } = string.Empty;
-    
+
     public string name { get; set; } = string.Empty;
     public string? barcode { get; set; }
     public int is_active { get; set; } = 1;
@@ -72,17 +71,18 @@ public class ProductCache
 {
     [PrimaryKey]
     public string product_id { get; set; } = string.Empty;
-    
+
     [Unique]
     public string ean13 { get; set; } = string.Empty;
-    
+
     public string name { get; set; } = string.Empty;
     public string? short_name { get; set; }
     public string? onec_guid { get; set; }
     public string? barcode { get; set; }
     public long created_at { get; set; }
     public long updated_at { get; set; }
-    public int isPartial { get; set; } = 0;
+    // ✅ БАГ #14: убрано поле isPartial — по правилу 2 алгоритма
+    //    isPartial НЕ хранится в БД (ни серверной, ни локальной).
 }
 
 // Модель для кэша операций с коробками
@@ -91,7 +91,7 @@ public class BoxOperationCache
 {
     [PrimaryKey, AutoIncrement]
     public int Id { get; set; }
-    
+
     public string operation_id { get; set; } = string.Empty;
     public string box_id { get; set; } = string.Empty;
     public string box_barcode { get; set; } = string.Empty;

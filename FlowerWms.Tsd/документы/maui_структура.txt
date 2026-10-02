@@ -36,7 +36,8 @@ F:\alphaWMS\tsd-maui\FlowerWms.Tsd\
 │   ├── BoxStatus.cs                 # Статусы коробки
 │   ├── Location.cs                  # Модель локации
 │   ├── Operation.cs                 # Перечисления
-│   └── Product.cs                   # Модель товара
+│   ├── Product.cs                   # Модель товара
+│   └── SyncDtos.cs                  # DTO для синхронизации
 │
 ├───Platforms/Android/
 │   ├── AndroidManifest.xml           # Манифест Android: разрешенияи и настройки приложения

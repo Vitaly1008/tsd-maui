@@ -28,14 +28,19 @@
             </Grid.ColumnDefinitions>
 
             <VerticalStackLayout Grid.Column="0" Spacing="2">
-                <Label Text="ALPHA WMS"
-                       TextColor="White"
-                       FontSize="18"
-                       FontAttributes="Bold" />
+                <!-- ✅ ИСПРАВЛЕНО: версия в верхней панели + тап на About -->
+                <Label Text="{Binding Version, StringFormat='ALPHA WMS {0}'}"
+                    TextColor="White"
+                    FontSize="18"
+                    FontAttributes="Bold">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding NavigateToAboutCommand}" />
+                    </Label.GestureRecognizers>
+                </Label>
                 <Label Text="{Binding ServerAddress, StringFormat='🌐 {0}'}"
-                       TextColor="White"
-                       FontSize="10"
-                       Opacity="0.7" />
+                    TextColor="White"
+                    FontSize="10"
+                    Opacity="0.7" />
             </VerticalStackLayout>
 
             <Frame Grid.Column="1"
@@ -77,23 +82,6 @@
                    TextColor="Gray"
                    HorizontalTextAlignment="End"
                    VerticalOptions="Center" />
-        </Grid>
-
-        <!-- Индикатор синхронизации -->
-        <Grid Grid.Row="1"
-              IsVisible="{Binding IsSyncing}"
-              BackgroundColor="#F5F5F5"
-              Padding="16,8"
-              Margin="0,28,0,0">
-            <HorizontalStackLayout Spacing="12" HorizontalOptions="Center">
-                <ActivityIndicator IsRunning="True"
-                                   Color="{StaticResource PrimaryColor}"
-                                   HeightRequest="20" />
-                <Label Text="🔄 Синхронизация данных..."
-                       FontSize="14"
-                       TextColor="{StaticResource PrimaryColor}"
-                       VerticalOptions="Center" />
-            </HorizontalStackLayout>
         </Grid>
 
         <!-- Основной контент -->
@@ -251,19 +239,28 @@
                             FontSize="10"
                             FontAttributes="Bold" />
                 </Grid>
-
-                <!-- Версия программы -->
-                <Label Text="{Binding Version}"
-                    FontSize="11"
-                    TextColor="Gray"
-                    HorizontalTextAlignment="Center"
-                    Margin="0,0,0,4"
-                    Opacity="0.6">
-                    <Label.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding NavigateToAboutCommand}" />
-                    </Label.GestureRecognizers>
-                </Label>
             </VerticalStackLayout>
         </ScrollView>
+        <!-- ✅ ОВЕРЛЕЙ СИНХРОНИЗАЦИИ -->
+        <Grid Grid.Row="0" Grid.RowSpan="4"
+            IsVisible="{Binding IsSyncing}"
+            BackgroundColor="#B0000000"
+            InputTransparent="False"
+            ZIndex="9999">
+            <VerticalStackLayout Spacing="14"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center">
+                <ActivityIndicator IsRunning="True"
+                                Color="White"
+                                HeightRequest="48"
+                                WidthRequest="48" />
+                <Label Text="{Binding SyncStatusMessage}"
+                    TextColor="White"
+                    FontSize="16"
+                    FontAttributes="Bold"
+                    HorizontalTextAlignment="Center"
+                    HorizontalOptions="Center" />
+            </VerticalStackLayout>
+        </Grid>
     </Grid>
 </views:BasePage>

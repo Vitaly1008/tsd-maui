@@ -21,7 +21,8 @@ public class OfflineService
         string operationType,
         string barcode,
         object payload,
-        string deviceId)
+        string deviceId,
+        long? createdAt = null)
     {
         Logger.Info($"📥 SaveTransaction: operationType={operationType}, barcode={barcode}, deviceId={deviceId}");
         try
@@ -37,7 +38,7 @@ public class OfflineService
                 barcode = barcode,
                 payload = JsonSerializer.Serialize(payload),
                 device_id = deviceId,
-                created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                created_at = createdAt ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 is_synced = 0,
                 retry_count = 0
             };
@@ -113,27 +114,6 @@ public class OfflineService
                 transactionId
             );
             Logger.Info($"✅ Транзакция отмечена как синхронизированная: {transactionId}");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"❌ Ошибка обновления: {ex.Message}");
-            Logger.Error($"StackTrace: {ex.StackTrace}");
-        }
-    }
-
-    // Отмечает транзакцию с ошибкой и увеличивает счетчик попыток
-    public async Task MarkAsError(string transactionId, string error)
-    {
-        Logger.Info($"⚠️ MarkAsError: {transactionId}, error={error}");
-        try
-        {
-            var db = await _dbHelper.GetDatabaseAsync();
-            await db.ExecuteAsync(
-                "UPDATE offline_transactions SET retry_count = retry_count + 1, error_message = ? WHERE transaction_id = ?",
-                error,
-                transactionId
-            );
-            Logger.Info($"✅ Транзакция отмечена как ошибка: {transactionId}");
         }
         catch (Exception ex)
         {
@@ -349,7 +329,43 @@ public class OfflineService
                 }
                 else
                 {
-                    Logger.Warning($"⚠️ Коробка не найдена в локальной БД для отката: {barcode}");
+                    // ✅ Коробка была удалена из кэша после отгрузки (стала архивной).
+                    //    Восстанавливаем её из payload.
+                    Logger.Info($"♻️ Коробка не найдена — восстанавливаем из payload: {barcode}");
+
+                    var boxId = ExtractStringValue(payload, "boxId") ?? barcode;
+                    var boxNumber = ExtractIntValue(payload, "boxNumber", 0);
+                    var ean13 = ExtractStringValue(payload, "ean13") ?? "";
+                    var productName = ExtractStringValue(payload, "productName") ?? "Неизвестный товар";
+                    var grade = ExtractStringValue(payload, "grade") ?? "Premium";
+
+                    if (previousQuantity <= 0)
+                    {
+                        var shippedQuantity = ExtractIntValue(payload, "quantity", 0);
+                        previousQuantity = shippedQuantity;
+                        Logger.Info($"📊 previousQuantity не задан, взято из payload: {previousQuantity}");
+                    }
+
+                    var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    var restoredBox = new BoxCache
+                    {
+                        barcode = barcode,
+                        box_id = boxId,
+                        box_number = boxNumber,
+                        grade = grade,
+                        initial_quantity = previousQuantity,
+                        current_quantity = previousQuantity,
+                        product_id = string.Empty,
+                        product_name = productName,
+                        product_ean13 = ean13,
+                        location_code = "UNKNOWN",
+                        status = previousStatus,
+                        created_at = now,
+                        updated_at = now
+                    };
+
+                    await _dbHelper.InsertBox(restoredBox);
+                    Logger.Info($"✅ Коробка восстановлена из payload: {barcode} -> status={previousStatus}, qty={previousQuantity}");
                 }
             }
             else
@@ -414,5 +430,23 @@ public class OfflineService
         }
 
         return defaultValue;
+    }
+
+    private static string? ExtractStringValue(Dictionary<string, object>? payload, string key)
+    {
+        if (payload == null || !payload.TryGetValue(key, out var value))
+            return null;
+
+        if (value == null) return null;
+        if (value is string s) return s;
+
+        if (value is System.Text.Json.JsonElement je)
+        {
+            if (je.ValueKind == System.Text.Json.JsonValueKind.String)
+                return je.GetString();
+            return je.ToString();
+        }
+
+        return value.ToString();
     }
 }

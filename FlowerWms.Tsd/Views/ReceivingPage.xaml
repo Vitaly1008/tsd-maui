@@ -4,6 +4,8 @@
                 xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
                 xmlns:views="clr-namespace:FlowerWms.Tsd.Views"
                 xmlns:viewmodel="clr-namespace:FlowerWms.Tsd.ViewModels"
+                xmlns:models="clr-namespace:FlowerWms.Tsd.Models"
+                x:Name="PageRoot"
                 x:Class="FlowerWms.Tsd.Views.ReceivingPage"
                 NavigationPage.HasNavigationBar="False"
                 x:DataType="viewmodel:ReceivingViewModel"
@@ -96,7 +98,7 @@
                         <Frame Grid.Row="0"
                                Padding="16,12"
                                BackgroundColor="{StaticResource PrimaryColor}"
-                               CornerRadius="12,12,0,0"
+                               CornerRadius="12"
                                HasShadow="False">
                             <Frame.GestureRecognizers>
                                 <TapGestureRecognizer>
@@ -131,7 +133,7 @@
                                         IsVisible="{Binding IsBoxListExpanded}"
                                         ItemsSource="{Binding ScannedBoxes}">
                             <CollectionView.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="models:Box">
                                     <Grid Padding="8,4" Margin="8,0" ColumnDefinitions="Auto, *, Auto">
                                         <Label Grid.Column="0"
                                                Text="📦"
@@ -150,7 +152,7 @@
                                         </VerticalStackLayout>
                                         <Button Grid.Column="2"
                                                 Text="✕"
-                                                Command="{Binding BindingContext.RemoveBoxCommand, Source={RelativeSource AncestorType={x:Type views:ReceivingPage}}}"
+                                                Command="{Binding BindingContext.RemoveBoxCommand, Source={x:Reference PageRoot}}"
                                                 CommandParameter="{Binding .}"
                                                 BackgroundColor="Transparent"
                                                 TextColor="Red"

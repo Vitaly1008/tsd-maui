@@ -78,7 +78,7 @@ public partial class InventoryViewModel : BaseScannerViewModel
         IsLoading = true;
         LastScannedBarcode = barcode;
 
-        try
+        /*try
         {
             if (IsLocationBarcode(barcode))
             {
@@ -96,7 +96,7 @@ public partial class InventoryViewModel : BaseScannerViewModel
         finally
         {
             IsLoading = false;
-        }
+        }*/
     }
 
     private async Task ProcessLocationScan(string locationCode)

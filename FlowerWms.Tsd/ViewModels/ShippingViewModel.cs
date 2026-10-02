@@ -74,10 +74,16 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 return;
             }
 
-            var (ean13, _, grade, boxNumber) = ParseBarcode(barcode);
+            if (!TryParseBoxBarcode(barcode, out var ean13, out _, out _, out _, out var boxNumber))
+            {
+                SetError("Некорректный формат штрихкода");
+                return;
+            }
 
-            // ✅ 3.3. Проверка наличия в локальной БД
-            var cachedBox = await _dbHelper.GetBoxByBarcode(barcode);
+            // ✅ 3.3. Проверка наличия в локальной БД.
+            // Берём ТОЛЬКО активную (Draft/Active/Reserved).
+            // Архивные (Empty/Shipped/Discarded) в локальной БД не хранятся.
+            var cachedBox = await _dbHelper.GetActiveBoxByBarcode(barcode);
             Box? box = null;
 
             if (cachedBox != null)
@@ -93,20 +99,15 @@ public partial class ShippingViewModel : BaseOperationViewModel
                     SetError($"Коробка #{boxNumber} не активирована (Draft)");
                     return;
                 }
-                if (box.Status == BoxStatus.Shipped)
+                // ✅ Архивные статусы в локальной БД быть не должны.
+                //    Если встретились — это аномалия (рассинхрон) или накопленный мусор.
+                //    Трактуем как «коробка не найдена».
+                if (box.Status == BoxStatus.Shipped ||
+                    box.Status == BoxStatus.Empty ||
+                    box.Status == BoxStatus.Discarded)
                 {
-                    SetError($"Коробка #{boxNumber} уже отгружена");
-                    return;
-                }
-                if (box.Status == BoxStatus.Empty)
-                {
-                    SetError($"Коробка #{boxNumber} пуста");
-                    return;
-                }
-                // ✅ ДОБАВЛЕНО: явная проверка Discarded
-                if (box.Status == BoxStatus.Discarded)
-                {
-                    SetError($"Коробка #{boxNumber} списана");
+                    Logger.Warning($"⚠️ Архивный статус в кэше: {barcode}, status={box.Status}. Трактуем как «не найдена».");
+                    SetError($"Коробка #{boxNumber} не найдена");
                     return;
                 }
 
@@ -434,6 +435,10 @@ public partial class ShippingViewModel : BaseOperationViewModel
             isFullShipment = true;
         }
 
+        // ✅ Фиксируем фактическое время операции один раз
+        var operationTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var operationTimeUtc = DateTimeOffset.FromUnixTimeMilliseconds(operationTimeMs).UtcDateTime;
+
         int newQuantity = box.CurrentQuantity - quantityToShip;
 
         BoxStatus newStatus;
@@ -455,12 +460,28 @@ public partial class ShippingViewModel : BaseOperationViewModel
                 newStatus = BoxStatus.Active;
         }
 
-        // ✅ Обновляем локальную БД
-        await _dbHelper.ForceUpdateBoxStatus(
-            barcode: box.Barcode,
-            newStatus: newStatus,
-            newQuantity: newQuantity
-        );
+        // ✅ Локальная БД хранит ТОЛЬКО Draft/Active/Reserved.
+        //    Если коробка стала архивной (Shipped/Empty/Discarded) — удаляем запись,
+        //    не создавая её заново через ForceUpdateBoxStatus.
+        //    Данные для возможного отката уже сохранены в payload транзакции
+        //    (previousStatus, previousQuantity, boxId, ean13, productName, grade, boxNumber).
+        if (newStatus == BoxStatus.Shipped ||
+            newStatus == BoxStatus.Empty ||
+            newStatus == BoxStatus.Discarded)
+        {
+            await _dbHelper.DeleteBoxByBarcode(box.Barcode);
+            Logger.Info($"🗑️ Удалена архивная коробка из кэша: {box.Barcode} (status={newStatus})");
+        }
+        else
+        {
+            // Активная — обновляем статус/количество.
+            await _dbHelper.ForceUpdateBoxStatus(
+                barcode: box.Barcode,
+                newStatus: newStatus,
+                newQuantity: newQuantity,
+                operationTime: operationTimeMs
+            );
+        }
 
         // ✅ Создаём транзакцию для синхронизации
         var payload = new
@@ -472,54 +493,45 @@ public partial class ShippingViewModel : BaseOperationViewModel
             currentQuantity = box.CurrentQuantity,
             newQuantity = newQuantity,
             previousStatus = (int)box.Status,
-            previousQuantity = box.CurrentQuantity
+            previousQuantity = box.CurrentQuantity,
+            operationTime = operationTimeUtc
         };
 
         await _syncQueueService.EnqueueAsync(
             operationType: "Shipping",
             barcode: box.Barcode,
             payload: payload,
-            deviceId: Constants.DeviceId
+            deviceId: Constants.DeviceId,
+            createdAt: operationTimeMs
         );
 
         Logger.Info($"📴 Сохранена локальная отгрузка: #{box.BoxNumber}, {quantityToShip} шт., isFullShipment={isFullShipment}, новый статус={newStatus}, новое количество={newQuantity}");
     }
-
-    public override void RemoveBox(object parameter)
+    protected override void OnBoxRemoved(Box box)
     {
-        if (parameter is Box box && ScannedBoxes.Contains(box))
+        if (ScannedBoxes.Count == 0)
         {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                ScannedBoxes.Remove(box);
-                ScannedCount = ScannedBoxes.Count;
-
-                if (ScannedBoxes.Count == 0)
-                {
-                    ClearSession();
-                    _currentSelectedBox = null;
-                    CanPartialShip = false;
-                    ShipQuantity = 0;
-                    ShipQuantityDisplay = "0";
-                }
-                else if (ScannedBoxes.Count == 1)
-                {
-                    _currentSelectedBox = ScannedBoxes.First();
-                    MaxQuantity = _currentSelectedBox.CurrentQuantity;
-                    UpdateModes();
-                }
-                else
-                {
-                    CanPartialShip = false;
-                    IsFullShipmentMode = true;
-                    IsPartialShipmentMode = false;
-                    ShipQuantity = ScannedBoxes.Sum(b => b.CurrentQuantity);
-                    ShipQuantityDisplay = ShipQuantity.ToString();
-                    ShipModeDescription = "Полная отгрузка (все коробки)";
-                    ShipModeText = "Полная";
-                    ShipModeColor = Colors.Green;
-                }
-            });
+            _currentSelectedBox = null;
+            CanPartialShip = false;
+            ShipQuantity = 0;
+            ShipQuantityDisplay = "0";
+        }
+        else if (ScannedBoxes.Count == 1)
+        {
+            _currentSelectedBox = ScannedBoxes.First();
+            MaxQuantity = _currentSelectedBox.CurrentQuantity;
+            UpdateModes();
+        }
+        else
+        {
+            CanPartialShip = false;
+            IsFullShipmentMode = true;
+            IsPartialShipmentMode = false;
+            ShipQuantity = ScannedBoxes.Sum(b => b.CurrentQuantity);
+            ShipQuantityDisplay = ShipQuantity.ToString();
+            ShipModeDescription = "Полная отгрузка (все коробки)";
+            ShipModeText = "Полная";
+            ShipModeColor = Colors.Green;
         }
     }
 }

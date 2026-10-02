@@ -395,85 +395,6 @@ public class ApiService
         return result ?? new Dictionary<string, object>();
     }
 
-    public async Task<Dictionary<string, object>> SyncOfflineTransaction(
-        string transactionId,
-        string operationType,
-        string barcode,
-        Dictionary<string, object> payload)
-    {
-        Logger.Info($"📤 SyncOfflineTransaction: id={transactionId}, type={operationType}, barcode={barcode}");
-        try
-        {
-            var client = await GetHttpClient();
-            
-            // ✅ БЕЗОПАСНОЕ ИЗВЛЕЧЕНИЕ locationCode
-            string locationCode = "UNKNOWN";
-            if (payload.TryGetValue("locationCode", out var locObj))
-            {
-                locationCode = ExtractStringValue(locObj) ?? "UNKNOWN";
-            }
-            else if (payload.TryGetValue("LocationCode", out locObj))
-            {
-                locationCode = ExtractStringValue(locObj) ?? "UNKNOWN";
-            }
-            
-            // ✅ БЕЗОПАСНОЕ ИЗВЛЕЧЕНИЕ status
-            int status = 1; // Active по умолчанию
-            if (payload.TryGetValue("status", out var statusObj))
-            {
-                status = ExtractIntValue(statusObj, 1);
-            }
-            
-            Logger.Info($"📊 Параметры: locationCode={locationCode}, status={status}");
-            
-            var syncRequest = new
-            {
-                barcode = barcode,
-                locationCode = locationCode,
-                operationType = operationType,
-                status = status
-            };
-            
-            var json = JsonSerializer.Serialize(syncRequest);
-            Logger.Info($"📦 Request body: {json}");
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/barcodes/sync-box", 
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            Logger.Info($"📥 Response status: {(int)response.StatusCode}, body: {responseContent?.Substring(0, Math.Min(500, responseContent?.Length ?? 0))}...");
-
-            if (response.IsSuccessStatusCode)
-            {
-                Logger.Info($"✅ SyncOfflineTransaction успешен");
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = JsonSerializer.Deserialize<object>(responseContent) ?? new object()
-                };
-            }
-
-            Logger.Warning($"⚠️ SyncOfflineTransaction вернул ошибку: {(int)response.StatusCode}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"❌ SyncOfflineTransaction ошибка: {ex.Message}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
-    }
-
     // ============================================================
     // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ БЕЗОПАСНОГО ИЗВЛЕЧЕНИЯ
     // ============================================================
@@ -592,78 +513,6 @@ public class ApiService
         {
             Logger.Error($"❌ GetLocationInfo ошибка: {ex.Message}");
             return null;
-        }
-    }
-
-    public async Task<Dictionary<string, object>> SyncAllOfflineTransactions()
-    {
-        Logger.Info($"📤 SyncAllOfflineTransactions: НАЧАЛО");
-        try
-        {
-            var transactions = await _offlineService.GetUnsyncedTransactions();
-            Logger.Info($"📋 Найдено {transactions.Count} транзакций");
-            int successCount = 0;
-            int errorCount = 0;
-            var errors = new List<string>();
-
-            foreach (var tx in transactions)
-            {
-                Logger.Info($"🔄 Обработка транзакции: {tx.transaction_id}, type={tx.operation_type}");
-                try
-                {
-                    var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(tx.payload) 
-                                  ?? new Dictionary<string, object>();
-
-                    var result = await SyncOfflineTransaction(
-                        transactionId: tx.transaction_id,
-                        operationType: tx.operation_type,
-                        barcode: tx.barcode,
-                        payload: payload
-                    );
-
-                    if (result.TryGetValue("success", out var successObj) && successObj is bool success && success)
-                    {
-                        await _offlineService.MarkAsSynced(tx.transaction_id);
-                        successCount++;
-                        Logger.Info($"✅ Транзакция синхронизирована: {tx.transaction_id}");
-                    }
-                    else
-                    {
-                        var errorMsg = result.ContainsKey("message") 
-                            ? result["message"]?.ToString() ?? "Неизвестная ошибка"
-                            : "Неизвестная ошибка";
-                        await _offlineService.MarkAsError(tx.transaction_id, errorMsg);
-                        errorCount++;
-                        errors.Add(errorMsg);
-                        Logger.Error($"❌ Ошибка синхронизации транзакции {tx.transaction_id}: {errorMsg}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    await _offlineService.MarkAsError(tx.transaction_id, ex.Message);
-                    errorCount++;
-                    errors.Add(ex.Message);
-                    Logger.Error($"❌ Исключение при синхронизации {tx.transaction_id}: {ex.Message}");
-                }
-            }
-
-            Logger.Info($"✅ SyncAllOfflineTransactions: success={successCount}, errors={errorCount}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = errorCount == 0,
-                ["synced"] = successCount,
-                ["errors"] = errorCount,
-                ["errorMessages"] = errors
-            };
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"❌ SyncAllOfflineTransactions ошибка: {ex.Message}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
         }
     }
 
@@ -1228,7 +1077,7 @@ public class ApiService
             var client = await GetHttpClient();
             var response = await client.GetAsync($"{Constants.ApiBaseUrl}/api/tsd/last-changed");
             Logger.Info($"📥 Response status: {(int)response.StatusCode}");
-            
+
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync();
@@ -1236,22 +1085,19 @@ public class ApiService
                 var data = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
                 if (data != null && data.TryGetValue("lastChanged", out var value))
                 {
-                    // Пробуем распарсить разными способами
                     if (value is long longValue)
                     {
                         var result = DateTimeOffset.FromUnixTimeMilliseconds(longValue).UtcDateTime;
                         Logger.Info($"✅ GetServerLastChanged: {result}");
                         return result;
                     }
-                    else if (value is string strValue)
+                    if (value is string strValue)
                     {
-                        // Пробуем парсить ISO формат
                         if (DateTime.TryParse(strValue, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dt))
                         {
                             Logger.Info($"✅ GetServerLastChanged (ISO): {dt.ToUniversalTime()}");
                             return dt.ToUniversalTime();
                         }
-                        // Пробуем парсить как Unix timestamp
                         if (long.TryParse(strValue, out var unixTime))
                         {
                             var result = DateTimeOffset.FromUnixTimeMilliseconds(unixTime).UtcDateTime;
@@ -1266,7 +1112,9 @@ public class ApiService
             {
                 Logger.Warning($"⚠️ GetServerLastChanged вернул ошибку: {(int)response.StatusCode}");
             }
-            return DateTime.UtcNow;
+
+            // ✅ БАГ #18: единый fallback
+            return DateTime.MinValue;
         }
         catch (Exception ex)
         {
@@ -1312,255 +1160,44 @@ public class ApiService
         }
     }
 
-    // 1.3. ПРИНУДИТЕЛЬНОЕ СОЗДАНИЕ КОРОБКИ (для приемки)
-    public async Task<Dictionary<string, object>> ForceCreateBox(
-        string ean13,
-        int quantity,
-        string grade,
-        int boxNumber,
-        string locationCode = "UNKNOWN",
-        string? comment = null)
+    public async Task<SyncBoxesResponse?> SyncBoxes(SyncBoxesRequest request)
     {
-        Logger.Info($"📤 ForceCreateBox: ean13={ean13}, quantity={quantity}, grade={grade}, boxNumber={boxNumber}, location={locationCode}");
+        Logger.Info($"📤 SyncBoxes: {request.Transactions.Count} транзакций");
         try
         {
             var client = await GetHttpClient();
-            
-            // Конвертируем grade в числовой код
-            int gradeCode = grade switch
+            var json = JsonSerializer.Serialize(request, new JsonSerializerOptions
             {
-                "Premium" => 9,
-                "First" => 1,
-                "Second" => 2,
-                "Decorated" => 3,
-                "Rejected" => 5,
-                _ => int.TryParse(grade, out var g) ? g : 9
-            };
-            
-            Logger.Info($"📊 gradeCode: {gradeCode}");
-            
-            var request = new
-            {
-                ean13 = ean13,
-                quantity = quantity,
-                grade = gradeCode,
-                boxNumber = boxNumber,
-                locationCode = locationCode,
-                comment = comment ?? $"Принудительная приемка через ТСД"
-            };
-            
-            var json = JsonSerializer.Serialize(request);
-            Logger.Info($"📦 Request body: {json}");
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            
-            // ✅ Используем /api/barcodes/create-box (см. API docs)
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/barcodes/create-box",
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            Logger.Info($"📥 Response status: {(int)response.StatusCode}, body: {responseContent?.Substring(0, Math.Min(500, responseContent?.Length ?? 0))}...");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
-                Logger.Info($"✅ ForceCreateBox успешен");
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = data ?? new Dictionary<string, object>(),
-                    ["message"] = "Коробка создана принудительно"
-                };
-            }
-            
-            Logger.Warning($"⚠️ ForceCreateBox вернул ошибку: {(int)response.StatusCode}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"❌ ForceCreateBox ошибка: {ex.Message}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
-    }
-
-    // 1.4. ДОБАВЛЕНИЕ В PROBLEM BOXES
-    public async Task<Dictionary<string, object>> AddToProblemBoxes(
-        string barcode,
-        string boxId,
-        string errorType,
-        string comment,
-        int? boxNumber = null,
-        string? productName = null)
-    {
-        Logger.Info($"📤 AddToProblemBoxes: barcode={barcode}, boxId={boxId}, errorType={errorType}, comment={comment}");
-        try
-        {
-            var client = await GetHttpClient();
-            
-            var request = new
-            {
-                barcode = barcode,
-                boxId = boxId,
-                errorType = errorType,
-                comment = comment,
-                boxNumber = boxNumber ?? 0,
-                productName = productName ?? "Неизвестный продукт"
-            };
-            
-            var json = JsonSerializer.Serialize(request);
-            Logger.Info($"📦 Request body: {json}");
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            
-            // ✅ Используем /api/tsd/problem-boxes (см. API docs)
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/tsd/problem-boxes",
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            Logger.Info($"📥 Response status: {(int)response.StatusCode}, body: {responseContent?.Substring(0, Math.Min(500, responseContent?.Length ?? 0))}...");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
-                Logger.Info($"✅ AddToProblemBoxes успешен");
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = data ?? new Dictionary<string, object>()
-                };
-            }
-            
-            Logger.Warning($"⚠️ AddToProblemBoxes вернул ошибку: {(int)response.StatusCode}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"❌ AddToProblemBoxes ошибка: {ex.Message}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
-    }
-
-
-    // 1.6. АКТИВАЦИЯ КОРОБКИ (Draft → Active)
-    public async Task<Dictionary<string, object>> ActivateBox(
-        string boxId,
-        string locationCode = "UNKNOWN",
-        string? comment = null)
-    {
-        Logger.Info($"📤 ActivateBox: boxId={boxId}, locationCode={locationCode}, comment={comment}");
-        try
-        {
-            var client = await GetHttpClient();
-            
-            var request = new
-            {
-                comment = comment ?? $"Активация через ТСД, локация: {locationCode}",
-                locationCode = locationCode
-            };
-            
-            var json = JsonSerializer.Serialize(request);
-            Logger.Info($"📦 Request body: {json}");
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            
-            // ✅ Используем /api/barcodes/activate-box/{boxId} (см. API docs)
-            var response = await client.PostAsync(
-                $"{Constants.ApiBaseUrl}/api/barcodes/activate-box/{boxId}",
-                content
-            );
-            
-            var responseContent = await response.Content.ReadAsStringAsync();
-            Logger.Info($"📥 Response status: {(int)response.StatusCode}, body: {responseContent?.Substring(0, Math.Min(500, responseContent?.Length ?? 0))}...");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
-                Logger.Info($"✅ ActivateBox успешен");
-                return new Dictionary<string, object>
-                {
-                    ["success"] = true,
-                    ["data"] = data ?? new Dictionary<string, object>()
-                };
-            }
-            
-            Logger.Warning($"⚠️ ActivateBox вернул ошибку: {(int)response.StatusCode}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"❌ ActivateBox ошибка: {ex.Message}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
-        }
-    }
-
-
-
-    public async Task<Dictionary<string, object>> SyncBoxes(List<object> transactions)
-    {
-        Logger.Info($"📤 SyncBoxes: {transactions.Count} транзакций");
-        try
-        {
-            var client = await GetHttpClient();
-            var request = new { transactions = transactions };
-            var json = JsonSerializer.Serialize(request);
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            });
             Logger.Info($"📦 Request body: {json?.Substring(0, Math.Min(500, json?.Length ?? 0))}...");
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            
+
             var response = await client.PostAsync(
                 $"{Constants.ApiBaseUrl}/api/tsd/sync/boxes",
-                content
-            );
-            
+                content);
+
             var responseContent = await response.Content.ReadAsStringAsync();
-            Logger.Info($"📥 Response status: {(int)response.StatusCode}, body: {responseContent?.Substring(0, Math.Min(500, responseContent?.Length ?? 0))}...");
-            
+            Logger.Info($"📥 Response status: {(int)response.StatusCode}, body: {responseContent?.Substring(0, Math.Min(800, responseContent?.Length ?? 0))}...");
+
             if (response.IsSuccessStatusCode)
             {
-                Logger.Info($"✅ SyncBoxes успешен");
-                return JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent) 
-                    ?? new Dictionary<string, object>();
+                var result = JsonSerializer.Deserialize<SyncBoxesResponse>(responseContent, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+                Logger.Info($"✅ SyncBoxes успешен: success={result?.SuccessCount}, fail={result?.FailCount}");
+                return result;
             }
-            
+
             Logger.Warning($"⚠️ SyncBoxes вернул ошибку: {(int)response.StatusCode}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = $"HTTP {(int)response.StatusCode}: {responseContent}"
-            };
+            return null;
         }
         catch (Exception ex)
         {
             Logger.Error($"❌ SyncBoxes ошибка: {ex.Message}");
-            return new Dictionary<string, object>
-            {
-                ["success"] = false,
-                ["message"] = ex.Message
-            };
+            return null;
         }
     }
 }

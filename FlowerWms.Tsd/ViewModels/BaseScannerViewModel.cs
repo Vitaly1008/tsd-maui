@@ -59,8 +59,11 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
     [ObservableProperty]
     private int _scannedCount;
 
+    // ✅ ЕДИНСТВЕННОЕ объявление IsBoxListExpanded на всю иерархию.
+    //    Раньше дублировалось в BaseOperationViewModel — из-за этого
+    //    ToggleBoxListCommand переключал одно свойство, а XAML читал другое.
     [ObservableProperty]
-    private bool _isBoxListExpanded = true;
+    private bool _isBoxListExpanded = false;
 
     public BaseScannerViewModel(
         DatabaseHelper dbHelper,
@@ -92,7 +95,6 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
         
         if (_barcodeService != null && !_isScannerStarted)
         {
-            // ✅ ИСПРАВЛЕНО: OnBarcodeScanned, StartListening
             _barcodeService.OnBarcodeScanned += OnBarcodeScanned;
             _barcodeService.StartListening();
             _isScannerStarted = true;
@@ -193,7 +195,6 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
     {
         if (_barcodeService != null && _isScannerStarted)
         {
-            // ✅ ИСПРАВЛЕНО: OnBarcodeScanned, StopListening
             _barcodeService.OnBarcodeScanned -= OnBarcodeScanned;
             _barcodeService.StopListening();
             _isScannerStarted = false;
@@ -223,35 +224,152 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
         IsBoxListExpanded = !IsBoxListExpanded;
     }
 
-    // Удаление коробки из списка
-    public virtual void RemoveBox(object parameter)
+    // ✅ Удаление коробки из списка с откатом pending-транзакции.
+    //    [RelayCommand] стоит здесь — в наследниках override без атрибута.
+    [RelayCommand]
+    public virtual async Task RemoveBox(object parameter)
     {
-        if (parameter is Box box && ScannedBoxes.Contains(box))
+        Logger.Info($"🔘 RemoveBox вызван: parameter={parameter?.GetType().Name ?? "null"}");
+        if (parameter is not Box box || !ScannedBoxes.Contains(box))
         {
-            MainThread.BeginInvokeOnMainThread(() =>
+            Logger.Warning($"⚠️ RemoveBox: parameter не Box, а {parameter?.GetType().FullName ?? "null"}");
+            return;
+        }
+        Logger.Info($"🔘 RemoveBox: box.Barcode={box.Barcode}, в коллекции={ScannedBoxes.Contains(box)}");
+        // 1. Откат pending-транзакции (если есть).
+        //    DeletePendingTransaction внутри вызывает OfflineService.RevertTransaction,
+        //    который корректно восстанавливает локальную БД:
+        //    - для Receiving: удаляет новую коробку ИЛИ возвращает previousStatus;
+        //    - для Shipping: восстанавливает статус/количество или пересоздаёт запись.
+        try
+        {
+            var pending = await _syncQueueService.GetAllPendingTransactions();
+            var tx = pending.FirstOrDefault(t => t.barcode == box.Barcode);
+
+            if (tx != null)
             {
-                ScannedBoxes.Remove(box);
-                ScannedCount = ScannedBoxes.Count;
-                if (ScannedCount == 0)
+                Logger.Info($"🔄 Удаление коробки {box.Barcode}: откат транзакции {tx.transaction_id} ({tx.operation_type})");
+                var ok = await _syncQueueService.DeletePendingTransaction(tx.transaction_id);
+                if (!ok)
                 {
-                    ClearSession();
+                    Logger.Warning($"⚠️ Не удалось откатить транзакцию {tx.transaction_id} для {box.Barcode}");
                 }
-            });
+            }
+            else
+            {
+                // Маловероятный сценарий (транзакция уже синхронизирована или потеряна).
+                // Просто убираем из UI, локальную БД не трогаем — при следующей
+                // синхронизации сервер вернёт актуальное состояние.
+                Logger.Warning($"⚠️ Pending-транзакция для {box.Barcode} не найдена. Удаляем только из UI.");
+            }
         }
-    }
-
-    // Парсинг штрихкода
-    protected virtual (string ean13, int quantity, string grade, int boxNumber) ParseBarcode(string barcode)
-    {
-        var parts = barcode.Split('-');
-        if (parts.Length == 4)
+        catch (Exception ex)
         {
-            return (parts[0], int.Parse(parts[1]), parts[2], int.Parse(parts[3]));
+            Logger.Error($"❌ Ошибка отката транзакции при удалении коробки {box.Barcode}: {ex.Message}");
+            // Продолжаем — из UI удаляем в любом случае.
         }
-        return (barcode, 1, "Premium", 0);
+
+        // 2. Убираем из UI.
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            ScannedBoxes.Remove(box);
+            ScannedCount = ScannedBoxes.Count;
+            if (ScannedCount == 0)
+                ClearSession();
+        });
+
+        // 3. Хук для наследников (специфика отгрузки).
+        OnBoxRemoved(box);
     }
 
-    // ✅ ИСПРАВЛЕНО: используем GetAllProducts() вместо GetProductByEan13
+    /// <summary>
+    /// Вызывается после удаления коробки из списка.
+    /// Наследники могут переопределить для сброса специфичного состояния
+    /// (например, режимов частичной отгрузки в ShippingViewModel).
+    /// </summary>
+    protected virtual void OnBoxRemoved(Box box) { }
+
+    /// <summary>
+    /// Парсит ШК локации: ровно 2 разделителя '-' (3 части).
+    /// Может содержать буквы и цифры. Регистр нормализуется в UPPER.
+    /// </summary>
+    protected virtual bool TryParseLocationBarcode(string barcode, out string locationCode)
+    {
+        locationCode = string.Empty;
+        if (string.IsNullOrWhiteSpace(barcode))
+            return false;
+
+        var parts = barcode.Split('-');
+        if (parts.Length != 3)
+            return false;
+
+        // Все части непустые
+        if (parts.Any(string.IsNullOrWhiteSpace))
+            return false;
+
+        locationCode = barcode.ToUpperInvariant();
+        return true;
+    }
+
+    /// <summary>
+    /// Парсит ШК коробки: ровно 3 разделителя '-' (4 части).
+    /// Все части — только цифры. quantity > 0, grade ∈ {1,2,3,5,9}, boxNumber > 0.
+    /// </summary>
+    protected virtual bool TryParseBoxBarcode(
+        string barcode,
+        out string ean13,
+        out int quantity,
+        out int gradeCode,
+        out string gradeName,
+        out int boxNumber)
+    {
+        ean13 = string.Empty;
+        quantity = 0;
+        gradeCode = 0;
+        gradeName = string.Empty;
+        boxNumber = 0;
+
+        if (string.IsNullOrWhiteSpace(barcode))
+            return false;
+
+        var parts = barcode.Split('-');
+        if (parts.Length != 4)
+            return false;
+
+        // Все части — только цифры
+        if (parts.Any(p => string.IsNullOrEmpty(p) || !p.All(char.IsDigit)))
+            return false;
+
+        ean13 = parts[0];
+
+        if (!int.TryParse(parts[1], out quantity) || quantity <= 0)
+            return false;
+
+        if (!int.TryParse(parts[2], out gradeCode))
+            return false;
+
+        // Сорта строго фиксированы: 1, 2, 3, 5, 9
+        if (gradeCode != 1 && gradeCode != 2 && gradeCode != 3 &&
+            gradeCode != 5 && gradeCode != 9)
+            return false;
+
+        if (!int.TryParse(parts[3], out boxNumber) || boxNumber <= 0)
+            return false;
+
+        gradeName = gradeCode switch
+        {
+            9 => "Premium",
+            1 => "First",
+            2 => "Second",
+            3 => "Decorated",
+            5 => "Rejected",
+            _ => string.Empty
+        };
+
+        return !string.IsNullOrEmpty(gradeName);
+    }
+
+    // Получение имени товара
     protected virtual async Task<string> GetProductName(string ean13)
     {
         if (string.IsNullOrEmpty(ean13)) return "Неизвестный товар";
@@ -294,25 +412,26 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
     }
 
     // Создание локальной коробки
-    protected virtual Box CreateLocalBox(string ean13, int quantity, string grade, int boxNumber, string productName, BoxStatus status)
+    protected virtual Box CreateLocalBox(
+        string barcode, string ean13, int quantity,
+        string gradeName, int boxNumber, string productName, BoxStatus status)
     {
-        var box = new Box
+        return new Box
         {
             Id = $"LOCAL_{boxNumber}_{Guid.NewGuid():N}",
-            Barcode = $"{ean13}-{quantity}-{grade}-{boxNumber}",
+            Barcode = barcode,
             BoxNumber = boxNumber,
             ProductName = productName,
             ProductEan13 = ean13,
             Quantity = quantity,
             CurrentQuantity = quantity,
             InitialQuantity = quantity,
-            Grade = grade,
+            Grade = gradeName,
             LocationCode = "UNKNOWN",
             Status = status,
             CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
-        return box;
     }
 
     // Сохранение коробки в кэш
@@ -353,24 +472,17 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
         });
     }
 
-    // Проверка штрихкода локации
-    protected virtual bool IsLocationBarcode(string barcode)
-    {
-        return barcode.StartsWith("LOC-") || 
-               barcode.StartsWith("SHELF-") || 
-               barcode.StartsWith("RACK-") ||
-               barcode.StartsWith("ZONE-");
-    }
-
     // Получение кода сорта
-    protected virtual string GetGradeCode(string grade)
+    protected virtual int GetGradeCode(string gradeName)
     {
-        return grade switch
+        return gradeName switch
         {
-            "Premium" => "P",
-            "Standard" => "S",
-            "Economy" => "E",
-            _ => "P"
+            "Premium"   => 9,
+            "First"     => 1,
+            "Second"    => 2,
+            "Decorated" => 3,
+            "Rejected"  => 5,
+            _ => int.TryParse(gradeName, out var g) ? g : 9
         };
     }
 

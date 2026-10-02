@@ -13,7 +13,6 @@ public class SyncService
 
     public event EventHandler<SyncStatus>? StatusChanged;
 
-    // ✅ ИСПРАВЛЕНО: DI через конструктор
     public SyncService(
         ApiService apiService,
         DatabaseHelper dbHelper,
@@ -35,8 +34,8 @@ public class SyncService
         }
     }
 
-  // ============================================================
-    // ✅ 4.5. ЕДИНЫЙ МЕТОД ОБНОВЛЕНИЯ ЛОКАЛЬНОЙ БД (ИСПРАВЛЕННЫЙ)
+    // ============================================================
+    // ✅ 4.5. ЕДИНЫЙ МЕТОД ОБНОВЛЕНИЯ ЛОКАЛЬНОЙ БД (БАГ #4, #5, #19)
     // ============================================================
     public async Task RefreshLocalCacheFromServer()
     {
@@ -56,7 +55,13 @@ public class SyncService
             {
                 Logger.Info($"Обновление локального кэша с сервера...");
 
-                // ✅ Получаем barcode'ы с локальными изменениями (их НЕ трогаем)
+                // ✅ БАГ #5: сначала получаем коробки, ПОТОМ читаем pending-транзакции.
+                //   Это сужает окно гонки (пользователь может создать транзакцию
+                //   в момент между чтением и удалением).
+                var boxes = await _apiService.GetAllBoxesForSync();
+                Logger.Info($"1. количество коробок на сервере {boxes.Count}");
+
+                // ✅ Читаем pending-транзакции ПОСЛЕ получения коробок
                 var pendingTransactions = await _offlineService.GetUnsyncedTransactions();
                 var localChangedBarcodes = new HashSet<string>();
 
@@ -67,73 +72,68 @@ public class SyncService
                         localChangedBarcodes.Add(tx.barcode);
                     }
                     // TODO: когда будет реализовано перемещение — добавить учёт "Move"
-                    // if (tx.operation_type == "Move") localChangedBarcodes.Add(tx.barcode);
                 }
 
                 Logger.Info($"📋 Коробок с локальными изменениями: {localChangedBarcodes.Count}");
 
-                // 4.5.3.1. Загрузить все коробки с сервера
-                var boxes = await _apiService.GetAllBoxesForSync();
-                Logger.Info($"1. количество коробок на сервере {boxes.Count}");
+                // ✅ БАГ #4: очищаем и обновляем ВСЕГДА, даже если boxes пуст
+                var preservedCount = await _dbHelper.DeleteAllBoxesExcept(localChangedBarcodes);
+                Logger.Info($"🗑️ Удалено коробок: сохранено {preservedCount} (с локальными изменениями)");
 
-                if (boxes != null && boxes.Any())
+                var insertedCount = 0;
+                var skippedCount = 0;
+
+                foreach (var box in boxes)
                 {
-                    // ✅ Вариант A': удаляем всё, кроме коробок с pending-транзакциями,
-                    //    и заливаем заново с сервера.
-                    var preservedCount = await _dbHelper.DeleteAllBoxesExcept(localChangedBarcodes);
-                    Logger.Info($"🗑️ Удалено коробок: сохранено {preservedCount} (с локальными изменениями)");
-
-                    // 4.5.3.3. Записать загруженные коробки
-                    var insertedCount = 0;
-                    var skippedCount = 0;
-
-                    foreach (var box in boxes)
+                    if (localChangedBarcodes.Contains(box.Barcode))
                     {
-                        // Проверяем, есть ли локальные изменения для этой коробки
-                        if (localChangedBarcodes.Contains(box.Barcode))
-                        {
-                            Logger.Info($"⏭️ Пропускаем {box.Barcode} (есть локальные изменения)");
-                            skippedCount++;
-                            continue;
-                        }
-
-                        // Проверяем, нужно ли обновлять статус
-                        if (box.Status == BoxStatus.Draft ||
-                            box.Status == BoxStatus.Active ||
-                            box.Status == BoxStatus.Reserved)
-                        {
-                            var boxCache = new BoxCache
-                            {
-                                barcode = box.Barcode,
-                                box_id = box.Id,
-                                box_number = box.BoxNumber,
-                                grade = box.Grade,
-                                initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.CurrentQuantity,
-                                current_quantity = box.CurrentQuantity,
-                                product_id = box.ProductId,
-                                product_name = box.ProductName,
-                                product_ean13 = box.ProductEan13,
-                                location_code = box.LocationCode ?? "UNKNOWN",
-                                status = box.Status,
-                                created_at = box.CreatedAt,
-                                updated_at = box.UpdatedAt
-                            };
-
-                            await _dbHelper.InsertBox(boxCache);
-                            insertedCount++;
-                        }
+                        Logger.Info($"⏭️ Пропускаем {box.Barcode} (есть локальные изменения)");
+                        skippedCount++;
+                        continue;
                     }
 
-                    Logger.Info($"✅ Записано {insertedCount} коробок, пропущено {skippedCount} (с локальными изменениями)");
+                    if (box.Status == BoxStatus.Draft ||
+                        box.Status == BoxStatus.Active ||
+                        box.Status == BoxStatus.Reserved)
+                    {
+                        var boxCache = new BoxCache
+                        {
+                            barcode = box.Barcode,
+                            box_id = box.Id,
+                            box_number = box.BoxNumber,
+                            grade = box.Grade,
+                            initial_quantity = box.InitialQuantity > 0 ? box.InitialQuantity : box.CurrentQuantity,
+                            current_quantity = box.CurrentQuantity,
+                            product_id = box.ProductId,
+                            product_name = box.ProductName,
+                            product_ean13 = box.ProductEan13,
+                            location_code = box.LocationCode ?? "UNKNOWN",
+                            status = box.Status,
+                            created_at = box.CreatedAt,
+                            updated_at = box.UpdatedAt
+                        };
 
-                    await _dbHelper.UpdateServerLastChanged(serverTimestamp);
-                    Logger.Info($"✅ ServerLastChanged обновлен: {serverTimestamp}");
+                        await _dbHelper.InsertBox(boxCache);
+                        insertedCount++;
+                    }
                 }
+
+                Logger.Info($"✅ Записано {insertedCount} коробок, пропущено {skippedCount} (с локальными изменениями)");
+
+                // ✅ БАГ #4: обновляем timestamp ВСЕГДА, даже если коробок 0
+                await _dbHelper.UpdateServerLastChanged(serverTimestamp);
+                Logger.Info($"✅ ServerLastChanged обновлен: {serverTimestamp}");
             }
             else
             {
                 Logger.Info("Локальный кэш актуален");
             }
+
+            // ✅ 4.4.4. Зачистка архивных коробок (ВСЕГДА, независимо от LastChanged).
+            // Локальная БД должна хранить ТОЛЬКО Draft/Active/Reserved.
+            // Это гарантирует, что накопленный мусор от старых версий будет убран
+            // даже если сервер не менялся.
+            await _dbHelper.DeleteArchivedBoxes();
         }
         catch (Exception ex)
         {
@@ -150,45 +150,49 @@ public class SyncService
         try
         {
             SetStatus(SyncStatus.Syncing);
-            
+
             // ✅ Сначала синхронизируем справочники
             await SyncProducts();
             await SyncLocations();
-            
+
             // ✅ 4.1-4.4 Обрабатываем очередь
             await _syncQueueService.ProcessQueueAsync();
-            
-            // ✅ 4.5 Обновляем локальную БД
-            await RefreshLocalCacheFromServer();
-            
+
+            // ✅ 4.5 Обновляем локальную БД (БАГ #16: не роняем всю синхронизацию)
+            try
+            {
+                await RefreshLocalCacheFromServer();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"⚠️ Ошибка обновления локального кэша (не критично): {ex.Message}");
+            }
+
             SetStatus(SyncStatus.Online);
-            System.Diagnostics.Debug.WriteLine("SyncAllData завершена");
+            Logger.Info("SyncAllData завершена");
         }
         catch (Exception ex)
         {
             SetStatus(SyncStatus.Offline);
-            System.Diagnostics.Debug.WriteLine($"Ошибка SyncAllData: {ex.Message}");
+            Logger.Error($"Ошибка SyncAllData: {ex.Message}");
             throw;
         }
     }
 
     // ============================================================
-    // ✅ 1. СИНХРОНИЗАЦИЯ ПОСЛЕ ЛОГИНА (ВЫПОЛНИТЬ ВЕСЬ п.4)
+    // ✅ 1. СИНХРОНИЗАЦИЯ ПОСЛЕ ЛОГИНА
     // ============================================================
     public async Task SyncAfterLogin()
     {
         try
         {
-            System.Diagnostics.Debug.WriteLine("🔄 Синхронизация после логина...");
-            
-            // ✅ Выполняем ВЕСЬ пункт 4
+            Logger.Info("🔄 Синхронизация после логина...");
             await SyncAllData();
-            
-            System.Diagnostics.Debug.WriteLine("✅ Синхронизация после логина завершена");
+            Logger.Info("✅ Синхронизация после логина завершена");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка синхронизации после логина: {ex.Message}");
+            Logger.Error($"⚠️ Ошибка синхронизации после логина: {ex.Message}");
             throw;
         }
     }
@@ -201,24 +205,28 @@ public class SyncService
         try
         {
             SetStatus(SyncStatus.Syncing);
-            
-            // ✅ Сначала синхронизируем справочники
+
             await SyncProducts();
             await SyncLocations();
-            
-            // ✅ Обрабатываем очередь
+
             await _syncQueueService.ProcessQueueAsync();
-            
-            // ✅ Обновляем локальную БД
-            await RefreshLocalCacheFromServer();
-            
+
+            try
+            {
+                await RefreshLocalCacheFromServer();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"⚠️ Ошибка обновления локального кэша (не критично): {ex.Message}");
+            }
+
             SetStatus(SyncStatus.Online);
-            System.Diagnostics.Debug.WriteLine("SyncManual завершена");
+            Logger.Info("SyncManual завершена");
         }
         catch (Exception ex)
         {
             SetStatus(SyncStatus.Offline);
-            System.Diagnostics.Debug.WriteLine($"Ошибка SyncManual: {ex.Message}");
+            Logger.Error($"Ошибка SyncManual: {ex.Message}");
             throw;
         }
     }
@@ -227,15 +235,23 @@ public class SyncService
     // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     // ============================================================
 
+    // ✅ БАГ #19: убран DateTime.MaxValue.AddDays(-1), используем константу
     private long SafeGetTimestamp(DateTime dateTime)
     {
         try
         {
-            if (dateTime <= DateTime.MinValue || dateTime > DateTime.MaxValue.AddDays(-1))
+            // Максимальный валидный timestamp для Unix (9999-12-31)
+            const long MaxUnixMs = 253402300799999;
+
+            if (dateTime <= DateTime.MinValue || dateTime.Year >= 9999)
             {
                 return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             }
-            return new DateTimeOffset(dateTime).ToUnixTimeMilliseconds();
+
+            var ts = new DateTimeOffset(dateTime).ToUnixTimeMilliseconds();
+            if (ts < 0 || ts > MaxUnixMs)
+                return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return ts;
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -259,14 +275,14 @@ public class SyncService
                     onec_guid = p.OneCGuid,
                     updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 }).ToList();
-                
+
                 await _dbHelper.SyncProducts(productCacheList);
-                System.Diagnostics.Debug.WriteLine($"Синхронизировано продуктов: {productCacheList.Count}");
+                Logger.Info($"Синхронизировано продуктов: {productCacheList.Count}");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации продуктов: {ex.Message}");
+            Logger.Error($"Ошибка синхронизации продуктов: {ex.Message}");
             throw;
         }
     }
@@ -286,14 +302,14 @@ public class SyncService
                     is_active = l.IsActive ? 1 : 0,
                     created_at = l.CreatedAt
                 }).ToList();
-                
+
                 await _dbHelper.SyncLocations(locationCacheList);
-                System.Diagnostics.Debug.WriteLine($"Синхронизировано локаций: {locationCacheList.Count}");
+                Logger.Info($"Синхронизировано локаций: {locationCacheList.Count}");
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ошибка синхронизации локаций: {ex.Message}");
+            Logger.Error($"Ошибка синхронизации локаций: {ex.Message}");
             throw;
         }
     }

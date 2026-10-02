@@ -21,30 +21,30 @@ public partial class ReceivingViewModel : BaseOperationViewModel
 
     protected override async Task ProcessBoxScan(string barcode)
     {
-        // ✅ ИСПРАВЛЕНО: защита от параллельного сканирования
         if (IsLoading) return;
-
         IsLoading = true;
 
         try
         {
-            // ✅ 2.2. Проверка дублирования в сессии
             if (ScannedBoxes.Any(b => b.Barcode == barcode))
             {
                 SetError("Коробка уже отсканирована в этой сессии");
                 return;
             }
 
-            var (ean13, quantity, grade, boxNumber) = ParseBarcode(barcode);
-
-            if (string.IsNullOrEmpty(ean13) || boxNumber <= 0)
+            // ✅ TryParseBoxBarcode сам гарантирует: ean13 непустой,
+            //    quantity > 0, grade ∈ {1,2,3,5,9}, boxNumber > 0.
+            if (!TryParseBoxBarcode(barcode, out var ean13, out var quantity,
+                                    out var gradeCode, out var gradeName, out var boxNumber))
             {
                 SetError("Некорректный формат штрихкода");
                 return;
             }
 
-            // ✅ 2.3. Проверка наличия в локальной БД
-            var existingBox = await _dbHelper.GetBoxByBarcode(barcode);
+            var operationTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            // ✅ 2.3. Проверка наличия в локальной БД.
+            var existingBox = await _dbHelper.GetActiveBoxByBarcode(barcode);
             Box box;
             bool wasCreatedLocally = false;
             BoxStatus? previousStatus = null;
@@ -53,63 +53,59 @@ public partial class ReceivingViewModel : BaseOperationViewModel
             {
                 previousStatus = existingBox.status;
 
-                // ✅ 2.3.2. Есть → проверить статус
-                if (existingBox.status == BoxStatus.Active)
+                // Архивные статусы в локальной БД быть не должны.
+                // Если встретились — трактуем как «нет коробки».
+                if (existingBox.status == BoxStatus.Empty ||
+                    existingBox.status == BoxStatus.Shipped ||
+                    existingBox.status == BoxStatus.Discarded)
+                {
+                    Logger.Warning($"⚠️ Архивный статус в кэше: {barcode}, status={existingBox.status}. Трактуем как «нет коробки».");
+                    existingBox = null;
+                }
+                else if (existingBox.status == BoxStatus.Active)
                 {
                     SetError($"Коробка #{boxNumber} уже активна");
                     return;
                 }
-                if (existingBox.status == BoxStatus.Reserved)
+                else if (existingBox.status == BoxStatus.Reserved)
                 {
                     SetError($"Коробка #{boxNumber} зарезервирована");
                     return;
                 }
-                if (existingBox.status == BoxStatus.Shipped)
+                else if (existingBox.status != BoxStatus.Draft)
                 {
-                    SetError($"Коробка #{boxNumber} отгружена");
+                    SetError($"Недопустимый статус коробки: {existingBox.status}");
                     return;
                 }
-                if (existingBox.status == BoxStatus.Empty)
-                {
-                    SetError($"Коробка #{boxNumber} пуста");
-                    return;
-                }
-                // ✅ ДОБАВЛЕНО: явная ветка для Discarded
-                if (existingBox.status == BoxStatus.Discarded)
-                {
-                    SetError($"Коробка #{boxNumber} списана");
-                    return;
-                }
+            }
 
+            if (existingBox != null && existingBox.status == BoxStatus.Draft)
+            {
                 // ✅ Draft → изменить на Active
-                if (existingBox.status == BoxStatus.Draft)
+                Logger.Info($"📦 Коробка #{boxNumber} в статусе Draft, меняем на Active");
+
+                await _dbHelper.ForceUpdateBoxStatus(
+                    barcode: barcode,
+                    newStatus: BoxStatus.Active,
+                    newQuantity: existingBox.current_quantity,
+                    operationTime: operationTimeMs,
+                    newCreatedAt: operationTimeMs
+                );
+
+                var updatedBox = await _dbHelper.GetBoxByBarcode(barcode);
+                if (updatedBox != null)
                 {
-                    Logger.Info($"📦 Коробка #{boxNumber} в статусе Draft, меняем на Active");
-
-                    await _dbHelper.ForceUpdateBoxStatus(
-                        barcode: barcode,
-                        newStatus: BoxStatus.Active,
-                        newQuantity: existingBox.current_quantity
-                    );
-
-                    var updatedBox = await _dbHelper.GetBoxByBarcode(barcode);
-                    if (updatedBox != null)
-                    {
-                        box = Box.FromCache(updatedBox);
-                    }
-                    else
-                    {
-                        // Неожиданная ситуация — создаем заново
-                        var productName = await GetProductName(ean13);
-                        box = CreateLocalBox(ean13, quantity, grade, boxNumber, productName, BoxStatus.Active);
-                    }
+                    box = Box.FromCache(updatedBox);
                     wasCreatedLocally = false;
                 }
                 else
                 {
-                    // Неизвестный статус — ошибка
-                    SetError($"Недопустимый статус коробки: {existingBox.status}");
-                    return;
+                    // Аномалия: только что обновили статус — а записи нет.
+                    // Считаем, что коробку создаём заново (откат = удалить).
+                    Logger.Warning($"⚠️ После ForceUpdateBoxStatus запись {barcode} не найдена. Создаём заново.");
+                    var productName = await GetProductName(ean13);
+                    box = CreateLocalBox(barcode, ean13, quantity, gradeName, boxNumber, productName, BoxStatus.Active);
+                    wasCreatedLocally = true;
                 }
             }
             else
@@ -119,7 +115,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                 Logger.Info($"📦 Создание новой коробки #{boxNumber} локально");
 
                 var productName = await GetProductName(ean13);
-                box = CreateLocalBox(ean13, quantity, grade, boxNumber, productName, BoxStatus.Active);
+                box = CreateLocalBox(barcode, ean13, quantity, gradeName, boxNumber, productName, BoxStatus.Active);
 
                 // ✅ 2.4. Сохранить в локальную БД
                 await _dbHelper.SaveBox(new BoxCache
@@ -135,16 +131,21 @@ public partial class ReceivingViewModel : BaseOperationViewModel
                     product_ean13 = box.ProductEan13,
                     location_code = CurrentLocation ?? "UNKNOWN",
                     status = BoxStatus.Active,
-                    created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    updated_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    created_at = operationTimeMs,
+                    updated_at = operationTimeMs
                 });
             }
+
+            // ✅ КРИТИЧНО: проставляем локацию в объект box.
+            //    CreateLocalBox жёстко ставит UNKNOWN; здесь переопределяем
+            //    актуальной локацией, чтобы payload.locationCode был корректным.
+            box.LocationCode = CurrentLocation ?? "UNKNOWN";
 
             // ✅ 2.5. Добавить в сессию
             AddBoxToList(box);
 
             // ✅ 2.6. Создать транзакцию в Queue (тип: Receiving)
-            await AddToOfflineQueue(box, wasCreatedLocally, previousStatus);
+            await AddToOfflineQueue(box, wasCreatedLocally, previousStatus, operationTimeMs);
 
             SetSuccess($"Коробка #{boxNumber} принята");
         }
@@ -159,7 +160,7 @@ public partial class ReceivingViewModel : BaseOperationViewModel
         }
     }
 
-    private async Task AddToOfflineQueue(Box box, bool wasCreatedLocally, BoxStatus? previousStatus)
+    private async Task AddToOfflineQueue(Box box, bool wasCreatedLocally, BoxStatus? previousStatus, long operationTimeMs)
     {
         var payload = new
         {
@@ -183,7 +184,8 @@ public partial class ReceivingViewModel : BaseOperationViewModel
             operationType: "Receiving",
             barcode: box.Barcode,
             payload: payload,
-            deviceId: Constants.DeviceId
+            deviceId: Constants.DeviceId,
+            createdAt: operationTimeMs
         );
     }
 

@@ -73,6 +73,27 @@ public class DatabaseHelper
                 "CREATE INDEX IF NOT EXISTS idx_transactions_created ON offline_transactions(created_at)"
             );
             
+            // ============================================================
+            // Одноразовая (идемпотентная) чистка архивных коробок.
+            // Локальная БД должна хранить ТОЛЬКО Draft/Active/Reserved.
+            // Выполняется при каждом старте — безвредно, если чистить нечего.
+            // ============================================================
+            try
+            {
+                var deleted = await _database.ExecuteAsync(
+                    "DELETE FROM boxes_cache WHERE status IN (?, ?, ?)",
+                    (int)BoxStatus.Empty,
+                    (int)BoxStatus.Shipped,
+                    (int)BoxStatus.Discarded
+                );
+                if (deleted > 0)
+                    System.Diagnostics.Debug.WriteLine($"🧹 Одноразовая чистка: удалено архивных коробок: {deleted}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"⚠️ Ошибка чистки архивных коробок: {ex.Message}");
+            }
+
             System.Diagnostics.Debug.WriteLine("✅ База данных инициализирована");
         }
         catch (Exception ex)
@@ -176,6 +197,30 @@ public class DatabaseHelper
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения коробки: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Возвращает ТОЛЬКО активную коробку по штрихкоду (Draft/Active/Reserved).
+    /// Архивные (Empty/Shipped/Discarded) игнорируются.
+    /// Используется в логике отгрузки/приёмки: локальная БД должна хранить только активные.
+    /// </summary>
+    public async Task<BoxCache?> GetActiveBoxByBarcode(string barcode)
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            return await db.Table<BoxCache>()
+                .Where(b => b.barcode == barcode
+                        && (b.status == BoxStatus.Draft
+                        || b.status == BoxStatus.Active
+                        || b.status == BoxStatus.Reserved))
+                .FirstOrDefaultAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка получения активной коробки: {ex.Message}");
             return null;
         }
     }
@@ -300,6 +345,33 @@ public class DatabaseHelper
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"❌ Ошибка удаления коробки: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Удаляет из локальной БД все архивные коробки (Empty/Shipped/Discarded).
+    /// Вызывается в конце синхронизации, чтобы гарантировать:
+    /// в boxes_cache остаются только Draft/Active/Reserved.
+    /// </summary>
+    public async Task<int> DeleteArchivedBoxes()
+    {
+        try
+        {
+            var db = await GetDatabaseAsync();
+            var deleted = await db.ExecuteAsync(
+                "DELETE FROM boxes_cache WHERE status IN (?, ?, ?)",
+                (int)BoxStatus.Empty,
+                (int)BoxStatus.Shipped,
+                (int)BoxStatus.Discarded
+            );
+            if (deleted > 0)
+                Logger.Info($"🗑️ Удалено архивных коробок из кэша: {deleted}");
+            return deleted;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"❌ Ошибка удаления архивных коробок: {ex.Message}");
+            return 0;
         }
     }
 
@@ -488,6 +560,7 @@ public class DatabaseHelper
         }
     }
 
+    // ✅ БАГ #12: убран лишний аргумент BoxStatus.Active
     public async Task<bool> IsActiveBoxNumberExists(int boxNumber)
     {
         try
@@ -495,8 +568,7 @@ public class DatabaseHelper
             var db = await GetDatabaseAsync();
             var count = await db.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM boxes_cache WHERE box_number = ? AND status = 1",
-                boxNumber,
-                BoxStatus.Active
+                boxNumber
             );
             return count > 0;
         }
@@ -788,35 +860,60 @@ public class DatabaseHelper
     /// <summary>
     /// Принудительно обновляет статус и количество коробки в локальной БД
     /// </summary>
-    public async Task ForceUpdateBoxStatus(string barcode, BoxStatus newStatus, int newQuantity)
+    public async Task ForceUpdateBoxStatus(
+        string barcode,
+        BoxStatus newStatus,
+        int newQuantity,
+        long? operationTime = null,
+        long? newCreatedAt = null)
     {
         try
         {
             var db = await GetDatabaseAsync();
-            var updatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var updatedAt = operationTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             
             var existingBox = await GetBoxByBarcode(barcode);
             
             if (existingBox != null)
             {
-                // ✅ НЕ ТРОГАЕМ isPartial
-                await db.ExecuteAsync(
-                    @"UPDATE boxes_cache 
-                    SET status = ?, 
-                        current_quantity = ?, 
-                        updated_at = ?
-                    WHERE barcode = ?",
-                    (int)newStatus,
-                    newQuantity,
-                    updatedAt,
-                    barcode
-                );
-                
-                System.Diagnostics.Debug.WriteLine($"✅ Обновлен статус: {barcode} -> {newStatus}, кол-во: {newQuantity}");
+                if (newCreatedAt.HasValue)
+                {
+                    // ✅ Обновляем и created_at, и updated_at
+                    await db.ExecuteAsync(
+                        @"UPDATE boxes_cache 
+                        SET status = ?, 
+                            current_quantity = ?, 
+                            created_at = ?,
+                            updated_at = ?
+                        WHERE barcode = ?",
+                        (int)newStatus,
+                        newQuantity,
+                        newCreatedAt.Value,
+                        updatedAt,
+                        barcode
+                    );
+                    System.Diagnostics.Debug.WriteLine($"✅ Обновлён статус (с created_at): {barcode} -> {newStatus}, created_at: {newCreatedAt.Value}");
+                }
+                else
+                {
+                    // Старое поведение — только updated_at
+                    await db.ExecuteAsync(
+                        @"UPDATE boxes_cache 
+                        SET status = ?, 
+                            current_quantity = ?, 
+                            updated_at = ?
+                        WHERE barcode = ?",
+                        (int)newStatus,
+                        newQuantity,
+                        updatedAt,
+                        barcode
+                    );
+                    System.Diagnostics.Debug.WriteLine($"✅ Обновлён статус: {barcode} -> {newStatus}");
+                }
             }
             else
             {
-                // Создаем новую запись (isPartial = 0 по умолчанию)
+                // Новая запись — created_at = newCreatedAt ?? operationTime
                 var newBox = new BoxCache
                 {
                     barcode = barcode,
@@ -830,7 +927,7 @@ public class DatabaseHelper
                     product_ean13 = string.Empty,
                     location_code = "UNKNOWN",
                     status = newStatus,
-                    created_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    created_at = newCreatedAt ?? updatedAt,
                     updated_at = updatedAt
                 };
                 
@@ -1011,6 +1108,44 @@ public class DatabaseHelper
         {
             Logger.Error($"❌ Ошибка вставки коробки {box.barcode}: {ex.Message}");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Обновляет location_code для всех коробок из списка barcode'ов.
+    /// Используется при смене локации в середине сессии приёмки:
+    /// все уже отсканированные коробки переезжают в новую локацию,
+    /// чтобы при синхронизации отправить актуальное значение.
+    /// </summary>
+    public async Task UpdateBoxesLocation(List<string> barcodes, string newLocation)
+    {
+        if (barcodes == null || barcodes.Count == 0)
+            return;
+
+        try
+        {
+            var db = await GetDatabaseAsync();
+
+            // SQLite не поддерживает массив в IN — строим строку плейсхолдеров
+            var placeholders = string.Join(",", barcodes.Select(_ => "?"));
+
+            var args = new List<object>
+            {
+                newLocation,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+            args.AddRange(barcodes.Cast<object>());
+
+            var updated = await db.ExecuteAsync(
+                $"UPDATE boxes_cache SET location_code = ?, updated_at = ? WHERE barcode IN ({placeholders})",
+                args.ToArray()
+            );
+
+            Logger.Info($"✅ Обновлена локация для {updated} коробок -> {newLocation}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"❌ Ошибка массового обновления локации: {ex.Message}");
         }
     }
 

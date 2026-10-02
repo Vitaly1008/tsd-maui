@@ -31,13 +31,22 @@ public class NetworkService : IDisposable
 
     // Обработчик изменения доступности сети
     private async void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
-    {   
-        if (e.IsAvailable)
+    {
+        try
         {
-            await CheckNetworkAsync();
+            if (e.IsAvailable)
+            {
+                await CheckNetworkAsync();
+            }
+            else
+            {
+                _isOnline = false;
+                NetworkStatusChanged?.Invoke(this, false);
+            }
         }
-        else
+        catch (Exception ex)
         {
+            Logger.Error($"❌ OnNetworkAvailabilityChanged ошибка: {ex.Message}");
             _isOnline = false;
             NetworkStatusChanged?.Invoke(this, false);
         }
