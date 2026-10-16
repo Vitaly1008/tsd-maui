@@ -43,6 +43,9 @@ public partial class HomeViewModel : ObservableObject, IDisposable
     private bool _isSearching;
 
     [ObservableProperty]
+    private string _searchProgressText = "Пожалуйста, подождите";
+
+    [ObservableProperty]
     private string _version = VersionHelper.GetVersion();
 
     public event EventHandler? LogoutRequested;
@@ -74,6 +77,8 @@ public partial class HomeViewModel : ObservableObject, IDisposable
         _syncQueueService.PendingCountChanged += OnPendingCountChanged;
         _syncQueueService.SyncStatusChanged += OnSyncStatusChanged;
         _syncService.StatusChanged += OnSyncServiceStatusChanged;
+
+        _discoveryService.ScanProgressChanged += OnScanProgressChanged;
     }
 
     // ============================================================
@@ -148,6 +153,15 @@ public partial class HomeViewModel : ObservableObject, IDisposable
             ServerAddress = newAddress;
             IsOnline = true;
             ConnectionStatus = "Онлайн";
+        });
+    }
+
+    // Обработчик прогресса поиска сервера
+    private void OnScanProgressChanged(object? sender, string message)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            SearchProgressText = message;
         });
     }
 
@@ -321,6 +335,7 @@ public partial class HomeViewModel : ObservableObject, IDisposable
         if (IsSearching) return;
 
         IsSearching = true;
+        SearchProgressText = "🔍 Поиск сервера...";
 
         try
         {
@@ -361,6 +376,7 @@ public partial class HomeViewModel : ObservableObject, IDisposable
         finally
         {
             IsSearching = false;
+            SearchProgressText = "Пожалуйста, подождите";
         }
     }
 
@@ -414,6 +430,8 @@ public partial class HomeViewModel : ObservableObject, IDisposable
         _syncQueueService.PendingCountChanged -= OnPendingCountChanged;
         _syncQueueService.SyncStatusChanged -= OnSyncStatusChanged;
         _syncService.StatusChanged -= OnSyncServiceStatusChanged;
+
+        _discoveryService.ScanProgressChanged -= OnScanProgressChanged;
 
         _disposed = true;
         GC.SuppressFinalize(this);

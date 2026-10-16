@@ -173,7 +173,7 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
             HasError = false;
             ErrorMessage = string.Empty;
         });
-        Vibration.Vibrate(TimeSpan.FromMilliseconds(100));
+        Vibration.Vibrate(TimeSpan.FromMilliseconds(150));
     }
 
     // Установка успеха
@@ -187,7 +187,7 @@ public abstract partial class BaseScannerViewModel : ObservableObject, IDisposab
             HasError = false;
             ErrorMessage = string.Empty;
         });
-        Vibration.Vibrate(TimeSpan.FromMilliseconds(50));
+        Vibration.Vibrate(TimeSpan.FromMilliseconds(100));
     }
 
     // Остановка сканера

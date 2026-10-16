@@ -162,6 +162,25 @@ public abstract partial class BaseOperationViewModel : BaseScannerViewModel
             if (confirm == false) return;
         }
 
+        // откат всех pending-транзакций текущей сессии,
+        // чтобы операция не попала в очередь синхронизации.
+        try
+        {
+            var pending = await _syncQueueService.GetAllPendingTransactions();
+            foreach (var box in ScannedBoxes.ToList())
+            {
+                var tx = pending.FirstOrDefault(t => t.barcode == box.Barcode);
+                if (tx == null) continue;
+
+                var ok = await _syncQueueService.DeletePendingTransaction(tx.transaction_id);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"❌ Ошибка отката транзакций при отмене операции: {ex.Message}");
+            // Продолжаем — сессию чистим в любом случае.
+        }
+
         StopScanner();
         ClearSession();
         

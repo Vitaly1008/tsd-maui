@@ -77,6 +77,23 @@ public partial class ReceivingPage : BasePage
         await Navigation.PopAsync();
     }
 
+    // Перехват системной кнопки "Назад"
+    protected override bool OnBackButtonPressed()
+    {
+        // Если есть отсканированные коробки — показываем подтверждение через VM
+        if (_viewModel != null && _viewModel.ScannedBoxes.Count > 0)
+        {
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                await _viewModel.CancelOperationCommand.ExecuteAsync(null);
+            });
+            return true; // блокируем стандартную навигацию
+        }
+
+        // Нет коробок — стандартное поведение (просто назад)
+        return base.OnBackButtonPressed();
+    }
+
     // Выполняется при исчезновении страницы
     protected override void OnDisappearing()
     {

@@ -111,6 +111,21 @@ public partial class ShippingPage : BasePage
         }
     }
 
+    // Перехват системной кнопки "Назад"
+    protected override bool OnBackButtonPressed()
+    {
+        if (_viewModel != null && _viewModel.ScannedBoxes.Count > 0)
+        {
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                await _viewModel.CancelOperationCommand.ExecuteAsync(null);
+            });
+            return true;
+        }
+
+        return base.OnBackButtonPressed();
+    }
+
     // Останавливает сканер и освобождает ресурсы
     private void StopScannerAndDispose()
     {

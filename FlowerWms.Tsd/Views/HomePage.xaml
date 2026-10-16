@@ -262,5 +262,32 @@
                     HorizontalOptions="Center" />
             </VerticalStackLayout>
         </Grid>
+        <!-- ✅ ОВЕРЛЕЙ ПОИСКА СЕРВЕРА -->
+        <Grid Grid.Row="0" Grid.RowSpan="4"
+            IsVisible="{Binding IsSearching}"
+            BackgroundColor="#B0000000"
+            InputTransparent="False"
+            ZIndex="9999">
+            <VerticalStackLayout Spacing="14"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center">
+                <ActivityIndicator IsRunning="True"
+                                Color="White"
+                                HeightRequest="48"
+                                WidthRequest="48" />
+                <Label Text="🔍 Поиск сервера..."
+                    TextColor="White"
+                    FontSize="16"
+                    FontAttributes="Bold"
+                    HorizontalTextAlignment="Center"
+                    HorizontalOptions="Center" />
+                <Label Text="{Binding SearchProgressText}"
+                    TextColor="White"
+                    FontSize="12"
+                    Opacity="0.7"
+                    HorizontalTextAlignment="Center"
+                    HorizontalOptions="Center" />
+            </VerticalStackLayout>
+        </Grid>
     </Grid>
 </views:BasePage>

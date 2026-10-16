@@ -11,8 +11,8 @@ public class ServerDiscoveryService
     private readonly SecureStorageService _secureStorage;
     private const string STORAGE_KEY = "server_address";
     private const int DEFAULT_PORT = 5152;
-    private const int TIMEOUT_MS = 5000;   // ✅ было 1200
-    private const int MAX_PARALLEL = 40;   // ✅ было 20
+    private const int TIMEOUT_MS = 2000;   // ✅ было 1200
+    private const int MAX_PARALLEL = 6;   // ✅ было 20
 
     public event EventHandler<string>? ScanProgressChanged;
 
@@ -204,7 +204,7 @@ public class ServerDiscoveryService
                 if (Volatile.Read(ref foundAddress) != null) return;
 
                 var current = Interlocked.Increment(ref checkedCount);
-                if (current % 10 == 0 || current == totalCount)
+                if (current == 1 || current % 5 == 0 || current == totalCount)
                 {
                     var progress = $"Сканирование: {current}/{totalCount}";
                     ScanProgressChanged?.Invoke(this, progress);
