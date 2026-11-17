@@ -86,6 +86,18 @@ public class AuthService
     // Выполняет выход из системы
     public async Task Logout()
     {
-        await _secureStorage.Clear();
+        try
+        {
+            // best effort: если сети нет — просто чистим локально
+            await _apiService.Logout();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"Logout на сервере не удался: {ex.Message}");
+        }
+        finally
+        {
+            await _secureStorage.Clear();
+        }
     }
 }

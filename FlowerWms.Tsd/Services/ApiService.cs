@@ -36,6 +36,8 @@ public class ApiService
     }
 
     // ✅ ДОБАВЛЕНО: логин через общий HttpClient, БЕЗ заголовка Authorization
+
+// ✅ Логин через общий HttpClient, БЕЗ заголовка Authorization
     public async Task<LoginResponse?> LoginAsync(string username, string password)
     {
         Logger.Info($"📤 LoginAsync: username={username}");
@@ -45,6 +47,10 @@ public class ApiService
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
                 $"{Constants.ApiBaseUrl}{Constants.ApiEndpoints.Login}");
+
+            // ✅ Помечаем клиента как ТСД: сервер разрешит повторный вход,
+            // выбив предыдущую сессию этой же учётки (вариант D).
+            request.Headers.Add("X-Client-Type", "tsd");
 
             var json = JsonSerializer.Serialize(new { username, password });
             request.Content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -1198,6 +1204,21 @@ public class ApiService
         {
             Logger.Error($"❌ SyncBoxes ошибка: {ex.Message}");
             return null;
+        }
+    }
+
+    // Best effort: сообщаем серверу, что клиент выходит (если сети нет — молча игнорируем)
+    public async Task Logout()
+    {
+        try
+        {
+            var client = await GetHttpClient();
+            await client.PostAsync($"{Constants.ApiBaseUrl}/api/auth/logout", null);
+            Logger.Info("👋 Logout на сервере выполнен");
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"⚠️ Logout на сервере не удался: {ex.Message}");
         }
     }
 }
